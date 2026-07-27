@@ -1,18 +1,20 @@
 # MemRec: Collaborative Memory-Augmented Agentic Recommender System
 
-MemRec is a memory-augmented intelligent recommender system that achieves efficient personalized recommendations through collaborative memory mechanisms and large language models.
+**[ACL 2026]** MemRec is a memory-augmented agentic recommender system that architecturally decouples memory management from reasoning: a dedicated, lightweight language model (`LM_Mem`) manages and synthesizes a dynamic collaborative memory graph in the background, providing only distilled, high-signal contexts to a downstream, heavyweight large language model (`LLM_Rec`) for the final recommendation.
 
 If you find our work helpful, please consider citing our paper:
 
 ```bibtex
-@article{chen2026memrec,
-  title   = {MemRec: Collaborative Memory-Augmented Agentic Recommender System},
-  author  = {Chen, Weixin and Zhao, Yuhan and Huang, Jingyuan and Ye, Zihe and Ju, Clark Mingxuan and Zhao, Tong and Shah, Neil and Chen, Li and Zhang, Yongfeng},
-  year    = 2026,
-  journal = {arXiv preprint arXiv:2601.08816},
-  url     = {https://arxiv.org/abs/2601.08816}
+@inproceedings{chen2026memrec,
+  title     = {MemRec: Collaborative Memory-Augmented Agentic Recommender System},
+  author    = {Chen, Weixin and Zhao, Yuhan and Huang, Jingyuan and Ye, Zihe and Ju, Clark Mingxuan and Zhao, Tong and Shah, Neil and Chen, Li and Zhang, Yongfeng},
+  year      = 2026,
+  booktitle = {Proceedings of the Annual Meeting of the Association for Computational Linguistics (ACL 2026)},
+  url       = {https://aclanthology.org/2026.acl-long.2061.pdf}
 }
 ```
+
+**Links:** [Paper](https://aclanthology.org/2026.acl-long.2061.pdf) · [Demo](https://memrec.weixinchen.com/demo/) · [Agentic Recommendation Hub](https://weixinchen.com/agent_rs_hub)
 
 ## 📁 Project Structure
 
