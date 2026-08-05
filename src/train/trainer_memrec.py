@@ -124,7 +124,7 @@ class MemRecTrainer:
         # Use config.llm_model (gpt-4o-mini) instead of provider.model
         if self.reranker_mode == "llm":
             reranker_llm_model = config.get('llm_model', 'gpt-4o-mini')
-            reranker_provider_name = 'azure_openai'  # Stage-ReRank always uses Azure OpenAI
+            reranker_provider_name = provider_name  # Stage-ReRank uses the same provider as Stage-R/W
             reranker_endpoint = config.get('api_endpoint')
             reranker_api_key = config.get('api_key')
             

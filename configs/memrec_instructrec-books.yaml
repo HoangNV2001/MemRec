@@ -27,15 +27,15 @@ warmup:
 # LLM/Provider settings
 llm_model: "gpt-4o-mini"
 api_version: "2024-08-01-preview"
-# api_endpoint and api_key should be set via environment variables:
-# AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY
+# api_endpoint and api_key are read from the environment variables below
+# (set them in .env, see .env.example)
 
 # Provider config (v2: supports multiple providers for different stages)
 provider:
-  name: azure_openai  # or qwen, llama, etc.
+  name: openai  # "openai" (plain OpenAI API) or "azure_openai"
   model: gpt-4o-mini
-  endpoint: ${ENV:AZURE_OPENAI_ENDPOINT}
-  api_key: ${ENV:AZURE_OPENAI_API_KEY}
+  endpoint: ${ENV:OPENAI_API_BASE}
+  api_key: ${ENV:OPENAI_API_KEY}
 
 # MemRec specific parameters (v2: three-stage)
 memrec:
