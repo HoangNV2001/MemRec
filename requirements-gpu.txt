@@ -1,0 +1,42 @@
+# GPU environment for the RL milestones (M2 Part B onward).
+#
+# requirements.txt is the CPU environment used for M0/M1/M2-A: it pins
+# torch==2.9.0 from the CPU wheel index and has none of the training stack.
+# Install THIS file on the GPU box instead; it is a superset minus the CPU torch pin.
+#
+#   conda create -n memrec python=3.10 -y && conda activate memrec
+#   pip install -r requirements-gpu.txt
+#
+# torch is intentionally unpinned here: install the build that matches the host
+# CUDA first, then this file, e.g.
+#   pip install torch --index-url https://download.pytorch.org/whl/cu124
+#
+# vllm is NOT listed. It is only needed at M4 (GRPO rollouts, colocate mode) and
+# is very sensitive to the torch/CUDA pair — install it last, on its own, and let
+# it pick its torch:  pip install vllm
+
+# --- carried over from requirements.txt (needed by the original pipeline) ---
+openai==2.8.1
+python-dotenv>=1.0.0
+PyYAML>=6.0
+numpy==1.26.4
+pandas==2.2.2
+scipy==1.15.3
+scikit-learn==1.7.2
+tqdm>=4.64.0
+matplotlib==3.10.7
+seaborn==0.13.2
+
+# --- model / training stack ---
+transformers==4.57.1
+datasets>=3.0.0
+accelerate>=1.0.0
+peft>=0.14.0
+trl>=0.23.0            # GRPOTrainer with vllm_mode="colocate" and loss_type="dr_grpo"
+sentencepiece>=0.2.0
+
+# --- grounding reward (§5.2): bge-small, runs on CPU ---
+sentence-transformers>=3.3.0
+
+# --- tests ---
+pytest>=8.0.0
