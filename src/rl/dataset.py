@@ -16,7 +16,7 @@ import json
 
 # Columns TRL must not see as model input, but the reward function needs.
 REWARD_COLUMNS = (
-    "user_id", "candidates", "gold_item_id", "M_u", "neighbors",
+    "user_id", "candidates", "gold_item_id", "M_u", "neighbors", "neighbor_snippets",
     "r_null", "baseline_h1", "instruction", "candidate_titles",
     "candidate_memories", "neighbor_ids", "n_train_items",
 )

@@ -88,9 +88,85 @@ Ví dụ: `Mockingjay: The Hunger Games`, `Stranger in a Strange Land`, `Lies My
 
 ## M2 Reward Validation
 
-- Spearman ρ (frozen 1.5B ranker vs gpt-4o-mini), n=150 val users: _TBD_
-- Validation B (r(thật) > r(user khác) > r(lorem) ≈ r(rỗng)): _TBD_
-- Throughput (reward/s @ batch 64): _TBD_
+### Phần A — CPU + API (đã xong, 0 GPU-hour)
+
+Reference gpt-4o-mini đã cache: `data/rl/m2_val_reference_books.json` (0.4 MB, 149 val user, 5.7 phút, ~$0.5).
+Sinh bằng `bash scripts/rl/02_validate_reward.sh reference`. Đây là nửa đắt tiền của Validation A/B; §11.6 yêu cầu có sẵn **trước** khi thuê H100, để lúc lên GPU chỉ còn chấm lại đúng các cặp đã cache bằng ranker 1.5B.
+
+**Năm arm, chấm bằng chính `LLMReranker` của repo (tức `LLM_Rec` thật), NDCG@5, n=149:**
+
+| Arm | `M_collab` | NDCG@5 | H@1 |
+|---|---|---:|---:|
+| `sample1` | gpt-4o-mini, temp 1.0 | **0.7204** | 0.5906 |
+| `sample2` | gpt-4o-mini, temp 1.0 (mẫu 2) | 0.7155 | 0.5638 |
+| `shuffled` | `M_collab` của user khác | 0.6090 | 0.4295 |
+| `lorem` | lorem ipsum | 0.6079 | 0.4430 |
+| `empty` | không có memory (= `r_null`) | 0.6092 | 0.4362 |
+
+**Paired delta so với arm `empty`** (cùng user, nên nhiễu nhỏ hơn nhiều):
+
+| Arm | Δ NDCG@5 | 95% CI | tốt hơn / bằng / tệ hơn |
+|---|---:|---|---|
+| `sample1` (memory thật) | **+0.1112** | [+0.0640, +0.1585] | 45 / 91 / 13 |
+| `shuffled` | −0.0002 | [−0.0374, +0.0371] | 21 / 104 / 24 |
+| `lorem` | −0.0013 | [−0.0253, +0.0228] | 12 / 123 / 14 |
+
+**Đọc kết quả này:**
+1. **Collaborative memory có tác dụng thật** trên `LLM_Rec` thật: +0.111 NDCG@5, khoảng tin cậy không chứa 0. Reward có tín hiệu để tối ưu — đây là điều kiện cần của cả đồ án và giờ đã có bằng chứng trước khi tiêu GPU-hour nào.
+2. **Memory sai bị bỏ qua chứ không gây nhiễu.** `shuffled` và `lorem` đều ≈ `empty` (CI chứa 0). gpt-4o-mini đơn giản là phớt lờ memory không liên quan. Đây là tính chất tốt, nhưng nó **bác bỏ thứ tự mà DoD giả định** — xem mục hiệu chỉnh dưới.
+3. **Instruction KHÔNG làm phẳng tín hiệu memory.** Toàn bộ số trên đo *khi đã có* instruction trong prompt (đúng như pipeline gốc). Memory vẫn thêm +0.111 → trả lời câu hỏi mở của §5.1: giữ `include_instruction=True` là an toàn và trung thành với `LLM_Rec`. Vẫn sẽ đo cả hai chế độ ở Phần B.
+
+### ⚠️ Phát hiện chặn đường: reward theo rank bị trùng giá trị quá nhiều
+
+Hai `M_collab` lấy mẫu độc lập cho **cùng một user** cho **cùng vị trí gold** ở **111/149 user (74%)**.
+
+| Dạng reward | Tỉ lệ trùng giữa 2 mẫu | Số giá trị phân biệt |
+|---|---:|---:|
+| **NDCG@5** (mặc định của §5.1) | **80.5%** | 6 |
+| NDCG@10 | 74.5% | 11 |
+| MRR = 1/(rank+1) | 74.5% | 11 |
+
+74% là **trần cứng** cho mọi reward chỉ phụ thuộc rank: khi hai memory đặt gold vào cùng vị trí thì mọi hàm của rank đều bằng nhau.
+
+Hệ quả nếu để nguyên: trong một group GRPO (cùng prompt, G=8 rollout), reward trùng nhau ⇒ `std(r) = 0` ⇒ advantage = 0 ⇒ **không có gradient**. Đây đúng là chế độ hỏng §9.2, và dynamic sampling §6.4 sẽ lọc vượt xa ngưỡng báo động 60% của kill criteria §M4. Nói cách khác: chạy GRPO với reward hiện tại nhiều khả năng cho đường reward phẳng, và ta sẽ mất vài phiên H100 để phát hiện điều mà phép đo $0.5 này đã nói trước.
+
+**Cách xử lý đã implement:** thêm số hạng liên tục `soft_weight * p_gold`, với `p_gold` là xác suất softmax mà ranker đặt lên candidate gold. Liên tục nên gần như không bao giờ trùng, trong khi NDCG vẫn là số hạng chi phối và metric báo cáo vẫn nguyên nghĩa. **Mặc định `soft_weight = 0.0`, tức đúng công thức §5** — bật hay không sẽ do Phần B quyết định bằng tỉ lệ trùng đo trên ranker 1.5B thật.
+
+Lập luận này không mới: §5.1 đã loại Hit@1 để chọn NDCG@5 **vì đúng lý do đó** ("Hit@1 nhị phân → rất nhiều group có std(r)=0"). Số liệu trên chỉ cho thấy NDCG@5 vẫn chưa đủ mịn.
+
+### Hiệu chỉnh tiêu chí Validation B
+
+DoD §7 M2 viết `r(thật) > r(user khác) > r(lorem) ≈ r(rỗng)`. Bất đẳng thức **ở giữa không đúng trên chính `LLM_Rec` thật** (bảng trên: 0.6090 vs 0.6079, cả hai CI đều chứa 0 so với `empty`). Yêu cầu proxy tái hiện `shuffled > lorem` là đòi proxy phải **dễ bị đánh lừa hơn** mô hình mà nó thay thế.
+
+Tiêu chí đã đổi thành, kèm biên an toàn:
+
+```
+r(thật) ≥ max(r(user khác), r(lorem), r(rỗng)) + 0.02
+```
+
+Việc ba arm hỏng túm tụm lại với nhau vẫn được báo cáo (là tính chất tốt), nhưng không dùng để gate.
+
+### Phần A — trạng thái DoD
+
+| Hạng mục | Trạng thái |
+|---|---|
+| `metrics.py` + unit test tính tay | ✅ khớp `src/train/metrics.py` |
+| `grounding.py` (source_ids + cosine, encoder tiêm được) | ✅ |
+| `composite.py` khớp chữ ký reward của TRL | ✅ |
+| `ranker.py` có stub mode | ✅ |
+| `tests/rl/test_reward_logic.py` pass trên CPU với stub | ✅ **140 test pass**, 26s, không API/GPU |
+| Harness validation chạy end-to-end trên CPU | ✅ 745 cặp, throughput 24 516 reward/s (stub) |
+
+> Chạy `02_validate_reward.sh stub` cho ρ = 0.058 và Validation B FAIL. **Đó là đúng** — stub chấm bằng hash, không có ngữ nghĩa. Chỉ Validation C và "harness chạy được" là có nghĩa ở chế độ stub; A/B do run `hf` trên GPU quyết định. Script in cảnh báo này ra màn hình.
+
+### Phần B — cần GPU (chưa chạy)
+
+- [ ] Spearman ρ (ranker 1.5B thật vs gpt-4o-mini) trên 745 cặp đã cache — ngưỡng ≥ 0.6
+- [ ] Validation B với ranker thật, tiêu chí đã hiệu chỉnh ở trên
+- [ ] Validation C: throughput ≥ 20 reward/s @ batch 64 với model thật
+- [ ] Đo tỉ lệ trùng reward của ranker 1.5B → quyết định `soft_weight`
+- [ ] Chạy cả `--no_instruction` để đối chứng
+- [ ] Backfill `r_null` + `baseline_h1` vào 3 file jsonl
 
 ---
 

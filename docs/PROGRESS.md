@@ -89,3 +89,35 @@ Quyết định đã ra + lý do:
 - **Giữ nguyên §2 "Ngoài phạm vi: train LLM_Rec"** của Plan gốc, chỉ thêm ghi chú. Trong toàn bộ M0–M7b `LLM_Rec` vẫn đóng băng tuyệt đối; extension là nhánh tách biệt có branch/file kết quả riêng.
 
 Việc tiếp theo: không đổi — M2 Phần A (CPU). Extension chỉ được đụng tới sau M7a.
+
+## M2 Phần A — Reward function trên CPU — 2026-08-06
+
+Trạng thái: DONE (Phần A). Phần B chờ GPU.
+
+Đã làm:
+- Branch `rl/m2-reward`. `src/rl/reward/{metrics,ranker,grounding,composite}.py` + `src/rl/validate_reward.py` + `src/rl/build_val_reference.py` + `scripts/rl/02_validate_reward.sh`.
+- `tests/rl/test_reward_logic.py` (46 test) + `tests/rl/test_validate_reward.py` (Spearman đối chiếu khớp scipy tới 1e-9). Tổng **140 test pass**, 26 giây, không API/GPU.
+- Cache sẵn nửa gpt-4o-mini của Validation A/B (§11.6): 149 val user × 5 arm = 745 cặp đã chấm bằng chính `LLMReranker` của repo. 5.7 phút, ~$0.5, 0 GPU-hour.
+- Chạy harness end-to-end trên CPU bằng stub ranker: 745 cặp, throughput 24 516 reward/s. Chứng minh đường ống chạy trước khi thuê máy.
+- Thêm trường `neighbor_snippets` vào 3 file jsonl (rebuild miễn phí, số dòng không đổi).
+
+Số đo:
+- **Memory có tác dụng thật:** `M_collab` thật cho +0.1112 NDCG@5 so với không memory trên `LLM_Rec` thật, 95% CI [+0.0640, +0.1585], n=149, 45 user tốt hơn / 91 bằng / 13 tệ hơn.
+- **Memory sai bị bỏ qua, không gây nhiễu:** `shuffled` −0.0002 (CI [−0.037, +0.037]), `lorem` −0.0013 (CI [−0.025, +0.023]) — cả hai ≈ `empty`.
+- **Tỉ lệ trùng reward:** hai `M_collab` lấy mẫu độc lập cho cùng user cho cùng vị trí gold ở **111/149 = 74%**. Trùng reward: NDCG@5 **80.5%**, NDCG@10 74.5%, MRR 74.5%.
+- Facet sinh ra: trung bình 6.99/7, không mẫu nào rỗng trên 298 mẫu.
+
+Lệch so với kế hoạch:
+1. **Tiêu chí Validation B phải hiệu chỉnh.** DoD §7 M2 viết `r(thật) > r(user khác) > r(lorem) ≈ r(rỗng)`. Bất đẳng thức giữa **sai trên chính `LLM_Rec` thật** — `shuffled` 0.6090 ≈ `lorem` 0.6079 ≈ `empty` 0.6092. Model thật *bỏ qua* memory không liên quan chứ không bị đánh lừa; đòi proxy tái hiện `shuffled > lorem` là đòi proxy dễ bị lừa hơn model nó thay thế. Đổi thành `r(thật) ≥ max(các arm hỏng) + 0.02`. Đã sửa cả trong plan lẫn code, theo §10.8.
+2. **Thêm `soft_weight` vào reward, mặc định tắt.** Xem quyết định dưới.
+
+Quyết định đã ra + lý do:
+- **Reward chỉ theo rank có trần trùng giá trị 74%** — hệ quả trực tiếp: trong group GRPO thì `std(r)=0` → advantage 0 → không gradient (§9.2), và dynamic sampling §6.4 sẽ lọc vượt xa ngưỡng báo động 60% của kill criteria M4. Nếu không phát hiện trước, nhiều khả năng mất vài phiên H100 để thấy đường reward phẳng. Đã thêm số hạng liên tục `soft_weight * p_gold` (`p_gold` = xác suất softmax ranker đặt lên gold), **mặc định `soft_weight = 0.0` tức đúng công thức §5**. Phần B đo tỉ lệ trùng trên ranker 1.5B thật rồi mới quyết định bật. Không tự ý đổi spec reward — đây là cùng lập luận §5.1 đã dùng để loại Hit@1, chỉ là NDCG@5 vẫn chưa đủ mịn.
+- **Grounding so khớp với snippet neighbor, không phải `M_v` trong storage.** Snippet là thứ policy thực sự đọc (`SnippetPacker` dựng từ metadata tĩnh). So với memory trong storage là chấm policy trên văn bản nó chưa từng thấy, và sẽ hỏng hẳn với neighbor user không nằm trong 2350 user của snapshot (không có `M_u`). Thêm `parse_neighbor_snippets` + trường `neighbor_snippets`.
+- **Mẫu số của grounding là `n_facets` yêu cầu, không phải số facet sinh ra.** Chia cho số sinh ra là lỗ hổng hiển nhiên: sinh 1 facet hoàn hảo, bỏ 6 cái còn lại, được điểm 1.0. §5.2 viết `/ N_f` và nghĩa là số mục tiêu. Có test khoá lại.
+- **Output méo vẫn được chấm như "không có memory", không phải hằng số.** Hằng số sẽ khiến mọi rollout méo giống hệt nhau → group `std=0` → §9.2 quay lại qua ngả format penalty.
+- **`include_instruction` giữ `True`.** Phần A đo được instruction *không* làm phẳng tín hiệu memory (+0.111 vẫn còn khi đã có instruction), nên giữ proxy trung thành với `LLM_Rec` thật. Vẫn chạy `--no_instruction` ở Phần B để đối chứng.
+
+Việc tiếp theo:
+- M2 Phần B trên GPU (gộp phiên với M3-B theo §11.5): `bash scripts/rl/02_validate_reward.sh hf`. Không còn gọi API — mọi thứ chấm lại trên cặp đã cache.
+- Nếu ρ < 0.6: theo plan thử `Qwen2.5-3B-Instruct` hoặc pointwise scoring trước khi đi tiếp M4.

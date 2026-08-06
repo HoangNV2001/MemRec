@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence
 
 import json
+import re
 
 SNAPSHOT_VERSION = 1
 
@@ -108,6 +109,28 @@ class GraphSnapshot:
             int(iid): m for iid, m in payload.get("item_memories", {}).items()
         }
         return snap
+
+
+_SNIPPET_LINE = re.compile(r"^\s*\d+\.\s*\[(Item|User)-(\d+)\]\s*(.*)$")
+
+
+def parse_neighbor_snippets(neighbors_text: str) -> Dict[str, str]:
+    """
+    Split the rendered neighbour table back into ``{node_id: snippet}``.
+
+    The grounding reward (§5.2) must compare a facet against *what the policy
+    actually saw*, which is this snippet -- built by ``SnippetPacker`` from static
+    item metadata -- and not against the storage-side ``M_v``. Those differ, and
+    scoring against text the policy never read would reward or punish it for the
+    wrong reason. It also sidesteps a real gap: a neighbour user need not be one
+    of the 2350 snapshot users, so its ``M_u`` may not exist at all.
+    """
+    snippets: Dict[str, str] = {}
+    for line in (neighbors_text or "").splitlines():
+        m = _SNIPPET_LINE.match(line)
+        if m:
+            snippets[f"{m.group(1)}-{int(m.group(2))}"] = m.group(3).strip()
+    return snippets
 
 
 def neighbor_id_strings(pruned_subgraph: Dict) -> List[str]:

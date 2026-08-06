@@ -37,7 +37,7 @@ load_dotenv(PROJECT_ROOT / ".env")
 from src.data import RecDataset                 # noqa: E402
 from src.rl import policy as rl_policy          # noqa: E402
 from src.rl import splits as rl_splits          # noqa: E402
-from src.rl.env import GraphSnapshot            # noqa: E402
+from src.rl.env import GraphSnapshot, parse_neighbor_snippets  # noqa: E402
 from src.rl.leakage import gold_leak_reason     # noqa: E402
 from src.utils import load_config               # noqa: E402
 
@@ -93,6 +93,10 @@ def build_record(
         "candidate_titles": titles,
         "candidate_memories": memories,
         "neighbor_ids": state.neighbor_ids,
+        # {node_id: snippet} exactly as rendered in the prompt. The grounding
+        # reward (§5.2) compares each facet against the text the policy actually
+        # read, not against storage-side M_v -- see src/rl/env.py.
+        "neighbor_snippets": parse_neighbor_snippets(state.neighbors_text),
         "n_train_items": state.n_train_items,
     }
 

@@ -416,22 +416,35 @@ Mỗi milestone dưới đây gắn nhãn tầng: 🖥️ `T0` CPU · 🌐 `T0-A
 
 ### ☐ M2 — Reward function · 🖥️`T0` rồi 🚀`T2` — **~3 GPU-hour** — **milestone rủi ro nhất**
 
-**Phần A — viết code, không cần GPU** 🖥️
-- [ ] `src/rl/reward/metrics.py`: `ndcg_at_k`, `hit_at_k` + unit test với ví dụ tính tay
-- [ ] `src/rl/reward/grounding.py` (bge-small chạy CPU + kiểm tra `source_ids`)
-- [ ] `src/rl/reward/composite.py`, chữ ký khớp TRL reward function
-- [ ] `src/rl/reward/ranker.py` với **stub mode**: trả logit cố định để test toàn bộ đường reward trên CPU
-- [ ] `tests/rl/test_reward_logic.py` pass hoàn toàn trên CPU với stub ranker
+**Phần A — viết code, không cần GPU** 🖥️ — **XONG 2026-08-06**
+- [x] `src/rl/reward/metrics.py`: `ndcg_at_k`, `hit_at_k` + unit test với ví dụ tính tay
+- [x] `src/rl/reward/grounding.py` (bge-small chạy CPU + kiểm tra `source_ids`) — encoder tiêm được nên test không cần tải model
+- [x] `src/rl/reward/composite.py`, chữ ký khớp TRL reward function
+- [x] `src/rl/reward/ranker.py` với **stub mode**: trả logit tất định để test toàn bộ đường reward trên CPU
+- [x] `tests/rl/test_reward_logic.py` pass hoàn toàn trên CPU với stub ranker — **140 test pass**, 26s
+- [x] **[thêm]** Cache sẵn nửa gpt-4o-mini của Validation A/B (§11.6) — `src/rl/build_val_reference.py`, 149 val user × 5 arm, ~$0.5, 5.7 phút, 0 GPU
+- [x] **[thêm]** `src/rl/validate_reward.py` + `scripts/rl/02_validate_reward.sh` — chạy được end-to-end trên CPU với stub trước khi thuê máy
+
+> **Hai kết quả của Phần A làm thay đổi giả định của chính kế hoạch này — xem `docs/RESULTS.md` mục "M2 Reward Validation".**
+>
+> **① Collaborative memory có tác dụng thật:** +0.1112 NDCG@5 so với không memory trên `LLM_Rec` thật, 95% CI [+0.064, +0.159], n=149. Reward có tín hiệu. Biết điều này **trước** khi tiêu GPU-hour nào.
+>
+> **② Reward theo rank trùng giá trị quá nhiều — rủi ro chặn GRPO.** Hai `M_collab` lấy mẫu độc lập cho cùng user cho **cùng vị trí gold ở 74% số user**. Tỉ lệ reward trùng: NDCG@5 **80.5%**, NDCG@10 74.5%, MRR 74.5%. 74% là trần cứng của mọi reward chỉ phụ thuộc rank. Trong group GRPO điều này nghĩa là `std(r)=0` → advantage 0 → **không có gradient** (§9.2), và dynamic sampling §6.4 sẽ lọc vượt xa ngưỡng báo động 60% ở kill criteria dưới.
+> → Đã thêm số hạng liên tục `soft_weight * p_gold` vào `composite.py`, **mặc định `soft_weight = 0.0` tức đúng công thức §5**. Phần B đo tỉ lệ trùng trên ranker 1.5B thật rồi mới quyết định bật. Đây là cùng lập luận §5.1 đã dùng để loại Hit@1, chỉ là NDCG@5 vẫn chưa đủ mịn.
+>
+> **③ Hiệu chỉnh tiêu chí Validation B.** DoD dưới viết `r(thật) > r(user khác) > r(lorem) ≈ r(rỗng)`. Bất đẳng thức giữa **không đúng trên chính `LLM_Rec` thật**: `shuffled` 0.6090 ≈ `lorem` 0.6079 ≈ `empty` 0.6092, paired CI của cả hai đều chứa 0. Model thật **bỏ qua** memory sai chứ không bị nó đánh lừa. Đòi proxy tái hiện `shuffled > lorem` là đòi proxy dễ bị lừa hơn model nó thay thế. Tiêu chí mới: `r(thật) ≥ max(các arm hỏng) + 0.02`.
 
 **Phần B — cần GPU, gộp chung phiên với M3** 🚀
 - [ ] Bật chế độ thật của `ranker.py` (`Qwen2.5-1.5B-Instruct`, listwise, một forward pass, logprob token chỉ mục)
-- [ ] **Validation A — tương quan proxy:** trên **150** user val, tính NDCG@5 bằng (a) frozen 1.5B ranker và (b) gpt-4o-mini. Đo **Spearman ρ**. *(Phía gpt-4o-mini chạy trước trên CPU/API, cache ra file — lúc lên GPU chỉ so sánh.)*
-- [ ] **Validation B — độ nhạy:** reward phải giảm rõ khi thay `M_collab` thật bằng (i) chuỗi rỗng, (ii) `M_collab` của user khác, (iii) lorem ipsum
+- [ ] **Validation A — tương quan proxy:** chấm lại **745 cặp (user, arm) đã cache** bằng frozen 1.5B ranker, đo **Spearman ρ** với điểm gpt-4o-mini. *(Phía gpt-4o-mini đã cache xong ở Phần A — lên GPU chỉ so sánh, không gọi API nữa.)*
+- [ ] **Validation B — độ nhạy:** dùng 4 arm đã cache (thật / user khác / lorem / rỗng)
 - [ ] **Validation C — throughput:** ≥ 20 reward/s ở batch 64
+- [ ] **[thêm] Đo tỉ lệ trùng reward của ranker 1.5B** → quyết định bật `soft_weight` (xem ② ở trên). Trùng > 50% thì bật, khởi điểm `soft_weight = 0.3`.
+- [ ] **[thêm] Chạy thêm `--no_instruction`** để đối chứng. Phần A cho thấy instruction *không* làm phẳng tín hiệu memory trên `LLM_Rec` thật, nên kỳ vọng giữ `include_instruction=True`; vẫn đo để chắc.
 - [ ] Backfill `r_null` + `baseline_h1` vào 3 file jsonl bằng một job batch
 - [ ] Ghi vào `docs/RESULTS.md` mục "M2 Reward Validation"
 
-**DoD:** Spearman ρ ≥ **0.6** · Validation B cho `r(thật) > r(user khác) > r(lorem) ≈ r(rỗng)` · throughput ≥ 20 reward/s.
+**DoD:** Spearman ρ ≥ **0.6** · Validation B cho `r(thật) ≥ max(r(user khác), r(lorem), r(rỗng)) + 0.02` *(đã hiệu chỉnh, xem ③ ở trên)* · throughput ≥ 20 reward/s.
 
 **Nếu ρ < 0.6:** thử `Qwen2.5-3B-Instruct` làm ranker, hoặc đổi sang pointwise scoring. **Không được đi tiếp M4 với reward chưa validate** — 400 step trên reward sai là mất cả phiên thuê máy và cả tuần.
 
