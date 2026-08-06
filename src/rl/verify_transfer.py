@@ -145,9 +145,17 @@ def check_splits(rep: Report) -> None:
         path = PROJECT_ROOT / f"data/rl/stager_books_{split}.jsonl"
         if path.exists():
             ids[split] = sorted({r["user_id"] for r in load_records(str(path))})
+
+    # Disjointness over zero splits is vacuously true; reporting PASS there would
+    # be a false green on a machine where nothing was unpacked at all.
+    if len(ids) < 3:
+        rep.fail(f"only {len(ids)}/3 split files present — cannot check disjointness")
+        return
+
     try:
         assert_disjoint(ids)
-        rep.ok(f"train/val/test disjoint ({'/'.join(str(len(v)) for v in ids.values())} users)")
+        rep.ok(f"train/val/test disjoint "
+               f"({'/'.join(str(len(ids[s])) for s in ('train', 'val', 'test'))} users)")
     except AssertionError as exc:
         rep.fail(str(exc))
 
