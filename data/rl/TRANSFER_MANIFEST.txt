@@ -1,0 +1,59 @@
+MemRec RL data bundles — what these are and where they go
+=========================================================
+Generated 2026-08-06 from branch rl/m2-reward (M1 + M2 Part A complete).
+Full context: docs/DEPLOY_GPU.md
+
+BOTH TARBALLS STORE PATHS RELATIVE TO THE REPO ROOT.
+Extract at the repo root and everything lands in place — nothing to move:
+
+    cd /path/to/MemRec
+    tar xzf memrec_rl_data.tgz
+    tar xzf memrec_rl_extras.tgz        # optional, see below
+    python -m src.rl.verify_transfer    # confirms it landed correctly
+
+----------------------------------------------------------------------
+memrec_rl_data.tgz  (6.6 MB compressed / 28 MB unpacked)  — REQUIRED
+----------------------------------------------------------------------
+  data/rl/stager_books_train.jsonl      14 MB   1185 records   M3 SFT, M4 GRPO
+  data/rl/stager_books_test.jsonl       12 MB    993 records   final eval
+  data/rl/stager_books_val.jsonl       1.7 MB    149 records   M2-B, eval during training
+  data/rl/m2_val_reference_books.json  440 KB                  cached gpt-4o-mini half of
+                                                               M2 Validation A/B — losing it
+                                                               costs ~$0.5 + 6 min of API
+
+One jsonl line = one frozen Stage-R environment state. `prompt` is candidate-blind
+(RL_PLAN §5.3): it holds M_u plus the neighbour table, and never the candidate list,
+the gold item, or the InstructRec instruction. Everything the reward needs but the
+policy must not see lives in separate columns.
+
+`r_null` and `baseline_h1` are deliberately null; they get back-filled after M2
+Part B via src.rl.dataset.backfill.
+
+----------------------------------------------------------------------
+memrec_rl_extras.tgz  (27 MB compressed)  — OPTIONAL, but back it up
+----------------------------------------------------------------------
+  data/rl/graph_snapshot_books.json                   17 MB
+      Frozen memory graph, 2350 users. Only needed to REBUILD the jsonl (e.g. if the
+      prompt template changes). Rebuilding also needs data/processed/, which is NOT
+      shipped — so on the GPU box this is insurance, not a dependency.
+
+  results/m1_warmup_2350/memory_warmup_only.json      52 MB
+      The single expensive artefact of M1: ~$3.15 and 27 min of API. Regenerates the
+      snapshot offline for free via
+          python -m src.rl.build_snapshot --config configs/rl/m1_env_books.yaml \
+                 --force --memory_file results/m1_warmup_2350/memory_warmup_only.json
+      RL_PLAN §11.4② wants this on durable storage. It does not have to live on the
+      GPU box, but it must live somewhere that is not an ephemeral disk.
+
+----------------------------------------------------------------------
+NOT shipped, and not needed on the GPU box
+----------------------------------------------------------------------
+  data/processed/   1.1 GB   Candidate titles and item memories are already embedded
+                             in the jsonl precisely so the reward never opens the
+                             567 MB .meta file. Only src/rl/build_dataset.py and
+                             src/rl/build_snapshot.py read this.
+  data/iagent/      895 MB   Initial dataset conversion only.
+  results/m0_*      ~370 MB  M0 conversation dumps; needed only for the write-up.
+
+Also copy `.env` separately (it is gitignored and not in either tarball).
+It is needed for gpt-4o-mini eval at M3/M7a; M2 Part B makes no API calls.
