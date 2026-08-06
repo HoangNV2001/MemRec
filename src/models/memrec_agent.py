@@ -47,6 +47,7 @@ class MemRecAgent:
         pruner_mode: str = "llm_rules",  # "hybrid_rule", "learned_mlp", or "llm_rules"
         pruner_checkpoint: Optional[str] = None,
         enable_stage_r: bool = True,  # Ablation: control Stage-R
+        vanilla_mode: bool = False,  # Ablation: true "no memory system at all" baseline
         reranker_llm_client = None,  # Optional separate LLMClient for reranker
         debug: bool = False
     ):
@@ -82,6 +83,7 @@ class MemRecAgent:
         self.reranker_mode = reranker_mode
         self.pruner_mode = pruner_mode
         self.enable_stage_r = enable_stage_r  # Ablation control
+        self.vanilla_mode = vanilla_mode  # Ablation control: skip memory framing in reranker prompt entirely
         self.pruner_checkpoint = pruner_checkpoint
         self.debug = debug
         
@@ -221,7 +223,8 @@ class MemRecAgent:
                 instruction=instruction,  # Pass instruction to LLM reranker
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
-                debug_logger=debug_logger
+                debug_logger=debug_logger,
+                vanilla_mode=self.vanilla_mode
             )
         else:  # vector mode
             rerank_scores = self.reranker.rerank(

@@ -165,6 +165,10 @@ class MemRecTrainer:
             pruner_mode=self.pruner_mode,
             pruner_checkpoint=self.pruner_checkpoint,
             enable_stage_r=self.enable_stage_r,  # Ablation: control Stage-R
+            # True "no memory system at all" baseline: only when warmup never ran (no M_u/M_collab
+            # ever exists) *and* Stage-R is off. "w/o Collab. Read" keeps warmup on, so it stays
+            # out of vanilla_mode and just loses the (now-conditional) facets section instead.
+            vanilla_mode=(not self.warmup_enabled and not self.enable_stage_r),
             reranker_llm_client=self.reranker_llm_client,  # Separate LLMClient for reranker
             debug=self.debug
         )

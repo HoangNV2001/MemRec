@@ -1,0 +1,66 @@
+# Vanilla LLM baseline: no collaborative memory graph at all.
+# Stage-R disabled AND warmup disabled, so no M_u/M_collab is ever built —
+# the reranker LLM only sees raw instruction + candidates. Used as the
+# "Vanilla LLM" row in M0 (RL_PLAN.md).
+
+model: memrec_agent
+dataset: instructrec-books
+seed: 42
+
+n_eval_candidates: 10
+n_eval_users: 1000
+eval_user_list: data/eval_user_samples/eval_user_sample_1k_instructrec-books.json
+
+topk: [1, 3, 5, 10]
+metrics: ['Hit', 'NDCG']
+
+eval_feedback: gt  # gt | random | none
+
+# Ablation: warmup disabled entirely — no memory graph is ever constructed
+warmup:
+  enabled: false
+  rounds: 1
+
+llm_model: "gpt-4o-mini"
+api_version: "2024-08-01-preview"
+
+provider:
+  name: openai
+  model: gpt-4o-mini
+  endpoint: ${ENV:OPENAI_API_BASE}
+  api_key: ${ENV:OPENAI_API_KEY}
+
+memrec:
+  k: 16
+  tau_tokens: 1800
+  mix_min_users: 4
+  mix_min_items: 6
+  n_facets: 7
+  temperature: 0.0
+  max_tokens: 4000
+
+  # Ablation: disable Stage-R too (no collaborative synthesis even if warmup were on)
+  enable_stage_r: false
+  # Ablation: disable Stage-W during eval too — otherwise ground-truth feedback
+  # still writes memory patches mid-run, leaking signal into other users' neighbor
+  # context and defeating the point of a "zero memory" baseline.
+  enable_stage_w: false
+
+  pruner:
+    mode: llm_rules
+    checkpoint: null
+
+  item_weight: 1.0
+  user_weight: 0.5
+  recency_weight: 0.5
+  degree_weight: 0.3
+  overlap_weight: 0.7
+
+  reranker_mode: llm
+
+  write:
+    fanout_cap: 8
+    max_tokens: 4000
+
+parallel_workers: 16
+debug: false

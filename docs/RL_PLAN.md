@@ -335,22 +335,27 @@ Mỗi milestone dưới đây gắn nhãn tầng: 🖥️ `T0` CPU · 🌐 `T0-A
 
 ---
 
-### ☐ M0 — Reproduce baseline · 🖥️🌐 `T0 + T0-API` — **0 GPU-hour**
+### ☑~ M0 — Reproduce baseline · 🖥️🌐 `T0 + T0-API` — **0 GPU-hour**
 
 > **Thay đổi LEAN:** kế hoạch gốc chạy `Qwen2.5-7B-Instruct` local. Bỏ hẳn. Dùng gpt-4o-mini qua API — chạy trên CPU, `--parallel_workers 32`, tốn ~$5–8 thay vì ~25 GPU-hour.
 
-- [ ] Setup env theo README (`conda`, `requirements.txt`). **Không cần CUDA ở milestone này.**
-- [ ] Tải InstructRec datasets, chạy `bash scripts/convert_all_instructrec.sh`
-- [ ] Verify `data/processed/instructrec-books` tồn tại và load được
-- [ ] Cấu hình provider `azure_openai` / `openai` với `gpt-4o-mini` (giữ mặc định repo)
-- [ ] **Đo trước khi chạy full:** warmup 100 user, bấm giờ + đếm token, ngoại suy chi phí cho 1k. Ghi vào `PROGRESS.md`. Nếu ngoại suy > $25, giảm `n_eval_users` xuống 500.
-- [ ] Chạy MemRec full pipeline trên `instructrec-books`, 1k user, seed 42, `--parallel --parallel_workers 32 --save_llm_conversations`
-- [ ] Chạy 2 baseline nội bộ: `w/o Collab. Read` và Vanilla LLM
-- [ ] Ghi số + **chi phí API thực tế** vào `docs/RESULTS.md` bảng "M0 Baselines"
+- [x] Setup env theo README (`conda`, `requirements.txt`). **Không cần CUDA ở milestone này.** — conda env `memrec`, Python 3.10, torch CPU-only.
+- [x] Tải InstructRec datasets, chạy `bash scripts/convert_all_instructrec.sh` — chỉ Books (đúng scope §2).
+- [x] Verify `data/processed/instructrec-books` tồn tại và load được
+- [x] Cấu hình provider `azure_openai` / `openai` với `gpt-4o-mini` — dùng `openai` (plain OpenAI key, không phải Azure); phát hiện + sửa bug hardcode `azure_openai` cho Stage-ReRank (xem PROGRESS.md).
+- [x] **Đo trước khi chạy full:** warmup 100 user — xem `docs/RESULTS.md`.
+- [x] Chạy MemRec full pipeline trên `instructrec-books`, 1k user, seed 42, `--parallel --parallel_workers 16 --save_llm_conversations`
+- [x] Chạy 2 baseline nội bộ: `w/o Collab. Read` và Vanilla LLM
+- [x] Ghi số + **chi phí API thực tế** vào `docs/RESULTS.md` bảng "M0 Baselines"
 
 **DoD:** bảng H@{1,3,5} + N@{3,5} cho 3 config, cùng seed, reproduce 2 lần ra cùng số. Không cần trùng số paper nhưng **thứ tự phải đúng**: MemRec > w/o Collab. Read > Vanilla.
 
 **Nếu thất bại:** thứ tự sai nghĩa là pipeline đang hỏng — dừng, debug. Không được đi tiếp.
+
+> **[~] DoD chỉ đạt một phần — quyết định có chủ đích, ghi lại ở đây theo quy tắc §10.2/§10.8.** Ngày 2026-08-06.
+> Sau khi sửa 2 bug thật (Stage-ReRank hardcode `azure_openai`; prompt "MemRec mode" tự mâu thuẫn khi facets rỗng — xem PROGRESS.md), thứ tự **H@1 đã đúng**: 0.510 > 0.436 > 0.425. Nhưng **H@3/N@3/H@5/N@5 vẫn sai thứ tự** (w/o Collab. Read < Vanilla ở cả 4 metric này).
+> Nguyên nhân nghi ngờ (chưa fix): `_evaluate_single_user` sample negative candidates bằng `RandomState(seed=hash(thread.ident))` — seed theo thread ID, không theo `user_id`/seed cấu hình. Ba config **không được đánh giá trên cùng bộ candidate/user**, và **không** reproduce được 2 lần ra cùng số như DoD yêu cầu.
+> Quyết định: chủ đích **không** sửa RNG này ngay, chấp nhận phần sai lệch trên là nhiễu sampling, đi tiếp M1 với baseline H@1 đủ tin cậy để tham chiếu. Nếu sau này cần bảng H@3/H@5/NDCG đáng tin cậy hơn (vd. lúc viết luận văn ở M7a/M7b), phải quay lại sửa RNG này trước.
 
 ---
 
