@@ -62,3 +62,30 @@ Việc tiếp theo:
 - M2 Phần A (CPU, không GPU): `reward/metrics.py`, `reward/grounding.py`, `reward/composite.py`, `reward/ranker.py` ở chế độ stub, `tests/rl/test_reward_logic.py`.
 - Chuẩn bị sẵn điểm NDCG@5 của gpt-4o-mini trên 149 user val, cache ra file **trước** khi thuê GPU (§11.6) để phiên T2 chỉ còn việc so sánh.
 - `r_null` + `baseline_h1` vẫn là `null` trong cả 3 jsonl; backfill bằng `src.rl.dataset.backfill` sau khi reward function chạy được.
+
+## Review `docs/RL_LM_REC_EXTENSION.md` — 2026-08-06
+
+Trạng thái: REVIEWED, đã hiệu chỉnh cả file extension lẫn Plan gốc. **Không thực thi gì** — extension bị chặn sau cổng M7a + M5 Ưu tiên 1.
+
+Đã làm:
+- Đối chiếu toàn bộ file extension với hiện trạng code và dữ liệu sau M0/M1. Sửa file extension trước (theo yêu cầu), rồi mới chỉnh Plan gốc cho khớp.
+- Kiểm chứng bằng số 3 giả định mà file extension dựa vào (script ở scratchpad, kết quả ghi trong file extension §0.1).
+
+Số đo dùng để kết luận:
+- Instruction InstructRec có shingle 3-từ của tên sách đích: **19/879 test user (2.2%)** khớp nguyên văn; phần còn lại diễn giải nội dung. → yêu cầu "không có gold title trong prompt" của E0 vừa bất khả thi (gold là candidate) vừa sai trọng tâm.
+- Vị trí gold trong candidate list: phân bố **đều** trên 0–9 (103/93/83/91/106/103/98/101/110/105) nhưng **cố định theo user** qua mọi epoch → kênh hack "nhớ vị trí" là thật.
+- `candidate_memories`: **10/10 candidate ở cả 993/993 record** đều có item memory → sơ đồ luồng dữ liệu của extension bỏ sót là lỗi thật sự, sẽ làm dòng A không còn là baseline MemRec.
+
+Hai lỗi thiết kế đã bịt (nếu để nguyên thì kết quả extension không dùng được):
+1. **Ma trận 4 dòng bị confound.** `D > B` đổi đồng thời model ranker (gpt-4o-mini → Qwen3-4B) và thêm GRPO. Đã thêm 2 dòng control A′/B′ (SFT-4B, chưa GRPO) để tách `hiệu ứng GRPO = D − B′` khỏi `hiệu ứng đổi model = B′ − B`. Phát biểu thành công đổi từ `D > B` sang `D > B′`. Chi phí thêm ~0 vì checkpoint SFT đã có từ E1.
+2. **Thiếu xáo thứ tự candidate.** Đã thêm §4.2.1 (xáo theo `(user_id, seed, step)`, chấm reward theo `item_id`), rủi ro §9.4bis, và "test đảo thứ tự" vào DoD của E2.
+
+Ba chỗ khác phải sửa: teacher SFT không tái dùng được conversation M0 (sai bộ candidate + nhiễm GT + sai format); bỏ `fixed_candidates_books.jsonl` để không có nguồn sự thật thứ hai; DoD E0 đòi hash khớp 100% sau re-run là bất khả thi vì batching của vLLM.
+
+Quyết định đã ra + lý do:
+- **Extension xếp sau M5 Ưu tiên 1.** M5 Ưu tiên 1 chỉ ~2 GPU-hour và bảo vệ trực tiếp đóng góp chính; extension mở một đóng góp phụ. Nếu ranker-swap cho thấy gain không giữ được thì mọi nhánh sau đều vô nghĩa.
+- **Extension và M5 đầy đủ loại trừ nhau về ngân sách** (24–36h vs 33h, trong khi sau Phase 1 chỉ còn ~40–70h). Đã viết §7.1 của Plan gốc thành cổng chọn-một-nhánh, mặc định là M5. Không quyết bây giờ — quyết sau M7a khi biết số giờ còn lại thật.
+- **Cổng yêu cầu ≥36h** thay vì 20h như bản đầu, bằng cận trên của chính §10 file extension: extension dở dang không dùng được vào luận văn.
+- **Giữ nguyên §2 "Ngoài phạm vi: train LLM_Rec"** của Plan gốc, chỉ thêm ghi chú. Trong toàn bộ M0–M7b `LLM_Rec` vẫn đóng băng tuyệt đối; extension là nhánh tách biệt có branch/file kết quả riêng.
+
+Việc tiếp theo: không đổi — M2 Phần A (CPU). Extension chỉ được đụng tới sau M7a.

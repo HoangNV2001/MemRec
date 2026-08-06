@@ -50,6 +50,7 @@ Hyperparameter gốc: `k=16`, `N_f=7`, `N_candidates=10`, metrics H@{1,3,5} và 
 
 ### Ngoài phạm vi (viết rõ trong Limitations của luận văn)
 - ❌ Train `LLM_Rec` (đã có Rec-R1 / Rank-GRPO làm việc này — chỉ trích dẫn)
+  > **Cập nhật 2026-08-06:** `docs/RL_LM_REC_EXTENSION.md` đề xuất làm đúng việc này như một **extension tuỳ chọn sau M7a**. Điều đó **không** mở rộng phạm vi của Plan này: trong toàn bộ M0–M7b, `LLM_Rec` vẫn đóng băng tuyệt đối. Extension là một đóng góp phụ tách biệt, có cổng riêng (§7.1), branch riêng, và file kết quả riêng. Nếu extension không chạy, Limitations vẫn viết đúng như dòng trên.
 - ❌ Curation policy học được (giữ nguyên `R_domain` tĩnh)
 - ❌ Full-catalog retrieval — giữ nguyên protocol N=10 candidate của paper
 - ❌ Online A/B, multi-hop propagation, federated memory
@@ -141,47 +142,64 @@ Không cần critic. Đây chính là lý do chọn GRPO thay vì PPO khi chỉ 
 
 ### 4.1 File mới cần tạo
 
+Trạng thái: ✅ = đã tồn tại sau M1 · ⬜ = còn phải viết.
+
 ```
 src/rl/
-├── __init__.py
-├── env.py                  # load graph snapshot, build state/prompt cho Stage-R
-├── dataset.py              # jsonl -> datasets.Dataset cho TRL
-├── policy.py               # prompt template + parse/validate output JSON facets
-├── reward/
+├── __init__.py                 ✅
+├── env.py                      ✅ GraphSnapshot, cache N'_k(u), ghim ngân sách packer
+├── splits.py                   ✅ [thêm mới] split user-disjoint + candidate tất định theo (seed, user_id, salt)
+├── leakage.py                  ✅ [thêm mới] màn lọc rò đáp án (trùng tên sách trong catalogue)
+├── warmup.py                   ✅ [thêm mới] dựng memory sạch-test (target = valid item)
+├── build_snapshot.py           ✅ [thêm mới] entrypoint M1 bước 1 (có --memory_file để tái tạo offline)
+├── build_dataset.py            ✅ [thêm mới] entrypoint M1 bước 2
+├── dataset.py                  ✅ jsonl -> datasets.Dataset cho TRL + backfill + curriculum filter
+├── policy.py                   ✅ prompt candidate-blind + parser JSON facets không bao giờ raise
+├── reward/                     ⬜ M2
 │   ├── __init__.py
-│   ├── ranker.py           # frozen listwise ranker, chấm bằng logprob (§5.1)
-│   ├── metrics.py          # ndcg_at_k, hit_at_k
-│   ├── grounding.py        # kiểm tra facet có cite neighbor hợp lệ (§5.2)
-│   └── composite.py        # hàm reward tổng, interface cho TRL
-├── sft.py                  # rejection-sampling warm start
-├── train_grpo.py           # entrypoint TRL GRPOTrainer
-└── eval_rl.py              # cắm policy đã train ngược vào pipeline MemRec gốc
+│   ├── ranker.py               # frozen listwise ranker, chấm bằng logprob (§5.1)
+│   ├── metrics.py              # ndcg_at_k, hit_at_k
+│   ├── grounding.py            # kiểm tra facet có cite neighbor hợp lệ (§5.2)
+│   └── composite.py            # hàm reward tổng, interface cho TRL
+├── sft.py                      ⬜ M3 rejection-sampling warm start
+├── train_grpo.py               ⬜ M4 entrypoint TRL GRPOTrainer
+└── eval_rl.py                  ⬜ cắm policy đã train ngược vào pipeline MemRec gốc
 
 configs/rl/
-├── m1_env_books.yaml
-├── m3_sft_books.yaml
-├── m4_grpo_books.yaml
-└── m5_ablations/           # 1 yaml cho mỗi ablation
+├── m1_env_books.yaml           ✅
+├── m3_sft_books.yaml           ⬜
+├── m4_grpo_books.yaml          ⬜
+└── m5_ablations/               ⬜ 1 yaml cho mỗi ablation
 
 scripts/rl/
-├── 00_build_snapshot.sh
-├── 01_build_dataset.sh
-├── 02_validate_reward.sh
-├── 03_sft_warmstart.sh
-├── 04_train_grpo.sh
-└── 05_eval.sh
+├── 00_build_snapshot.sh        ✅
+├── 01_build_dataset.sh         ✅ (chạy luôn pytest để verify DoD)
+├── 02_validate_reward.sh       ⬜
+├── 03_sft_warmstart.sh         ⬜
+├── 04_train_grpo.sh            ⬜
+└── 05_eval.sh                  ⬜
+
+tests/rl/                       ✅ [thêm mới — §10.5 bắt buộc có smoke test]
+├── test_policy_parser.py       ✅ 20 ca output méo viết tay
+├── test_env_splits.py          ✅ tất định, split, snapshot round-trip, ngân sách packer
+└── test_no_leakage.py          ✅ DoD M1
 
 data/rl/
-├── graph_snapshot_books.json      # memory graph đóng băng
-├── stager_books_train.jsonl
-├── stager_books_val.jsonl
-└── stager_books_test.jsonl
+├── graph_snapshot_books.json   ✅ 17.4 MB, 2350 user (gitignored)
+├── user_splits_books.json      ✅ [thêm mới] ĐƯỢC track trong git — định nghĩa thí nghiệm
+├── stager_books_train.jsonl    ✅ 1185
+├── stager_books_val.jsonl      ✅ 149
+├── stager_books_test.jsonl     ✅ 993
+└── stager_books_dropped_users.json  ✅ [thêm mới] 23 user bị loại vì lộ đáp án
 
 docs/
-├── RL_PLAN.md              # file này
-├── PROGRESS.md             # agent append sau mỗi milestone
-└── RESULTS.md              # bảng kết quả, agent điền dần
+├── RL_PLAN.md                  ✅ file này — đóng góp CHÍNH
+├── RL_LM_REC_EXTENSION.md      ✅ extension train LM_Rec — PHỤ, chỉ sau M7a + M5 Ưu tiên 1
+├── PROGRESS.md                 ✅ agent append sau mỗi milestone
+└── RESULTS.md                  ✅ bảng kết quả, agent điền dần
 ```
+
+> **Quan hệ với `docs/RL_LM_REC_EXTENSION.md`:** file đó là **extension**, không phải một phần của Plan này. Khi hai file mâu thuẫn, **Plan này thắng**. Xem §7.1 về cổng và thứ tự ưu tiên ngân sách.
 
 ### 4.2 Điểm tích hợp với code có sẵn
 
@@ -326,6 +344,9 @@ Mỗi milestone có **Definition of Done (DoD)**. Agent **chỉ** tick checkbox 
 |---|---|---|---|
 | **1 — Kết quả tối thiểu** | M0 · M1 · M2 · M3 · M4 · M7a | T0/T0-API → T1 → T2 | **~50h** |
 | **2 — Chỉ khi Phase 1 xong** | M5 (ablation) · M6 (stretch) · M7b | T2 | +40h / +70h |
+| **3 — Extension, tuỳ chọn** | `docs/RL_LM_REC_EXTENSION.md` (RL cho `LM_Rec`) | T2 | +24–36h |
+
+> Phase 3 **loại trừ** với phần lớn Phase 2 về ngân sách. Chọn một, theo §7.1.
 
 Mỗi milestone dưới đây gắn nhãn tầng: 🖥️ `T0` CPU · 🌐 `T0-API` · 🔧 `T1` GPU rẻ · 🚀 `T2` H100.
 
@@ -482,7 +503,38 @@ RL thuần từ base 4B trên JSON có cấu trúc sẽ collapse format. Bắt b
 
 **DoD:** đạt ít nhất **bậc 3** của thang lùi (§2.5.4). Tại điểm này bạn đã có luận văn nộp được.
 
-**Quyết định sau M7a:** còn ≥40 GPU-hour → Phase 2. Còn <40h → bỏ Phase 2, đi thẳng M7b.
+Thêm hai mục để không phải trả lại tiền compute nếu sau này mở extension (§7.1):
+
+- [ ] Đẩy checkpoint `LM_Mem` tốt nhất + config + git SHA lên storage bền
+- [ ] Ghi SHA-256 của cột `candidates` trong 3 file jsonl vào `docs/RESULTS.md` — mọi so sánh về sau phải kiểm hash này trước khi chạy
+
+**Quyết định sau M7a:** xem §7.1.
+
+---
+
+## 7.1 Cổng sau M7a — chọn MỘT nhánh
+
+Sau M7a có **ba** nhánh cạnh nhau, không phải hai. Ngân sách thực tế chỉ đủ cho một.
+
+| Nhánh | Nội dung | GPU-hour | Củng cố cái gì |
+|---|---|---:|---|
+| **0. Bắt buộc trước mọi thứ** | M5 **Ưu tiên 1** (ranker-swap, cross-domain, đọc tay 30 mẫu, breakdown theo `\|H_u\|`) | ~2 | Bảo vệ trực tiếp đóng góp chính. Chỉ eval, không train lại. |
+| **1.** | M5 Ưu tiên 2–3 (ablation đầy đủ) | +33 | Đóng góp **chính** sâu hơn |
+| **2.** | M6 (stretch, Stage-W propagation reward) | +70 | Đóng góp chính, rủi ro cao |
+| **3.** | `docs/RL_LM_REC_EXTENSION.md` (RL cho `LM_Rec`) | +24–36 | Đóng góp **phụ** (modularity, sequential co-adaptation) |
+
+**Quy tắc quyết định:**
+
+1. Luôn chạy **nhánh 0** trước — ~2 GPU-hour, và nếu ranker-swap cho thấy gain không giữ được thì đóng góp chính đang có vấn đề, mọi nhánh còn lại đều vô nghĩa.
+2. Còn <40h sau nhánh 0 → **bỏ hết**, đi thẳng M7b.
+3. Còn 40–70h → chọn **nhánh 1 hoặc nhánh 3**, không phải cả hai.
+   - Chọn **nhánh 1** nếu M4 cho gain rõ nhưng chưa rõ *vì sao* — cần ablation để giải thích.
+   - Chọn **nhánh 3** nếu M4 đã sạch và thuyết phục, và bạn muốn thêm một câu hỏi nghiên cứu mới.
+   - **Mặc định là nhánh 1.** §2.5 của Plan này: một đóng góp chính vững hơn tốt hơn hai đóng góp đều lung lay.
+4. Nhánh 2 chỉ khi còn ≥70h **và** ≥3 tuần (điều kiện gốc của M6).
+5. **Không tự ý mở nhánh 3.** Cổng đầy đủ ở §3 của file extension; bắt đầu rồi bỏ dở là mất trắng, vì extension chỉ có giá trị khi có đủ ma trận 6 dòng + robustness.
+
+> Ghi lại lựa chọn và lý do vào `docs/PROGRESS.md` ngay khi quyết định, kèm số GPU-hour còn lại tại thời điểm đó.
 
 ---
 
@@ -621,7 +673,8 @@ R(a_t) = Σ_{v ∈ {u} ∪ N'_k(u)}  w_v · Δmetric_v(probe kế tiếp của v
 8. **Khi gặp mâu thuẫn giữa file này và thực tế code, DỪNG và hỏi.** Đừng tự ý đổi phạm vi. Nếu file này sai, sửa file này trong cùng PR và ghi rõ lý do.
 9. **Không tối ưu hoá sớm.** Chạy được trước, nhanh sau. Ngoại lệ duy nhất: reward throughput ở M2, vì nó nhân với mọi step về sau.
 10. **Ngân sách là ràng buộc cứng, không phải gợi ý.** Trước khi thuê H100, phải trả lời được: run này trả lời câu hỏi *phương pháp* hay câu hỏi *plumbing*? Nếu là plumbing → T1. Nếu không chắc → T1.
-11. **Không tự ý mở Phase 2.** Cổng M7a là bắt buộc. Nếu M4 cho kết quả hấp dẫn và agent muốn ablate thêm — dừng, hỏi.
+11. **Không tự ý mở Phase 2 hay Phase 3.** Cổng M7a là bắt buộc, và sau đó phải chọn nhánh theo §7.1 — dừng, hỏi. Điều này áp dụng cho cả `docs/RL_LM_REC_EXTENSION.md`: có checkpoint `LM_Mem` ở M4 **không** phải là điều kiện đủ để bắt đầu extension.
+12. **Plan này thắng khi mâu thuẫn với file extension.** Đóng góp chính của luận văn là RL cho `LM_Mem`; không viết lại narrative chính vì extension.
 
 ---
 
@@ -714,8 +767,10 @@ Phase 2: M5 +35h, M6 +70h. Quyết định riêng sau M7a.
 | M7a | 0 | | | | |
 | Dự phòng | 18 | | | | |
 | **Phase 1** | **50** | | **15** | **~38** | |
-| M5 | +35 | | | | chỉ khi còn ngân sách |
-| M6 | +70 | | | | nhiều khả năng bỏ |
+| M5 Ưu tiên 1 | +2 | | | | **bắt buộc sau M7a** (§7.1 nhánh 0) |
+| M5 Ưu tiên 2–3 | +33 | | | | §7.1 nhánh 1 — mặc định |
+| M6 | +70 | | | | §7.1 nhánh 2, nhiều khả năng bỏ |
+| Extension `LM_Rec` | +24–36 | | | ~8 | §7.1 nhánh 3, loại trừ với nhánh 1 |
 
 - [ ] Đo warmup 100 user ở M0, cập nhật ước tính API
 - [ ] Verify checkpoint/resume ở tầng T1 trước khi vào M4-B
