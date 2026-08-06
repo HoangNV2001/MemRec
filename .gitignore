@@ -7,7 +7,13 @@
 data/iagent/
 data/processed/*
 !data/processed/.gitkeep
-data/rl/
+# RL artefacts are large and derived (snapshot ~15MB, jsonl ~30MB) — rebuild with
+# scripts/rl/. The split definition is small and *defines* the experiment, so it
+# is tracked: without it the train/val/test partition is not reproducible.
+# (exclude the *contents*, not the directory — git cannot re-include a file whose
+# parent directory is itself excluded)
+data/rl/*
+!data/rl/user_splits_books.json
 
 # Results & checkpoints
 results/

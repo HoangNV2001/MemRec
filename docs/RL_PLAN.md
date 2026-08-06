@@ -359,26 +359,35 @@ Mỗi milestone dưới đây gắn nhãn tầng: 🖥️ `T0` CPU · 🌐 `T0-A
 
 ---
 
-### ☐ M1 — Đóng băng môi trường & dựng RL dataset · 🖥️ `T0` — **0 GPU-hour**
+### ☑ M1 — Đóng băng môi trường & dựng RL dataset · 🖥️🌐 `T0 + T0-API` — **0 GPU-hour**
 
-> Toàn bộ milestone này là xử lý file. Không chạm GPU.
+> Toàn bộ milestone này là xử lý file + một lần warmup qua API. Không chạm GPU.
 
-- [ ] Tái sử dụng dump `llm_conversations/` của M0 — **không chạy lại pipeline**
-- [ ] Viết `src/rl/env.py`: serialize memory graph (mọi `M_v`) → `data/rl/graph_snapshot_books.json`
-- [ ] Cache `N'_k(u)` cho mọi user (k=16) vào snapshot — pruner không chạy lại trong RL loop
-- [ ] Viết `scripts/rl/01_build_dataset.sh` sinh 3 file jsonl, mỗi dòng:
+- [~] ~~Tái sử dụng dump `llm_conversations/` của M0 — **không chạy lại pipeline**~~ → **thay bằng warmup mới 2350 user ($3.15, CPU+API).** Hai lý do bắt buộc, xem PROGRESS.md M1:
+  (a) `memory.jsonl` của M0 **nhiễm test** — config `memrec_instructrec-books_1k.yaml` để `enable_stage_w` mặc định `True` nên eval loop đã ghi ground-truth click của **test item** vào memory dùng chung;
+  (b) M0 chỉ warm 1000 user, M1 cần 2350. Replay log 5808 dòng để dựng lại state là xấp xỉ (thứ tự ghi đua nhau giữa 16 thread); warmup mới rẻ hơn nhiều so với rủi ro đó. Ngân sách này chỉ tiêu **một lần** — có `--memory_file` để tái tạo snapshot offline miễn phí.
+- [x] Viết `src/rl/env.py`: serialize memory graph → `data/rl/graph_snapshot_books.json` (17.4 MB, 2350 user, 40080 item memory)
+- [x] Cache `N'_k(u)` cho mọi user (k=16) vào snapshot — pruner không chạy lại trong RL loop
+- [x] Viết `scripts/rl/01_build_dataset.sh` sinh 3 file jsonl, mỗi dòng:
   ```json
   {"user_id": "...", "prompt": "<state, candidate-blind>", "candidates": [...],
    "gold_item_id": "...", "M_u": "...", "neighbors": [...],
    "r_null": 0.41, "baseline_h1": 1}
   ```
-- [ ] Split user-disjoint: **train 1200 / val 150 / test 1000** (quy mô LEAN, §6.2)
-- [ ] `r_null` và `baseline_h1`: để trống, backfill sau M2 bằng một job batch duy nhất
-- [ ] Viết `src/rl/dataset.py` load jsonl → `datasets.Dataset`
-- [ ] Viết `src/rl/policy.py`: prompt template + parser JSON facets — **unit test đầy đủ trên CPU**
-- [ ] Viết `tests/rl/test_no_leakage.py`
+- [~] Split user-disjoint: train 1200 / val 150 / test 1000 → **thực tế 1185 / 149 / 993** sau khi loại 23 user bị lộ đáp án (§ dưới). Chênh ~1%, không bù thêm user vì phải trả thêm tiền warmup.
+- [x] `r_null` và `baseline_h1`: để trống (`null`), backfill sau M2 bằng `src.rl.dataset.backfill`
+- [x] Viết `src/rl/dataset.py` load jsonl → `datasets.Dataset`
+- [x] Viết `src/rl/policy.py`: prompt template + parser JSON facets — **unit test đầy đủ trên CPU**
+- [x] Viết `tests/rl/test_no_leakage.py`
 
-**DoD:** 3 file jsonl tồn tại, split user-disjoint (assert bằng code), `test_no_leakage.py` pass — grep gold item title/id trong `prompt` ra 0 kết quả trên toàn bộ train set. Parser xử lý được 20 ca output méo mó viết tay.
+**DoD: ĐẠT.** 3 file jsonl tồn tại; split user-disjoint (assert bằng code, pass); `test_no_leakage.py` pass — 0 kết quả khi grep gold item title/id trong `prompt` trên **cả ba** split; parser xử lý được 20 ca output méo mó viết tay. Tổng **78 test pass** (`pytest tests/rl/`, 26s).
+
+**Ba phát hiện phải xử lý (không có trong kế hoạch):**
+1. **Trùng tên sách trong catalogue** — gold item không bao giờ là neighbor của chính user đó (graph chỉ dựng từ `train_data`), nhưng Books có **nhiều `item_id` khác nhau cho cùng một quyển sách**. Nếu user có bản sao kia trong lịch sử, tên sách đáp án bị in ra trong neighbor table. Đo được **23/2350 user (~1%)**, toàn bộ qua neighbor table, không qua `M_u`. Đã loại các user này (`src/rl/leakage.py`, log ở `data/rl/stager_books_dropped_users.json`).
+2. **Ngân sách packer** — `SnippetPacker` giữ 300 token cho khối candidate. Bỏ candidate mà không bù lại thì policy được **1000** token neighbor trong khi baseline prompted chỉ có **700** → "GRPO thắng prompted" sẽ lẫn với "được nhìn nhiều neighbor hơn". Đã ghim bằng `CANDIDATE_BLOCK_RESERVE`.
+3. **Negative của warmup trùng negative của eval** — cùng một RNG stream nên cả hai rút đúng 9 distractor giống nhau, mà Stage-R lúc warmup *có* nhìn thấy khối candidate → distractor của bài thi đã tham gia nặn ra `M_u`. Đã tách bằng salt (`WARMUP_CANDIDATE_SALT` / `EVAL_CANDIDATE_SALT`); sửa miễn phí vì candidate eval sinh offline.
+
+**Quyết định thiết kế:** state **không** chứa instruction của InstructRec. Instruction diễn giải lại chính quyển sách đáp án (kiểm chứng bằng tay), và trong pipeline gốc nó chỉ đi vào Stage-ReRank chứ không vào Stage-R. Đưa nó cho policy là trao thẳng đáp án. `§3` viết `s = (I_u, M_u, Rep(N'_k(u)))`; ở đây `I_u` được hiểu là biểu diễn lịch sử tương tác (đã nằm trong neighbor table), không phải instruction text.
 
 > **Lưu ý LEAN:** parser JSON phải chịu được output xấu **trước khi** lên GPU. Mỗi lần parser crash giữa run GRPO là mất cả phiên thuê máy.
 
@@ -697,8 +706,8 @@ Phase 2: M5 +35h, M6 +70h. Quyết định riêng sau M7a.
 
 | Milestone | Dự toán H100 (h) | Thực tế | GPU rẻ (h) | API ($) | Ghi chú |
 |---|---|---|---|---|---|
-| M0 | 0 | | | | |
-| M1 | 0 | | | | |
+| M0 | 0 | **0** | 0 | ~**1.1** | warmup 1k user đo được: 3.45M in + 1.00M out |
+| M1 | 0 | **0** | 0 | **3.15** | warmup 2350 user, 26.6 phút wall, 24 worker, 9.54M in + 2.87M out |
 | M2 | 3 | | | | |
 | M3 | 4 | | | | |
 | M4 | 25 | | | | |

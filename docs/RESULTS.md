@@ -29,6 +29,63 @@ Warmup cost extrapolation (100 user, quan sát thực tế trong `results/m0_war
 
 ---
 
+## M1 Frozen Environment
+
+Snapshot: `data/rl/graph_snapshot_books.json` (17.4 MB) — 2350 user, 40 080 item memory, k=16, seed 42, candidate-blind.
+Build: `bash scripts/rl/00_build_snapshot.sh` → `bash scripts/rl/01_build_dataset.sh`.
+
+| Split | Users | Prompt (~token, median) | `M_u` có nội dung | Neighbor/user (median) | \|H_u\| (median) |
+|---|---|---|---|---|---|
+| train | 1 185 | 1 019 | 1 184 | 16 | 14 |
+| val | 149 | 1 031 | 149 | 16 | 14 |
+| test | 993 | 1 021 | 992 | 16 | 14 |
+
+**Chi phí warmup (thực đo, không ước tính):** 2350 user, 24 worker, **26.6 phút** wall-clock trên CPU.
+Stage-R/W 6 907 837 in + 1 804 548 out (4697 request) · Stage-ReRank 2 634 326 in + 1 063 022 out (2350 request).
+Tổng **9.54M input + 2.87M output** → ≈ **$3.15** với đơn giá gpt-4o-mini $0.15/$0.60 per 1M. **0 GPU-hour.**
+
+Warmup thành công 2347/2350 user; 3 user hỏng vì reranker trả về danh sách thiếu target item (`target dropped by reranker`) → không có `M_u`, vẫn giữ trong split (prompt hiển thị "No personal memory recorded yet"), phản ánh đúng ca user lạnh.
+
+### Kiểm tra DoD
+
+`pytest tests/rl/` → **78 pass** (26 s, CPU, không API).
+
+| Kiểm tra | Kết quả |
+|---|---|
+| Split user-disjoint (assert bằng code) | pass |
+| `Item-<gold_id>` xuất hiện trong `prompt` | **0** / 2327 (khớp biên từ, `Item-2125` không khớp `Item-21254`) |
+| Tên gold item xuất hiện trong `prompt` | **0** / 2327 sau khi lọc |
+| `Item-<candidate_id>` bất kỳ trong `prompt` (candidate-blind §5.3) | **0** / 2327 |
+| Instruction InstructRec rò vào `prompt` | **0** / 2327 |
+| Parser chịu được output méo | 20/20 ca viết tay |
+| Candidate tái tạo được từ dataset (chống bug RNG theo thread của M0) | pass, 100 user |
+
+### Rò rỉ đã phát hiện và xử lý
+
+**Trùng tên sách trong catalogue Books.** Gold item không thể là neighbor của chính user đó — graph chỉ dựng từ `train_data`, còn gold là test item. Nhưng catalogue có **nhiều `item_id` cho cùng một quyển sách** (khác edition/format). Nếu user có bản sao kia trong lịch sử thì tên sách đáp án bị in trong neighbor table.
+
+| Kênh rò | Số user |
+|---|---|
+| Qua neighbor table | 23 |
+| Qua `M_u` | 0 |
+| **Tổng** | **23 / 2350 (0.98%)** |
+
+Ví dụ: `Mockingjay: The Hunger Games`, `Stranger in a Strange Land`, `Lies My Teacher Told Me`.
+Đã loại khỏi cả 3 split (`src/rl/leakage.py`); danh sách đầy đủ ở `data/rl/stager_books_dropped_users.json`. Vì thế split thực tế là 1185/149/993 thay vì 1200/150/1000 — không bù thêm user vì phải trả thêm tiền warmup cho ~1%.
+
+### Hai confound đã chặn trước khi train
+
+1. **Ngân sách neighbor của packer.** `SnippetPacker.pack()` trừ 300 token cho khối candidate. Bỏ candidate mà không bù thì state RL được 1000 token neighbor còn baseline prompted chỉ 700 → chênh lệch kết quả sẽ lẫn với chênh lệch context. Đã ghim `CANDIDATE_BLOCK_RESERVE = 300` trong `src/rl/env.py`, có unit test.
+2. **Negative của warmup trùng negative của eval.** `sample_candidates` dùng cùng RNG stream cho cả hai nên rút đúng 9 distractor giống nhau, mà Stage-R lúc warmup *có* nhìn khối candidate → distractor của bài thi đã góp phần nặn ra `M_u`. Đã tách bằng salt; sửa miễn phí vì candidate eval sinh offline.
+
+### Ghi chú về cấu trúc pipeline (ảnh hưởng thiết kế reward ở M2)
+
+- `LLMRulePruner.prune()` **bỏ qua tham số `candidates`** → `N'_k(u)` vốn đã candidate-blind và chỉ phụ thuộc graph đóng băng. Cache nó không làm đổi hành vi pipeline.
+- `SnippetPacker.build_neighbor_snippet()` dựng bảng neighbor từ **metadata tĩnh của item**, không phải từ `M_v` đang tiến hoá. Nghĩa là input duy nhất phụ thuộc memory của Stage-R là `M_u` của chính user đó. Memory của neighbor chỉ đi vào pipeline qua `item_mems` của Stage-ReRank — nên snapshot vẫn phải giữ item memory cho reward ranker.
+- State **không** chứa instruction InstructRec: instruction diễn giải lại quyển sách đáp án, và pipeline gốc cũng chỉ đưa nó cho Stage-ReRank. Nó nằm ở trường `instruction` riêng trong jsonl, dành cho frozen ranker.
+
+---
+
 ## M2 Reward Validation
 
 - Spearman ρ (frozen 1.5B ranker vs gpt-4o-mini), n=150 val users: _TBD_

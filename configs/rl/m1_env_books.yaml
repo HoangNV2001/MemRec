@@ -1,0 +1,77 @@
+# M1 — frozen Stage-R environment for instructrec-books (RL_PLAN.md §7 M1).
+#
+# Mirrors configs/memrec_instructrec-books_1k.yaml so the snapshot is built by the
+# same pipeline the M0 baseline was measured with. Differences are only the ones
+# M1 requires:
+#   * no eval loop at all (the builder calls warm-up directly), so nothing
+#     test-derived is ever written into memory;
+#   * user set comes from rl.splits, not from eval_user_list.
+#
+# CPU + API only. No GPU.
+
+model: memrec_agent
+dataset: instructrec-books
+seed: 42
+
+n_eval_candidates: 10
+
+topk: [1, 3, 5, 10]
+metrics: ['Hit', 'NDCG']
+
+# The builder never runs the trainer's eval loop; these are set defensively so an
+# accidental evaluate() call cannot write memory.
+eval_feedback: none
+
+warmup:
+  enabled: false      # warm-up is driven by src/rl/warmup.py, not the trainer
+
+llm_model: "gpt-4o-mini"
+api_version: "2024-08-01-preview"
+
+provider:
+  name: openai
+  model: gpt-4o-mini
+  endpoint: ${ENV:OPENAI_API_BASE}
+  api_key: ${ENV:OPENAI_API_KEY}
+
+memrec:
+  k: 16
+  tau_tokens: 1800
+  mix_min_users: 4
+  mix_min_items: 6
+  n_facets: 7
+  temperature: 0.0
+  max_tokens: 4000
+
+  enable_stage_r: true
+  enable_stage_w: false   # gates the trainer eval-loop write only; warm-up is a separate path
+
+  pruner:
+    mode: llm_rules
+    checkpoint: null
+
+  item_weight: 1.0
+  user_weight: 0.5
+  recency_weight: 0.5
+  degree_weight: 0.3
+  overlap_weight: 0.7
+
+  reranker_mode: llm
+
+  write:
+    fanout_cap: 8
+    max_tokens: 4000
+
+# RL-specific settings
+rl:
+  n_train: 1200
+  n_val: 150
+  # Test users are pinned to the M0 1k eval sample so the RL test set and the M0
+  # baseline table cover the same users (RL_PLAN.md §8 main table).
+  test_user_list: data/eval_user_samples/eval_user_sample_1k_instructrec-books.json
+  splits_file: data/rl/user_splits_books.json
+  snapshot_file: data/rl/graph_snapshot_books.json
+  out_prefix: data/rl/stager_books
+
+parallel_workers: 16
+debug: false
