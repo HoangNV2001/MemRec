@@ -43,16 +43,29 @@ git bundle create memrec.bundle --all
 | `data/rl/stager_books_val.jsonl` | 1.7 MB | M2-B, eval trong lúc train |
 | `data/rl/m2_val_reference_books.json` | 440 KB | **nửa gpt-4o-mini của Validation A/B đã cache** — thiếu file này là phải tiêu lại $0.5 và 6 phút API |
 
+`data/rl/user_splits_books.json` đã nằm trong git, không cần chép.
+
+**Hai tarball đều lưu đường dẫn tương đối so với gốc repo, nên chúng tự vào đúng chỗ —
+không phải move gì cả:**
+
 ```bash
-tar czf memrec_rl_data.tgz \
-    data/rl/stager_books_train.jsonl \
-    data/rl/stager_books_test.jsonl \
-    data/rl/stager_books_val.jsonl \
-    data/rl/m2_val_reference_books.json
-# ~9 MB nén. scp lên server rồi giải nén ở gốc repo.
+cd /path/to/MemRec
+tar xzf memrec_rl_data.tgz          # -> data/rl/*.jsonl, m2_val_reference_books.json
+tar xzf memrec_rl_extras.tgz        # -> data/rl/graph_snapshot..., results/m1_warmup_2350/...
+python -m src.rl.verify_transfer    # BẮT BUỘC: xác nhận đã sang đủ và không hỏng
 ```
 
-`data/rl/user_splits_books.json` đã nằm trong git, không cần chép.
+Bên trong mỗi tarball có sẵn `data/rl/TRANSFER_MANIFEST.txt` mô tả nội dung, để mô tả
+không bao giờ bị tách khỏi dữ liệu.
+
+`verify_transfer` kiểm tra **nội dung**, không chỉ sự tồn tại — một lần `scp` đứt để lại
+file vẫn mở được nhưng sai. Nó check: sha256, số dòng chính xác (1185/149/993), đủ mọi
+cột mà reward đọc, gold nằm trong candidate, split vẫn disjoint, và reference cache vẫn
+cho thấy memory thật thắng memory rỗng. Artifact tuỳ chọn thiếu thì chỉ cảnh báo.
+
+> Đã kiểm chứng: giải nén hai tarball vào một checkout sạch (chỉ có code, không có
+> `data/processed`) → `verify_transfer` all pass, `pytest tests/rl/` 139 pass + 1 skip,
+> và `src.rl.validate_reward` chạy hết 745 cặp.
 
 ### 1.3 `.env` — bắt buộc, **không** nằm trong git
 
