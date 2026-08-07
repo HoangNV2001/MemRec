@@ -95,49 +95,95 @@ Cần cho eval bằng gpt-4o-mini ở M3/M7a. M2-B thì không gọi API.
 
 ---
 
+## 1.6 Chọn máy trên vast.ai — **đừng thuê H100 ngay**
+
+Việc đầu tiên (M2 Phần B) là **745 forward pass prefill-only của model 1.5B**. Chạy vài phút
+trên bất kỳ GPU nào ≥ 8 GB. Thuê H100 $3/h cho việc đó là đốt tiền — đúng loại lỗi §2.5.1 cảnh báo.
+
+| Giai đoạn | Máy nên thuê | Vì sao |
+|---|---|---|
+| **Bây giờ** — M2-B, dựng môi trường, M3-B chấm điểm 9600 mẫu, M4-A dry-run 0.5B | **RTX 4090 / A10 / L4, 24 GB, ~$0.25–0.50/h** | Toàn bộ đều là inference model nhỏ hoặc câu hỏi "code có chạy không". Vài giờ ở đây = vài chục nghìn đồng |
+| **Sau đó** — M3 SFT thật, M4 GRPO thật | **H100 80 GB, ~$2.5–3.5/h** | §4.3: policy 4B + vLLM + ranker colocate ≈ 66 GB |
+
+- **Disk:** chọn ≥ **80 GB**. Model ~12 GB, data ~100 MB, còn lại cho checkpoint và HF cache.
+- **M3 Phần A (sinh teacher bằng gpt-4o-mini, ~$10–14) là CPU + API** — chạy trên máy local
+  hoặc trên chính con GPU rẻ, nhưng **đừng** để H100 chạy nó.
+- Trên vast.ai, **destroy instance là mất sạch**. Đẩy artifact ra ngoài trước khi destroy (§5).
+
+---
+
 ## 2. Môi trường
 
-```bash
-conda create -n memrec python=3.10 -y && conda activate memrec
+Với image `vastai/base-image` (Ubuntu + CUDA). Image này **đã có sẵn** Python và driver,
+nhưng **chưa chắc** có torch — kiểm tra trước thay vì đoán:
 
-# 1) torch khớp CUDA của máy TRƯỚC
-pip install torch --index-url https://download.pytorch.org/whl/cu124   # đổi cu124 cho khớp
+```bash
+nvidia-smi                       # driver + CUDA version của host
+python3 -V
+python3 -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())" \
+    || echo "chưa có torch"
+```
+
+Image của vast.ai thường kích hoạt sẵn một venv. Nếu có thì dùng luôn; nếu không, tạo mới:
+
+```bash
+python3 -m venv /workspace/venv && source /workspace/venv/bin/activate
+```
+
+Rồi:
+
+```bash
+cd /workspace/MemRec
+
+# 1) torch khớp CUDA của host TRƯỚC — bỏ qua nếu image đã có sẵn torch chạy được GPU
+pip install torch --index-url https://download.pytorch.org/whl/cu124   # đổi cu124 cho khớp nvidia-smi
 
 # 2) phần còn lại
 pip install -r requirements-gpu.txt
 
-# 3) vllm cài SAU CÙNG, riêng, chỉ cần từ M4
+# 3) vllm cài SAU CÙNG, riêng, và CHỈ khi tới M4
 pip install vllm
 ```
 
-`requirements.txt` cũ pin `torch==2.9.0` bản CPU — **đừng dùng nó trên server**.
+`requirements.txt` cũ pin `torch==2.9.0` bản **CPU** — cài nó trên server sẽ ra môi trường
+chạy được test nhưng chết ở forward pass đầu tiên. **Dùng `requirements-gpu.txt`.**
 
-### Kiểm tra nhanh
+> Nếu image đã có torch bản GPU, đừng cài đè: chạy thẳng bước 2. `requirements-gpu.txt`
+> cố tình **không** pin torch chính vì lý do này.
+
+### Kiểm tra nhanh — chạy đủ 3 lệnh này TRƯỚC khi làm gì khác
 
 ```bash
 python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0))"
-pytest tests/rl/ -q          # phải 140 pass (hoặc 139 pass + 1 skip nếu thiếu data/processed)
+python -m src.rl.verify_transfer     # data sang đủ và không hỏng chưa
+pytest tests/rl/ -q                  # 140 pass (hoặc vài skip nếu thiếu data/processed)
 ```
 
-Bộ test này chạy hoàn toàn trên CPU, không gọi API. Chạy nó **trước** khi làm gì khác —
-nó bắt mọi lỗi môi trường trong 30 giây thay vì giữa một phiên thuê máy.
+Cả ba chạy trên CPU, không gọi API, mất chưa tới 1 phút — nhưng bắt được gần như mọi lỗi
+môi trường và lỗi truyền file, thay vì phát hiện giữa một phiên đang tính tiền.
 
 ---
 
 ## 3. Model weights — tải sẵn vào persistent volume (§11.6)
 
-Đặt `HF_HOME` trỏ vào volume bền, **không** phải ephemeral disk, để không phải tải lại mỗi phiên.
+Trên vast.ai đặt `HF_HOME` vào thư mục volume đã thuê (thường `/workspace`), đừng để mặc
+định `~/.cache`. Lưu ý: **destroy instance vẫn mất**, đây chỉ là tránh tải lại giữa các lần reboot.
 
 ```bash
-export HF_HOME=/persistent/hf-cache
+export HF_HOME=/workspace/hf-cache
+echo 'export HF_HOME=/workspace/hf-cache' >> ~/.bashrc
+
+# chỉ cần cho M2-B — đừng tải hết 12 GB ngay
 huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct     # ~3.1 GB  reward ranker (M2-B)
 huggingface-cli download BAAI/bge-small-en-v1.5         # ~130 MB  grounding (§5.2), chạy CPU
-huggingface-cli download Qwen/Qwen3-4B-Instruct-2507    # ~8 GB    policy LM_Mem (M3, M4)
+
+# tới M3/M4 mới cần
+huggingface-cli download Qwen/Qwen3-4B-Instruct-2507    # ~8 GB    policy LM_Mem
 huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct     # ~1 GB    dry-run tầng T1 (§M4-A)
 ```
 
 Cả bốn tên đã được verify còn tồn tại trên HF ngày 2026-08-06 (§6.1 yêu cầu).
-Fallback nếu OOM: `Qwen/Qwen2.5-3B-Instruct`.
+Fallback nếu OOM ở M4: `Qwen/Qwen2.5-3B-Instruct`.
 
 ---
 
