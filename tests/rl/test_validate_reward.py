@@ -9,6 +9,7 @@ import math
 
 import pytest
 
+from src.rl.dataset import filter_by_difficulty
 from src.rl.validate_reward import _sensitivity_ok, spearman
 
 
@@ -87,3 +88,36 @@ def test_sensitivity_rejects_a_margin_too_small_to_trust():
 
 def test_sensitivity_rejects_missing_arm():
     assert not _sensitivity_ok({"sample1": 0.6, "shuffled": 0.4})
+
+
+# --- curriculum band (§6.4) -------------------------------------------------
+
+def test_curriculum_band_uses_the_continuous_difficulty_field():
+    """
+    §6.4 keeps users whose baseline difficulty sits in [0.2, 0.8]. The field it
+    reads must be ``baseline_p_gold``: the frozen ranker is deterministic, so
+    ``baseline_h1`` is 0.0 or 1.0 per user and could never land inside the band.
+    """
+    records = [
+        {"user_id": 1, "baseline_p_gold": 0.05, "baseline_h1": 0.0},   # too hard
+        {"user_id": 2, "baseline_p_gold": 0.50, "baseline_h1": 1.0},   # in band
+        {"user_id": 3, "baseline_p_gold": 0.95, "baseline_h1": 1.0},   # too easy
+    ]
+    kept = [r["user_id"] for r in filter_by_difficulty(records)]
+    assert kept == [2]
+
+
+def test_curriculum_band_keeps_everything_before_the_backfill():
+    """Filtering on a field that does not exist yet must not empty the set."""
+    records = [{"user_id": 1}, {"user_id": 2}]
+    assert len(filter_by_difficulty(records)) == 2
+
+
+def test_curriculum_band_refuses_to_run_on_the_binary_field_alone():
+    """
+    The expensive silent failure this guards: back-filled ``baseline_h1`` without
+    ``baseline_p_gold`` would drop *every* user and hand M4 an empty training set.
+    """
+    records = [{"user_id": 1, "baseline_h1": 1.0}, {"user_id": 2, "baseline_h1": 0.0}]
+    with pytest.raises(ValueError, match="baseline_p_gold"):
+        filter_by_difficulty(records)

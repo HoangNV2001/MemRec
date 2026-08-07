@@ -24,13 +24,18 @@ import sys
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 # (path, expected line count or None, sha256, required)
+#
+# The three jsonl hashes changed at M2 Part B (2026-08-07): the back-fill wrote
+# `r_null`, `baseline_h1` and `baseline_p_gold` into every record. Line counts are
+# unchanged. If these mismatch after a *transfer*, the transfer is broken; if they
+# mismatch after re-running `src.rl.backfill_baselines`, update them here.
 EXPECTED = [
     ("data/rl/stager_books_train.jsonl", 1185,
-     "5b76f77c4986cf6964c02dded127ae0747a1f217a326e726a846c21e094732b4", True),
+     "2b51ced25e5f0886f6facd135134602256723b6114901464aeeed28f8333a6da", True),
     ("data/rl/stager_books_test.jsonl", 993,
-     "8e62f6899ce328c99c70d53133eed1cd0e8841071d1e7acce94b0293b318c94e", True),
+     "964a7a3076658eb7924e65b77981f66aa0a70d4998199b8dc64ef40b364ce1bf", True),
     ("data/rl/stager_books_val.jsonl", 149,
-     "584e5251ce6da73a40fbf3d3e444dc97595a31f25c3b7a7a61f260b1d76a042d", True),
+     "a1488c8176a29faff7994c4e1b0d3c34f84926b220a659bca78ea0af35a353ed", True),
     ("data/rl/m2_val_reference_books.json", None,
      "3e8e287bbe309c7052a8d2ee7e2f85180fe5ed0291e588ceec0ae8b32e4d14cc", True),
     ("data/rl/user_splits_books.json", None, None, True),          # tracked in git

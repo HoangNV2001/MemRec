@@ -52,16 +52,33 @@ def filter_by_difficulty(
     sits in [lo, hi]. Users the frozen ranker already nails, or never gets, give no
     useful gradient.
 
-    Records with ``baseline_h1`` still null (i.e. before the M2 back-fill) are kept
-    untouched -- filtering on a field that does not exist yet would silently empty
-    the training set.
+    Difficulty is read from ``baseline_p_gold`` -- the frozen ranker's probability
+    on the gold candidate with no collaborative memory -- **not** from
+    ``baseline_h1``.
+
+    Why not ``baseline_h1``, which is what §6.4 names. The ranker is frozen and
+    deterministic, so a user's Hit@1 is either 0.0 or 1.0; no user can ever land
+    inside a band like [0.2, 0.8], and filtering on it would return an **empty**
+    training set. That failure is silent and would only surface after a rented
+    session had already been paid for. ``p_gold`` is continuous and expresses the
+    same intent ("drop the users the ranker already nails and the ones it never
+    gets"), so the band means what §6.4 wanted it to mean. See M2 Part B in
+    docs/RESULTS.md.
+
+    Records with no difficulty field yet (before the M2 back-fill) are kept
+    untouched -- filtering on a field that does not exist would empty the set for
+    a different reason.
     """
     out = []
     for r in records:
-        score = r.get("baseline_h1")
-        if score is None:
-            out.append(r)
-        elif lo <= float(score) <= hi:
+        score = r.get("baseline_p_gold")
+        if score is None and r.get("baseline_h1") is not None:
+            raise ValueError(
+                "records carry 'baseline_h1' but not 'baseline_p_gold', so the "
+                "curriculum band would be applied to a binary field and drop every "
+                "user. Re-run: python -m src.rl.backfill_baselines"
+            )
+        if score is None or lo <= float(score) <= hi:
             out.append(r)
     return out
 
