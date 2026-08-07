@@ -414,7 +414,7 @@ Mỗi milestone dưới đây gắn nhãn tầng: 🖥️ `T0` CPU · 🌐 `T0-A
 
 ---
 
-### ☑~ M2 — Reward function · 🖥️`T0` rồi 🔧`T1` — **~1.5 GPU-hour** — **milestone rủi ro nhất**
+### ☒ M2 — Reward function · 🖥️`T0` rồi 🔧`T1` — **~2 GPU-hour** — **KHÔNG ĐẠT, M4 bị chặn**
 
 **Phần A — viết code, không cần GPU** 🖥️ — **XONG 2026-08-06**
 - [x] `src/rl/reward/metrics.py`: `ndcg_at_k`, `hit_at_k` + unit test với ví dụ tính tay
@@ -436,10 +436,10 @@ Mỗi milestone dưới đây gắn nhãn tầng: 🖥️ `T0` CPU · 🌐 `T0-A
 
 **Phần B — cần GPU, gộp chung phiên với M3** 🚀 — **CHẠY 2026-08-07 trên L4, ~1.5 GPU-hour**
 - [x] Bật chế độ thật của `ranker.py` — **nhưng ranker đổi thành `Qwen2.5-3B-Instruct`**, xem ④ dưới
-- [x] **Validation A — tương quan proxy:** ρ = **0.6051** với `NDCG@5 + 0.3·p_gold` ✓ *(riêng NDCG@5 đơn thuần chỉ 0.5861 ✗)*
-- [x] **Validation B — độ nhạy:** đạt, margin **+0.0038** (rất sát)
+- [ ] **Validation A — tương quan proxy: ❌ FAIL.** ρ = **0.5573** (§5 nguyên bản), tối đa 0.5833 với mọi `soft_weight`. Con số 0.6051 báo cáo lúc đầu là artifact của việc chỉ có 2/5 arm là memory thật — thêm 3 arm mẫu thật thì tụt xuống
+- [x] **Validation B — độ nhạy:** đạt, margin +0.0007 (`sample1`) / +0.0120 (TB 5 arm thật) — cực sát
 - [~] **Validation C — throughput:** **chưa đo được trên L4** — 3B fp32 @ batch 64 không vừa 24 GB. Đo 1.3 reward/s @ batch 32. **Phải đo lại trên H100 đầu phiên M3/M4**
-- [x] **[thêm] Đo tỉ lệ trùng reward** → **71.1%** > 50% → **bật `soft_weight = 0.3`**
+- [x] **[thêm] Đo tỉ lệ trùng reward** → 70.8% → bật `soft_weight = 0.3` → **đo lại trên 5 mẫu/user → TẮT về 0.0**: `p_gold` phá hoà ở 40.1%, CI [33.5, 47.1], tức **dưới ngẫu nhiên**. Bài toán trùng reward vẫn CHƯA có lời giải
 - [x] **[thêm] Chạy thêm `--no_instruction`** → kém hơn hẳn (0.141 vs 0.307) → giữ `include_instruction=True`, đóng câu hỏi bỏ ngỏ của §5.1
 - [x] Backfill `r_null` + `baseline_h1` (+ **`baseline_p_gold`**, xem ⑤) vào 3 file jsonl
 - [x] Ghi vào `docs/RESULTS.md` mục "M2 Reward Validation"
@@ -455,6 +455,12 @@ Mỗi milestone dưới đây gắn nhãn tầng: 🖥️ `T0` CPU · 🌐 `T0-A
 > **⑦ ⚠️ Rủi ro chưa gỡ — reward phân biệt thô được, tinh thì không.** Đây là số một group GRPO thực sự nhìn thấy và **DoD gốc không đo tới**: ρ gộp bị chi phối bởi khác biệt *giữa* các user, thứ GRPO không bao giờ thấy. Đo trực tiếp: `sample1` vs `empty` (thô) đồng ý **72.4%**; `sample1` vs `sample2` (hai memory đều tốt) chỉ **37.5%**, ngẫu nhiên = 50%. Chưa tách được "proxy quá thô" khỏi "chính gpt-4o-mini cũng không phân biệt nổi" (nó trùng điểm 80.5%). Gỡ bằng thí nghiệm **CPU + API ~$1.5**: sinh thêm 3 mẫu `M_collab`/user → 10 cặp trong-user thay vì 1. **Nên chạy trước khi thuê H100.**
 
 **Nếu ρ < 0.6:** thử `Qwen2.5-3B-Instruct` làm ranker, hoặc đổi sang pointwise scoring. **Không được đi tiếp M4 với reward chưa validate** — 400 step trên reward sai là mất cả phiên thuê máy và cả tuần.
+
+> **⑧ ĐIỀU KIỆN NÀY ĐANG KHÔNG THOẢ (2026-08-07).** Đã thử 3B — vẫn fail (ρ = 0.5573). Còn lại **pointwise scoring**, là phương án 2 chính dòng này ghi sẵn. Ngoài ra reward không xếp hạng nổi hai memory tốt cho cùng một user (60.6% trên 1/3 số cặp, ngẫu nhiên ở phần còn lại), và bài toán trùng reward 70.8% chưa có lời giải.
+>
+> **Nhưng ý tưởng đồ án KHÔNG bị bác bỏ:** tín hiệu tinh có thật và lớn — 296/1490 cặp phân biệt được với biên độ trung bình 0.3413, gấp ~3 lần hiệu ứng thô +0.1112, tập trung ở 36% user. Đây là vấn đề của **proxy**, không phải của bài toán.
+>
+> Bốn hướng đi tiếp (chi phí + lý lẽ) ở cuối mục M2 trong `docs/RESULTS.md`. Chưa chọn.
 
 ---
 

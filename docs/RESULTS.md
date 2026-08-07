@@ -185,41 +185,68 @@ Không gọi API: chấm lại đúng 745 cặp `(user, arm)` đã cache ở Ph�
 
 #### Ranker 3B (đã chọn) — số chính thức, fp32, batch 32, instruction on
 
+> **Bảng dưới là số CUỐI CÙNG, đo trên 5 mẫu `M_collab`/user (8 arm, 1192 cặp).** Bản đo đầu chỉ có 2 mẫu/user và cho Validation A "đạt sát nút 0.6051" — con số đó **đã bị bác bỏ**, xem mục dưới.
+
 | Validation | Số đo | Ngưỡng | Kết quả |
 |---|---:|---|---|
-| **A** ρ, reward = NDCG@5 | 0.5861 | ≥ 0.6 | ✗ |
-| **A** ρ, reward = NDCG@5 + 0.3·`p_gold` | **0.6051** | ≥ 0.6 | ✓ *(sát)* |
-| **B** `sample1` ≥ max(arm hỏng) + 0.02 | margin **+0.0038** | ≥ 0 | ✓ *(rất sát)* |
-| **C** throughput | 1.3 reward/s @ batch 32 | ≥ 20 @ batch 64 | ⏸ chưa đo được trên L4 |
+| **A** ρ, reward = NDCG@5 (§5 nguyên bản) | 0.5573 | ≥ 0.6 | ✗ **FAIL** |
+| **A** ρ, mọi `w > 0` của `soft_weight` | ≤ 0.5833 | ≥ 0.6 | ✗ **FAIL** |
+| **B** `sample1` ≥ max(arm hỏng) + 0.02 | margin +0.0007 | ≥ 0 | ✓ *(cực sát)* |
+| **B** trung bình 5 arm thật vs arm hỏng | margin +0.0120 | ≥ 0 | ✓ |
+| **C** throughput | 1.38 reward/s @ batch 16 | ≥ 20 @ batch 64 | ⏸ chưa đo được trên L4 |
 
-NDCG@5 theo arm (3B/fp32): `sample1` 0.5526 · `sample2` 0.5616 · `shuffled` 0.4594 · `lorem` 0.5320 · `empty` 0.5123.
+NDCG@5 theo arm (3B/fp32): `sample1` 0.5526 · `sample2` 0.5616 · `sample3` 0.5623 · `sample4` 0.5622 · `sample5` 0.5809 · `shuffled` 0.4594 · `lorem` 0.5320 · `empty` 0.5123.
 
-**Validation A chỉ đạt nhờ số hạng `soft_weight`.** Riêng NDCG@5 là 0.5861 — dưới ngưỡng. Mọi `w ∈ [0.1, 1.0]` đều cho ρ ≈ 0.605; `p_gold` đứng một mình cho 0.609.
+**Validation A FAIL ở mọi cấu hình.** Con số 0.6051 báo cáo lúc đầu chỉ đạt được khi (a) bật `soft_weight` và (b) chỉ có 2 arm mẫu thật trong 5 arm. Thêm 3 arm mẫu thật → ρ tụt còn 0.5573–0.5833. ρ gộp nhạy với tỉ lệ arm thật/arm hỏng, và bản 5 mẫu là bản đáng tin hơn.
 
-#### `soft_weight` — đã BẬT, mặc định 0.3
+#### `soft_weight` — đã BẬT rồi lại TẮT. Kết luận cuối: **0.0**
 
-Quy tắc của §M2 là "trùng > 50% thì bật, khởi điểm 0.3". Ranker 3B trùng **71.1%** dưới NDCG@5 và **0.0%** dưới `p_gold` → quy tắc kích hoạt. Đổi mặc định `RewardConfig.soft_weight` 0.0 → **0.3** (test khoá lại quyết định này; `soft_weight=0.0` vẫn tái hiện đúng §5 cho ablation).
+Quy tắc §M2 ("trùng > 50% thì bật, khởi điểm 0.3") kích hoạt vì ranker 3B trùng 70.8%. Em đã bật. **Rồi đo lại đàng hoàng với 5 mẫu/user và phải tắt đi** — quy tắc đó nhìn sai số.
 
-#### ⚠️ Phát hiện quan trọng nhất: reward phân biệt được thô, KHÔNG phân biệt được tinh
+Phân rã trên 296 cặp trong-user mà gpt-4o-mini phân biệt được:
 
-Đây là số mà một group GRPO thực sự nhìn thấy, và nó **không** nằm trong DoD gốc. ρ gộp trên 745 cặp bị chi phối bởi khác biệt *giữa các user* ("user này dễ với mọi model") — thứ GRPO không bao giờ thấy, vì mọi rollout trong một group thuộc **cùng một** user và chỉ khác nhau ở `M_collab`.
+| Ai quyết định | Số cặp | Đồng ý | 95% CI | |
+|---|---:|---:|---|---|
+| NDCG@5 tự quyết được | 99 | **60.6%** | [50.8, 69.7] | trên ngẫu nhiên |
+| NDCG@5 hoà, `p_gold` phá hoà | 197 | **40.1%** | [33.5, 47.1] | **DƯỚI ngẫu nhiên** |
+| Gộp lại | 296 | 47.0% | [41.3, 52.6] | = ngẫu nhiên |
 
-Đo trực tiếp khả năng phân biệt trong-user (3B):
+`p_gold` được giao đúng những cặp mà NDCG@5 không phán được, và trên đúng những cặp đó nó **phản tín hiệu** — cả khoảng tin cậy nằm dưới 50%. Nó không cứu được group suy biến, nó **đổ nhiễu ngược hướng** vào đó, và kéo tín hiệu 60.6% (yếu nhưng thật) xuống mức ngẫu nhiên.
 
-| Đối chiếu | Proxy đồng ý với gpt-4o-mini |
+Hiệu ứng **không tinh chỉnh được bằng `w`**: mọi `w > 0` đều phá sạch 197 cặp hoà, nên kết quả y hệt nhau từ `w = 0.005` tới `w = 0.3`. Đã quét và xác nhận.
+
+> **Hệ quả: bài toán trùng reward (70.8%) vẫn CHƯA có lời giải.** Đây là blocker thật của M4, không phải chi tiết kỹ thuật. Đừng bật lại `soft_weight` để "chữa" nó.
+
+#### ⚠️ Phát hiện quan trọng nhất: reward phân biệt thô được, tinh thì gần như không
+
+Đây là số mà một group GRPO thực sự nhìn thấy, và nó **không** nằm trong DoD gốc. ρ gộp bị chi phối bởi khác biệt *giữa các user* ("user này dễ với mọi model") — thứ GRPO không bao giờ thấy, vì mọi rollout trong một group thuộc **cùng một** user và chỉ khác nhau ở `M_collab`.
+
+Bản đo đầu chỉ có **29 cặp**, CI ~[19%, 59%] — không kết luận được gì. Đã sinh thêm 3 mẫu/user (`src/rl/extend_val_reference.py`, ~$0.33, 3.5 phút) → mỗi user tối đa C(5,2) = 10 cặp.
+
+**Nửa API — tín hiệu tinh CÓ tồn tại, thưa nhưng mạnh:**
+
+| | |
 |---|---:|
-| `sample1` vs `empty` (thô: có memory vs không) | **72.4%** (58 ca) |
-| `sample1` vs `sample2` (tinh: hai memory đều tốt) | **37.5%** (8 ca) — ngẫu nhiên = 50% |
+| Tổng số cặp trong-user | 1490 |
+| gpt-4o-mini chấm hoà | 1194 (80.1%) |
+| **Cặp phân biệt được** | **296** |
+| Biên độ TB của cặp phân biệt được | **0.3413** |
+| Hiệu ứng thô (real − empty) để đối chiếu | +0.1112 |
+| User có bất kỳ spread nào | 54/149 (36.2%), swing TB 0.3949 |
 
-Cùng một cơ chế đo, nên tương phản này là thật: phương pháp bắt được tín hiệu khi tín hiệu tồn tại (72%), và không bắt được gì giữa hai memory tốt. Stub ranker (chấm bằng hash, không ngữ nghĩa) cho đúng 52% — metric được hiệu chuẩn đúng.
+→ Tín hiệu tinh **tồn tại và lớn** — gấp ~3 lần hiệu ứng thô — chỉ là **tập trung ở ~36% user**. Đây đúng là thứ curriculum §6.4 sinh ra để chọn. **Kết cục xấu nhất ("không có gì để học") đã bị loại trừ.**
 
-Hai cách đọc, **chưa phân biệt được** với chỉ 2 mẫu/user:
-1. proxy không đủ tinh để xếp hạng hai memory tốt; hoặc
-2. bản thân gpt-4o-mini cũng không phân biệt được — nó trùng điểm 80.5% số user, và phần chênh còn lại có thể chỉ là nhiễu của chính nó.
+**Nửa GPU — proxy chỉ bám được một phần, và chỉ ở nhánh NDCG:**
 
-Cả hai cách đọc đều dẫn tới cùng một hệ quả cho M4: **reward dạy được policy "viết memory thật, có nội dung, bám neighbor" nhưng gần như không dạy được "memory A tốt hơn memory B"**. Kỳ vọng gain bão hoà sớm.
+| Ai quyết định | Số cặp | Đồng ý với gpt-4o-mini | 95% CI |
+|---|---:|---:|---|
+| NDCG@5 tự quyết được | 99 | **60.6%** | [50.8, 69.7] — trên ngẫu nhiên |
+| NDCG@5 hoà → `p_gold` phá hoà | 197 | **40.1%** | [33.5, 47.1] — **dưới ngẫu nhiên** |
+| **Reward tổng khi bật `soft_weight`** | **296** | **47.0%** | [41.3, 52.6] — **ngẫu nhiên** |
 
-Cách gỡ rẻ nhất (CPU + API, ~$1.5, 0 GPU): sinh thêm 3 mẫu `M_collab`/user rồi chấm bằng gpt-4o-mini, nâng số cặp trong-user từ 1 lên 10 mỗi user. Đủ để tách cách đọc 1 khỏi cách đọc 2 **trước khi** thuê H100. Chưa chạy — chờ quyết định.
+Hiệu chuẩn: stub ranker (chấm bằng hash, vô nghĩa) cho 50.2% [43.6, 56.9] — metric đúng. Đối chiếu thô: `sample1` vs `empty` đồng ý 72.4%.
+
+**Đọc thẳng:** reward chỉ có tín hiệu trong-user ở **1/3 số cặp** mà NDCG@5 phán được, và ngay cả ở đó cũng chỉ 60.6% với cận dưới CI sát 50%. Hai phần ba còn lại hoà, và cách phá hoà duy nhất đã thử làm mọi thứ tệ hơn.
 
 #### Reward không tất định trong bf16 → chuyển sang fp32
 
@@ -262,15 +289,35 @@ Ghi kèm `data/rl/baselines_provenance.json` (model + dtype + số bản ghi + t
 
 | Hạng mục | Trạng thái |
 |---|---|
-| Bật chế độ thật của `ranker.py` | ✅ |
-| Validation A — ρ ≥ 0.6 | ✅ **0.6051**, chỉ đạt nhờ `soft_weight`; NDCG@5 đơn thuần 0.5861 ✗ |
-| Validation B — `r(thật) ≥ max(arm hỏng) + 0.02` | ✅ margin **+0.0038** (rất sát) |
-| Validation C — ≥ 20 reward/s @ batch 64 | ⏸ **chưa đo được**: 3B fp32 batch 64 không vừa L4 24 GB. Trên L4 đạt 1.3/s @ batch 32. Phải đo lại trên H100 ở phiên M3/M4 |
-| Đo tỉ lệ trùng → quyết định `soft_weight` | ✅ 71.1% → bật, 0.3 |
+| Bật chế độ thật của `ranker.py` | ✅ (đổi 1.5B → 3B, fp32) |
+| **Validation A — ρ ≥ 0.6** | ❌ **FAIL — 0.5573** (§5 nguyên bản); ≤ 0.5833 với mọi `soft_weight` |
+| Validation B — `r(thật) ≥ max(arm hỏng) + 0.02` | ✅ margin +0.0007 (`sample1`) / +0.0120 (TB 5 arm thật) — cực sát |
+| Validation C — ≥ 20 reward/s @ batch 64 | ⏸ **chưa đo được**: 3B fp32 không vừa batch 64 trên L4 24 GB. Đạt 1.38/s @ batch 16 |
+| Đo tỉ lệ trùng → quyết định `soft_weight` | ✅ 70.8% → bật 0.3 → **đo lại → TẮT về 0.0** |
 | Chạy `--no_instruction` đối chứng | ✅ kém hơn hẳn → giữ `include_instruction=True` |
 | Backfill 3 file jsonl | ✅ 1185 / 149 / 993 |
+| **[thêm] Within-user agreement** | ✅ đã đo — và đây là lý do A fail có ý nghĩa |
 
-**Verdict: M2 DoD đạt MỘT PHẦN.** A và B đạt nhưng sát nút và chỉ nhờ số hạng `soft_weight`; C phải hoãn sang H100; và phát hiện trong-user ở trên là rủi ro thật cho M4 mà DoD gốc không đo tới.
+### ❌ Verdict: M2 KHÔNG ĐẠT. Không được bắt đầu M4.
+
+§M2 viết rõ: *"Không được đi tiếp M4 với reward chưa validate — 400 step trên reward sai là mất cả phiên thuê máy và cả tuần."* Điều kiện đó đang không thoả:
+
+1. **Validation A fail** ở mọi cấu hình (tốt nhất 0.5833 < 0.6).
+2. **Reward không xếp hạng được hai memory tốt** cho cùng một user: 60.6% trên 1/3 số cặp, ngẫu nhiên trên phần còn lại.
+3. **Bài toán trùng reward 70.8% chưa có lời giải.** `soft_weight` — phương án duy nhất đã thử — làm tệ hơn. Với `soft_weight = 0`, ~2/3 group GRPO sẽ có `std(r) = 0` → không gradient (§9.2), và dynamic sampling §6.4 sẽ lọc vượt xa ngưỡng báo động 60% của kill criteria M4.
+
+**Điều đã cứu được:** toàn bộ kết luận này mua bằng **~$0.35 API + ~1.5 GPU-hour trên L4 rẻ**, thay vì phát hiện đường reward phẳng sau vài phiên H100. Đây đúng là việc M2 sinh ra để làm.
+
+**Điều KHÔNG kết luận:** rằng ý tưởng đồ án sai. Tín hiệu tinh có thật và lớn (0.34 NDCG@5 trên 296 cặp, gấp 3 lần hiệu ứng thô) — chỉ là **proxy 3B hiện tại không đọc được nó**. Đây là vấn đề của proxy, không phải của bài toán.
+
+### Hướng đi tiếp (chưa chọn — cần người dùng quyết)
+
+| Hướng | Chi phí | Lý lẽ |
+|---|---|---|
+| **Pointwise scoring** | ~2–3 GPU-hour | §M2 đã ghi sẵn là phương án 2 sau "thử 3B". Chấm từng candidate riêng (`P(yes)`) cho điểm liên tục, không bị trần 6 giá trị của NDCG@5 → tấn công thẳng vào bài toán trùng. Rẻ nhất trong các hướng thật sự khác biệt |
+| **Ranker 7B** | ~1 GPU-hour để thử | Trả lời "đây có phải giới hạn dung lượng model không". L40 48 GB thử được. **Nhưng** không dùng được ở M4 nếu colocate với vLLM (§4.3) — chỉ có giá trị chẩn đoán |
+| **Reward = gpt-4o-mini trực tiếp** | ~$17–30 + latency | Bỏ proxy. Đắt và chậm, nhưng đúng định nghĩa là tương quan hoàn hảo với `LLM_Rec` |
+| **Thu hẹp phát biểu đồ án** | 0 | Chấp nhận reward chỉ phân biệt thô, đặt mục tiêu M4 là "GRPO ≥ prompted ở vùng thô + ngắn hơn" (trục cost của Figure 4), bỏ tham vọng vượt về accuracy |
 
 ---
 

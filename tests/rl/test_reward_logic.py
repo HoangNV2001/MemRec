@@ -433,22 +433,19 @@ def test_reward_never_raises_on_any_malformed_case():
 # continuous tie-breaker (soft_weight)
 # ---------------------------------------------------------------------------
 
-def test_soft_weight_is_on_by_default_per_the_m2b_measurement():
+def test_soft_weight_is_off_because_measurement_ruled_against_it():
     """
-    M2 Part B turned the soft term on. §M2's rule was "tie rate > 50% -> enable,
-    start at 0.3"; the real ranker ties on 72.5% of pairs under NDCG@5 alone
-    (docs/RESULTS.md). This pins the decision so it cannot be lost silently --
-    a default back at 0.0 would put M4 back on a reward whose groups collapse to
-    std(r)=0 (§9.2).
+    M2 Part B enabled the soft term on §M2's tie-rate rule, then measured it
+    against the real LLM_Rec on five M_collab samples per user and switched it
+    back off.
+
+    p_gold breaks exactly the pairs NDCG@5 cannot judge, and on those 197 pairs it
+    agrees with gpt-4o-mini only 40.1% of the time, CI [33.5, 47.1] -- entirely
+    below chance. It drags a weak-but-real 60.6% signal down to 47.0%. This pins
+    the default so the earlier, wrong decision cannot quietly come back.
     """
-    assert RewardConfig().soft_weight == 0.3
+    assert RewardConfig().soft_weight == 0.0
     b = _reward().per_example(GOOD_COMPLETION, _example())
-    assert b.r_soft == pytest.approx(0.3 * b.p_gold)
-
-
-def test_zero_soft_weight_still_reproduces_the_plan_spec_exactly():
-    """§5 as written must remain reachable, for ablations and for M7."""
-    b = _reward(soft_weight=0.0).per_example(GOOD_COMPLETION, _example())
     assert b.r_soft == 0.0
     assert b.total == pytest.approx(b.r_ndcg + 0.2 * b.r_ground - b.penalty_len - b.penalty_fmt)
 

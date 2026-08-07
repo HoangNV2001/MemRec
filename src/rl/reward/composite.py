@@ -45,12 +45,26 @@ class RewardConfig:
     # Continuous tie-breaker: weight on the ranker's softmax probability of the
     # gold candidate. Set to 0.0 to recover exactly the reward written in §5.
     #
-    # ENABLED at 0.3 by the M2 Part B measurement (docs/RESULTS.md). §M2's rule was
-    # "tie rate > 50% -> turn on, start at 0.3"; the real ranker
-    # (Qwen2.5-3B-Instruct, fp32) ties on 71.1% of user pairs under NDCG@5 and on
-    # 0.0% under p_gold. Turning it on is also what carries Validation A over the
-    # line: Spearman vs the real LLM_Rec is 0.5861 on NDCG@5 alone (below the 0.6
-    # DoD) and 0.6051 with this term. Every w in [0.1, 1.0] gives ~0.605.
+    # OFF. It was briefly enabled at 0.3 -- §M2's rule is "tie rate > 50% -> turn
+    # on at 0.3", and the 3B ranker ties on 71% of pairs -- and then measured
+    # properly against the real LLM_Rec with five M_collab samples per user
+    # (docs/RESULTS.md, M2 Part B). It makes the reward WORSE, and the rule that
+    # switched it on was looking at the wrong number.
+    #
+    # Decomposition over the 296 within-user pairs gpt-4o-mini can separate:
+    #
+    #   NDCG@5 decides                99 pairs   60.6%  CI [50.8, 69.7]  > chance
+    #   NDCG@5 ties, p_gold decides  197 pairs   40.1%  CI [33.5, 47.1]  BELOW chance
+    #   combined                     296 pairs   47.0%                   = chance
+    #
+    # p_gold is asked to break exactly the pairs NDCG@5 cannot judge, and on those
+    # it is anti-informative -- its whole interval sits under 50%. So it does not
+    # rescue the degenerate groups, it fills them with noise pointed the wrong way,
+    # and it drags a weak-but-real 60.6% signal down to chance. The effect is
+    # independent of w (any w > 0 breaks every tie), so it cannot be tuned away.
+    #
+    # This leaves the tie problem below UNSOLVED, which is a real blocker for M4 --
+    # see docs/RESULTS.md. Do not re-enable this as a fix for it.
     #
     # Why it exists. NDCG@k is a function of the gold's *rank* alone, so it takes
     # at most k+1 distinct values and two different memories that land the gold in
@@ -65,8 +79,10 @@ class RewardConfig:
     # p_gold is continuous, so it almost never ties, while NDCG stays the dominant
     # term and the reported metric stays interpretable. This is the same reasoning
     # §5.1 already used to reject Hit@1 in favour of NDCG@5, carried one step
-    # further. M2 Part B has now made that measurement -- see the note above.
-    soft_weight: float = 0.3
+    # further. M2 Part B made that measurement, and it came out against -- see the
+    # note above. Kept as a knob because the *idea* is sound; this particular
+    # continuous term is what failed.
+    soft_weight: float = 0.0
 
 
 @dataclass

@@ -37,7 +37,7 @@ EXPECTED = [
     ("data/rl/stager_books_val.jsonl", 149,
      "a1488c8176a29faff7994c4e1b0d3c34f84926b220a659bca78ea0af35a353ed", True),
     ("data/rl/m2_val_reference_books.json", None,
-     "3e8e287bbe309c7052a8d2ee7e2f85180fe5ed0291e588ceec0ae8b32e4d14cc", True),
+     "7c8725826c5b628208ca6584a8a5eb811ec413db96eb83cf6a8b67189fcfdadf", True),
     ("data/rl/user_splits_books.json", None, None, True),          # tracked in git
     ("data/rl/graph_snapshot_books.json", None,
      "baa83950968699af9e26b0695a8cc5dca82265c43047643643e6b9646a2d5c3d", False),
@@ -180,9 +180,12 @@ def check_reference(rep: Report) -> None:
         return
 
     arms = set(ref["meta"]["arms"])
+    # Subset, not equality: src.rl.extend_val_reference legitimately adds sample3+
+    # (M2 Part B needed more than one comparable pair per user). Extra arms are
+    # expected; a *missing* required arm is still a broken transfer.
     expected_arms = {"sample1", "sample2", "shuffled", "lorem", "empty"}
-    if arms != expected_arms:
-        rep.fail(f"reference arms {sorted(arms)} != {sorted(expected_arms)}")
+    if not expected_arms <= arms:
+        rep.fail(f"reference is missing arms {sorted(expected_arms - arms)}")
         return
 
     n_users = len(ref["scores"])

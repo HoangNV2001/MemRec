@@ -166,3 +166,40 @@ Việc tiếp theo (cần người dùng quyết trước khi thuê H100):
 - **Đề xuất chạy trước, rẻ, không cần GPU (~$1.5, CPU + API):** sinh thêm 3 mẫu `M_collab`/user rồi chấm bằng gpt-4o-mini → số cặp so sánh trong-user tăng từ 1 lên 10 mỗi user. Đây là cách duy nhất tách "proxy quá thô" khỏi "không có tín hiệu tinh nào để học", và nó quyết định M4 có đáng thuê H100 hay không.
 - Đo lại Validation C trên H100 (batch 64, fp32) ngay đầu phiên M3/M4.
 - Cân nhắc lại ngân sách VRAM §4.3 với ranker 3B fp32 (~12 GB thay vì 8 GB).
+
+## M2 Phần B (tiếp) — thí nghiệm within-user, và ĐẢO NGƯỢC hai kết luận — 2026-08-07
+
+Trạng thái: **M2 KHÔNG ĐẠT DoD. M4 bị chặn** theo đúng luật §M2. Chi tiết số liệu: `docs/RESULTS.md` mục "M2 Reward Validation → Phần B".
+
+Chi phí: **~$0.35 API + ~0.5 GPU-hour** (L4). Không thuê H100.
+
+Đã làm:
+- `src/rl/extend_val_reference.py`: sinh thêm 3 mẫu `M_collab`/user (tổng 5), chấm bằng chính `LLMReranker` của repo. Tái dùng nguyên `_generate_m_collab` + `_score` của `build_val_reference` để prompt trùng byte — mẫu mới không so được với mẫu cũ nếu prompt lệch.
+- Tổng quát hoá `validate_reward.py`: đọc mọi arm `sampleN`, so **mọi cặp** thay vì chỉ sample1-vs-sample2, thêm khoảng tin cậy Wilson.
+
+Vì sao phải làm: kết luận "không có phân biệt trong-user" của lần đo trước dựa trên **29 cặp**, CI ~[19%, 59%] — không phải một kết luận. Giờ có 296 cặp phân biệt được.
+
+### Đảo ngược #1 — `soft_weight` phải TẮT (đã từng bật 0.3)
+
+Quy tắc §M2 "trùng > 50% thì bật" đã kích hoạt (70.8%) và em đã bật. Đo lại đàng hoàng thì **quy tắc đó nhìn sai số**:
+
+| Ai quyết định | Cặp | Đồng ý | 95% CI |
+|---|---:|---:|---|
+| NDCG@5 tự quyết | 99 | 60.6% | [50.8, 69.7] trên ngẫu nhiên |
+| NDCG@5 hoà → `p_gold` | 197 | 40.1% | [33.5, 47.1] **dưới ngẫu nhiên** |
+| Tổng | 296 | 47.0% | = ngẫu nhiên |
+
+`p_gold` được giao đúng những cặp NDCG không phán được, và trên đúng những cặp đó nó phản tín hiệu. Không tinh chỉnh được bằng `w` (mọi `w > 0` cho kết quả y hệt). Đã trả `soft_weight` về 0.0, test khoá lại kèm lý do.
+
+### Đảo ngược #2 — Validation A thật ra FAIL (đã từng báo "đạt 0.6051")
+
+Con số 0.6051 chỉ có được khi (a) bật `soft_weight` và (b) chỉ có 2/5 arm là memory thật. Thêm 3 arm mẫu thật → ρ = **0.5573** (§5 nguyên bản), tối đa 0.5833 với mọi `w`. ρ gộp nhạy với tỉ lệ arm thật/hỏng; bản 5 mẫu đáng tin hơn. **Validation A fail ở mọi cấu hình.**
+
+### Kết cục xấu nhất đã bị loại trừ
+
+Tín hiệu tinh **có thật và lớn**: 296/1490 cặp phân biệt được, biên độ trung bình **0.3413** — gấp ~3 lần hiệu ứng thô (+0.1112) — tập trung ở 54/149 user (36.2%). Nên vấn đề là **proxy 3B không đọc được tín hiệu**, không phải "không có gì để học". Ý tưởng đồ án không bị bác bỏ.
+
+Ghi chú: heuristic tự động ban đầu của em in ra "LLM_Rec mostly CANNOT tell these memories apart" chỉ vì 63.8% user phẳng — đó là kết luận sai, vì cái quyết định gradient là **biên độ của các cặp không hoà**, không phải tỉ lệ hoà. Đã sửa hàm báo cáo.
+
+Việc tiếp theo — **cần người dùng quyết**, 4 hướng đã liệt kê ở cuối mục M2 trong `docs/RESULTS.md`:
+pointwise scoring (~2–3 GPU-h, là phương án 2 §M2 đã ghi sẵn) · ranker 7B (chẩn đoán, không dùng được ở M4 vì VRAM) · reward = gpt-4o-mini trực tiếp (~$17–30) · thu hẹp phát biểu đồ án về trục cost của Figure 4.
