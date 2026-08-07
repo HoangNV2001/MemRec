@@ -113,7 +113,7 @@ class FrozenRanker:
     def __init__(
         self,
         mode: str = "stub",
-        model_name: str = "Qwen2.5-1.5B-Instruct",
+        model_name: str = "Qwen/Qwen2.5-1.5B-Instruct",   # org prefix: must resolve on HF
         device: str = "cuda",
         include_instruction: bool = True,
         stub_fn: Optional[Callable[[str, int], float]] = None,
