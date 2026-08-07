@@ -150,6 +150,7 @@ def main():
             proxy[(uid, arm)] = {
                 "ndcg_at_5": ndcg_at_k(out.ranking, gold, 5),
                 "hit_at_1": hit_at_k(out.ranking, gold, 1),
+                "p_gold": float(out.scores.get(gold, 0.0)),
             }
     elapsed = time.time() - t0
     throughput = len(requests) / elapsed if elapsed else float("inf")
@@ -175,6 +176,9 @@ def main():
         if vals:
             arm_means[arm] = sum(vals) / len(vals)
 
+    # ---- tie rate: decides soft_weight (docs/RESULTS.md, M2 Part A) -------
+    tie = _tie_rate_between_samples(proxy, keys)
+
     report = {
         "ranker_mode": args.ranker_mode,
         "ranker_model": args.ranker_model if args.ranker_mode == "hf" else None,
@@ -187,6 +191,7 @@ def main():
                          "pass": _sensitivity_ok(arm_means)},
         "validation_c": {"reward_per_second": throughput, "batch_size": args.batch_size,
                          "threshold": 20.0, "pass": throughput >= 20.0},
+        "tie_rate": tie,
     }
     _print_report(report)
 
@@ -195,6 +200,39 @@ def main():
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
     print(f"\nreport -> {out_path}")
+
+
+def _tie_rate_between_samples(proxy: Dict, keys: Sequence) -> Dict:
+    """
+    How often do two independently sampled M_collab give the SAME reward?
+
+    This is the number that decides ``soft_weight``. A tie inside a GRPO group
+    means std(r)=0 -> advantage 0 -> no gradient (§9.2), and dynamic sampling
+    (§6.4) would filter past the 60% alarm in M4's kill criteria.
+
+    Measured on gpt-4o-mini at Part A: 80.5% under NDCG@5. If the 1.5B ranker is
+    similar, turn ``soft_weight`` on (start at 0.3); it adds the ranker's
+    continuous probability of the gold, which almost never ties.
+    """
+    users = sorted({u for (u, a) in keys if a == "sample1"})
+    ndcg_ties = prob_ties = compared = 0
+    for u in users:
+        a, b = proxy.get((u, "sample1")), proxy.get((u, "sample2"))
+        if not a or not b:
+            continue
+        compared += 1
+        if abs(a["ndcg_at_5"] - b["ndcg_at_5"]) < 1e-9:
+            ndcg_ties += 1
+        if abs(a["p_gold"] - b["p_gold"]) < 1e-9:
+            prob_ties += 1
+    if not compared:
+        return {}
+    return {
+        "n_compared": compared,
+        "ndcg_at_5": ndcg_ties / compared,
+        "p_gold": prob_ties / compared,
+        "recommend_soft_weight": (ndcg_ties / compared) > 0.5,
+    }
 
 
 def _shuffled_partner(reference: Dict, uid_str: str) -> str:
@@ -270,6 +308,18 @@ def _print_report(report: Dict):
     print(f"   ordering real > shuffled > lorem ~ empty: {'PASS' if b['pass'] else 'FAIL'}")
     print(f"\nC  throughput = {c['reward_per_second']:.1f} reward/s at batch "
           f"{c['batch_size']}  (need >= {c['threshold']})  {'PASS' if c['pass'] else 'FAIL'}")
+
+    tie = report.get("tie_rate") or {}
+    if tie:
+        print(f"\nTIE RATE between two sampled M_collab  (n={tie['n_compared']})")
+        print(f"     NDCG@5 identical  {100 * tie['ndcg_at_5']:.1f}%"
+              f"   (gpt-4o-mini at Part A: 80.5%)")
+        print(f"     p_gold identical  {100 * tie['p_gold']:.1f}%")
+        if tie["recommend_soft_weight"]:
+            print("     -> ties > 50%: turn ON soft_weight (start 0.3). A tie inside a")
+            print("        GRPO group is std(r)=0, i.e. no gradient at all (§9.2).")
+        else:
+            print("     -> ties <= 50%: keep soft_weight = 0.0, the reward as written in §5.")
 
 
 if __name__ == "__main__":
