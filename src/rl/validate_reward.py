@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Dict, List, Sequence
 
 import argparse
+import itertools
 import json
 import sys
 import time
@@ -40,6 +41,23 @@ from src.rl.reward.ranker import FrozenRanker                    # noqa: E402
 from src.utils import load_config                                # noqa: E402
 
 ARMS = ("sample1", "sample2", "shuffled", "lorem", "empty")
+
+
+def _sample_arms(reference: Dict) -> List[str]:
+    """
+    The ``sampleN`` arms actually present, in order.
+
+    M2 Part B ran with two. ``src.rl.extend_val_reference`` adds more, because one
+    comparable pair per user is not enough to conclude anything about within-user
+    discrimination -- which is the number that decides whether GRPO can learn.
+    """
+    n = min((len(v) for v in reference["m_collab"].values()), default=0)
+    have = {a for a in reference["meta"].get("arms", []) if a.startswith("sample")}
+    return [f"sample{i}" for i in range(1, n + 1) if f"sample{i}" in have]
+
+
+def _effective_arms(reference: Dict) -> List[str]:
+    return _sample_arms(reference) + ["shuffled", "lorem", "empty"]
 
 
 def parse_args():
@@ -115,6 +133,9 @@ def main():
     )
 
     # ---- build every (user, arm) request ---------------------------------
+    sample_arms = _sample_arms(reference)
+    arms_in_play = _effective_arms(reference)
+    print(f"Arms in play: {arms_in_play}")
     requests, keys = [], []
     for uid_str, arms in reference["scores"].items():
         uid = int(uid_str)
@@ -124,13 +145,13 @@ def main():
         samples = reference["m_collab"].get(uid_str, [[], []])
         shuffled_uid = _shuffled_partner(reference, uid_str)
         arm_facets = {
-            "sample1": samples[0] if len(samples) > 0 else [],
-            "sample2": samples[1] if len(samples) > 1 else [],
             "shuffled": reference["m_collab"].get(shuffled_uid, [[]])[0],
             "lorem": _lorem(),
             "empty": [],
         }
-        for arm in ARMS:
+        for i, arm in enumerate(sample_arms):
+            arm_facets[arm] = samples[i] if len(samples) > i else []
+        for arm in arms_in_play:
             if arm not in arms or "ndcg_at_5" not in arms[arm]:
                 continue
             requests.append(dict(
@@ -169,7 +190,7 @@ def main():
     rho_all = spearman([p[0] for p in paired], [p[1] for p in paired])
 
     per_arm_rho = {}
-    for arm in ARMS:
+    for arm in arms_in_play:
         pts = [(proxy[(u, a)]["ndcg_at_5"], reference["scores"][str(u)][a]["ndcg_at_5"])
                for (u, a) in keys if a == arm and (u, a) in proxy]
         if len(pts) > 2:
@@ -177,16 +198,16 @@ def main():
 
     # ---- Validation B: sensitivity ---------------------------------------
     arm_means = {}
-    for arm in ARMS:
+    for arm in arms_in_play:
         vals = [proxy[(u, a)]["ndcg_at_5"] for (u, a) in keys if a == arm and (u, a) in proxy]
         if vals:
             arm_means[arm] = sum(vals) / len(vals)
 
     # ---- tie rate: decides soft_weight (docs/RESULTS.md, M2 Part A) -------
-    tie = _tie_rate_between_samples(proxy, keys)
+    tie = _tie_rate_between_samples(proxy, keys, sample_arms)
 
     # ---- within-user agreement: the number M4 actually depends on --------
-    within = _within_user_agreement(proxy, keys, reference)
+    within = _within_user_agreement(proxy, keys, reference, sample_arms)
 
     report = {
         "ranker_mode": args.ranker_mode,
@@ -203,6 +224,7 @@ def main():
                          "threshold": 20.0, "pass": throughput >= 20.0},
         "tie_rate": tie,
         "within_user": within,
+        "sample_arms": sample_arms,
     }
     _print_report(report)
 
@@ -230,7 +252,8 @@ def main():
     print(f"\nreport -> {out_path}")
 
 
-def _tie_rate_between_samples(proxy: Dict, keys: Sequence) -> Dict:
+def _tie_rate_between_samples(proxy: Dict, keys: Sequence,
+                              sample_arms: Sequence[str] = ("sample1", "sample2")) -> Dict:
     """
     How often do two independently sampled M_collab give the SAME reward?
 
@@ -242,17 +265,18 @@ def _tie_rate_between_samples(proxy: Dict, keys: Sequence) -> Dict:
     real ranker (Qwen2.5-3B-Instruct, fp32) at 71.1% under NDCG@5 and 0.0% under
     ``p_gold``, which tripped this rule and turned ``soft_weight`` on at 0.3.
     """
-    users = sorted({u for (u, a) in keys if a == "sample1"})
+    users = sorted({u for (u, a) in keys if a == sample_arms[0]})
     ndcg_ties = prob_ties = compared = 0
     for u in users:
-        a, b = proxy.get((u, "sample1")), proxy.get((u, "sample2"))
-        if not a or not b:
-            continue
-        compared += 1
-        if abs(a["ndcg_at_5"] - b["ndcg_at_5"]) < 1e-9:
-            ndcg_ties += 1
-        if abs(a["p_gold"] - b["p_gold"]) < 1e-9:
-            prob_ties += 1
+        for x, y in itertools.combinations(sample_arms, 2):
+            a, b = proxy.get((u, x)), proxy.get((u, y))
+            if not a or not b:
+                continue
+            compared += 1
+            if abs(a["ndcg_at_5"] - b["ndcg_at_5"]) < 1e-9:
+                ndcg_ties += 1
+            if abs(a["p_gold"] - b["p_gold"]) < 1e-9:
+                prob_ties += 1
     if not compared:
         return {}
     return {
@@ -263,7 +287,8 @@ def _tie_rate_between_samples(proxy: Dict, keys: Sequence) -> Dict:
     }
 
 
-def _within_user_agreement(proxy: Dict, keys: Sequence, reference: Dict) -> Dict:
+def _within_user_agreement(proxy: Dict, keys: Sequence, reference: Dict,
+                           sample_arms: Sequence[str] = ("sample1", "sample2")) -> Dict:
     """
     Does the proxy prefer the same ``M_collab`` as the real ``LLM_Rec``, *for the
     same user*?
@@ -280,14 +305,18 @@ def _within_user_agreement(proxy: Dict, keys: Sequence, reference: Dict) -> Dict
     * ``mean_per_user_rho`` -- Spearman across the arms *within* each user,
       averaged over users where the reference itself distinguishes the arms
       (a user the reference scores flat carries no signal to agree with).
-    * ``sample1_vs_sample2`` -- the cleanest case: two independent draws of a real
-      ``M_collab``. Among users where gpt-4o-mini ranks one above the other, how
-      often does the proxy agree? This is exactly a GRPO group of size 2.
+    * ``sample_pairs`` -- the cleanest case: two independent draws of a real
+      ``M_collab``. Among the pairs where gpt-4o-mini ranks one above the other,
+      how often does the proxy agree? That is exactly a GRPO group of size 2.
+      Every pair of sample arms is used, so with five samples each user
+      contributes up to C(5,2) = 10 pairs instead of one -- M2 Part B had only 29
+      usable pairs in total, whose 95% interval was far too wide to conclude
+      anything.
     """
     per_user_rho: List[float] = []
     for uid in sorted({u for (u, _) in keys}):
         px, rx = [], []
-        for arm in ARMS:
+        for arm in list(sample_arms) + ["shuffled", "lorem", "empty"]:
             if (uid, arm) not in proxy:
                 continue
             ref_arm = reference["scores"].get(str(uid), {}).get(arm, {})
@@ -302,27 +331,32 @@ def _within_user_agreement(proxy: Dict, keys: Sequence, reference: Dict) -> Dict
             per_user_rho.append(rho)
 
     concordant = discordant = proxy_tied = 0
-    for uid in sorted({u for (u, a) in keys if a == "sample1"}):
-        a, b = proxy.get((uid, "sample1")), proxy.get((uid, "sample2"))
+    ref_flat = 0
+    for uid in sorted({u for (u, a) in keys if a == sample_arms[0]}):
         ref = reference["scores"].get(str(uid), {})
-        if not a or not b or "sample1" not in ref or "sample2" not in ref:
-            continue
-        ref_delta = ref["sample1"]["ndcg_at_5"] - ref["sample2"]["ndcg_at_5"]
-        if abs(ref_delta) < 1e-9:
-            continue                      # reference cannot tell them apart
-        proxy_delta = a["ndcg_at_5"] - b["ndcg_at_5"]
-        if abs(proxy_delta) < 1e-9:
-            proxy_tied += 1
-        elif (proxy_delta > 0) == (ref_delta > 0):
-            concordant += 1
-        else:
-            discordant += 1
+        for x, y in itertools.combinations(sample_arms, 2):
+            a, b = proxy.get((uid, x)), proxy.get((uid, y))
+            if not a or not b or x not in ref or y not in ref:
+                continue
+            ref_delta = ref[x]["ndcg_at_5"] - ref[y]["ndcg_at_5"]
+            if abs(ref_delta) < 1e-9:
+                ref_flat += 1
+                continue                  # reference cannot tell them apart
+            proxy_delta = a["ndcg_at_5"] - b["ndcg_at_5"]
+            if abs(proxy_delta) < 1e-9:
+                proxy_tied += 1
+            elif (proxy_delta > 0) == (ref_delta > 0):
+                concordant += 1
+            else:
+                discordant += 1
 
     decided = concordant + discordant
     return {
         "mean_per_user_rho": (sum(per_user_rho) / len(per_user_rho)) if per_user_rho else None,
         "n_users_with_signal": len(per_user_rho),
-        "sample1_vs_sample2": {
+        "sample_pairs": {
+            "arms": list(sample_arms),
+            "n_pairs_reference_is_flat": ref_flat,
             "n_reference_distinguishes": decided + proxy_tied,
             "proxy_concordant": concordant,
             "proxy_discordant": discordant,
@@ -330,6 +364,17 @@ def _within_user_agreement(proxy: Dict, keys: Sequence, reference: Dict) -> Dict
             "accuracy_when_proxy_decides": (concordant / decided) if decided else None,
         },
     }
+
+
+def _wilson(successes: int, n: int, z: float = 1.96):
+    """Wilson score interval -- the small-n honesty check on an agreement rate."""
+    if not n:
+        return (float("nan"), float("nan"))
+    phat = successes / n
+    denom = 1 + z * z / n
+    centre = (phat + z * z / (2 * n)) / denom
+    half = z * ((phat * (1 - phat) / n + z * z / (4 * n * n)) ** 0.5) / denom
+    return (max(0.0, centre - half), min(1.0, centre + half))
 
 
 def _shuffled_partner(reference: Dict, uid_str: str) -> str:
@@ -345,7 +390,7 @@ def _lorem() -> List[Dict]:
 
 def _ref_means(reference: Dict) -> Dict[str, float]:
     out = {}
-    for arm in ARMS:
+    for arm in _effective_arms(reference):
         vals = [s[arm]["ndcg_at_5"] for s in reference["scores"].values()
                 if arm in s and "ndcg_at_5" in s[arm]]
         if vals:
@@ -397,7 +442,7 @@ def _print_report(report: Dict):
     for arm, rho in a["per_arm"].items():
         print(f"     per-arm {arm:<9} {rho:.4f}")
     print(f"\nB  NDCG@5 by arm{'':<8}{'proxy':>10}{'gpt-4o-mini':>14}")
-    for arm in ARMS:
+    for arm in report.get("sample_arms", list(ARMS)) + ["shuffled", "lorem", "empty"]:
         p = b["proxy_ndcg_by_arm"].get(arm)
         r = b["reference_ndcg_by_arm"].get(arm)
         if p is not None:
@@ -414,17 +459,24 @@ def _print_report(report: Dict):
         print(f"     p_gold identical  {100 * tie['p_gold']:.1f}%")
     w = report.get("within_user") or {}
     if w:
-        s = w["sample1_vs_sample2"]
+        s = w["sample_pairs"]
         rho = w["mean_per_user_rho"]
         print(f"\nWITHIN-USER agreement  (what a GRPO group actually sees)")
         print(f"     mean per-user rho across arms  "
               f"{'n/a' if rho is None else f'{rho:.4f}'}   "
               f"(n={w['n_users_with_signal']} users with reference signal)")
         acc = s["accuracy_when_proxy_decides"]
-        print(f"     sample1 vs sample2: reference separates {s['n_reference_distinguishes']} users; "
-              f"proxy tied on {s['proxy_tied']},")
-        print(f"       of the {s['proxy_concordant'] + s['proxy_discordant']} it decided, "
+        decided = s["proxy_concordant"] + s["proxy_discordant"]
+        total = s["n_pairs_reference_is_flat"] + s["n_reference_distinguishes"]
+        print(f"     pairs over {len(s['arms'])} sample arms: {total} total; "
+              f"gpt-4o-mini flat on {s['n_pairs_reference_is_flat']},")
+        print(f"       separates {s['n_reference_distinguishes']}, proxy tied on {s['proxy_tied']},")
+        print(f"       of the {decided} the proxy decided, "
               f"{'n/a' if acc is None else f'{100 * acc:.1f}% agree'}  (coin flip = 50%)")
+        if acc is not None and decided >= 30:
+            lo, hi = _wilson(s["proxy_concordant"], decided)
+            print(f"       95% CI [{100 * lo:.1f}%, {100 * hi:.1f}%]"
+                  f"{'  -> indistinguishable from chance' if lo <= 0.5 <= hi else ''}")
 
     if tie:
         if tie["recommend_soft_weight"]:
