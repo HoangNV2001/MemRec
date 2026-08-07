@@ -8,12 +8,37 @@
 #   pip install -r requirements-gpu.txt
 #
 # torch is intentionally unpinned here: install the build that matches the host
-# CUDA first, then this file, e.g.
-#   pip install torch --index-url https://download.pytorch.org/whl/cu124
+# CUDA first, then this file.
+#
+# ---------------------------------------------------------------------------
+# MATCH TORCH TO THE HOST DRIVER, NOT THE OTHER WAY ROUND
+# ---------------------------------------------------------------------------
+# On a rented box (vast.ai and friends) the NVIDIA driver belongs to the host and
+# you cannot upgrade it. A torch wheel built for a newer CUDA than the driver
+# supports fails at import with:
+#
+#   UserWarning: CUDA initialization: The NVIDIA driver on your system is too old
+#   (found version 12040)
+#
+# 12040 means the driver supports CUDA 12.4, so you need a cu124 (or older) build.
+# Check first, then install the matching index:
+#
+#   python -c "import torch; print(torch.__version__)"   # +cu126 / +cu128 = too new
+#   nvidia-smi | head -3
+#
+#   driver CUDA 12.4  ->  pip install torch --index-url https://download.pytorch.org/whl/cu124
+#   driver CUDA 12.1  ->  pip install torch --index-url https://download.pytorch.org/whl/cu121
+#
+# Uninstall the preinstalled one first; base images often ship a torch built for a
+# newer CUDA than the host they land on:
+#   pip uninstall -y torch torchvision torchaudio
+#
+# torchvision / torchaudio are NOT needed by anything in this repo.
 #
 # vllm is NOT listed. It is only needed at M4 (GRPO rollouts, colocate mode) and
-# is very sensitive to the torch/CUDA pair — install it last, on its own, and let
-# it pick its torch:  pip install vllm
+# pins an exact torch version, so it can silently drag torch back to a build the
+# driver cannot run. Install it last, on its own, and re-check torch.cuda
+# afterwards. On a CUDA 12.4 driver, pick a vllm release built against torch 2.6.
 
 # --- carried over from requirements.txt (needed by the original pipeline) ---
 openai==2.8.1

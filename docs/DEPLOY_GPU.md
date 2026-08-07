@@ -151,6 +151,37 @@ chạy được test nhưng chết ở forward pass đầu tiên. **Dùng `requi
 > Nếu image đã có torch bản GPU, đừng cài đè: chạy thẳng bước 2. `requirements-gpu.txt`
 > cố tình **không** pin torch chính vì lý do này.
 
+### 2.1 Lỗi hay gặp nhất: torch quá mới so với driver
+
+```
+UserWarning: CUDA initialization: The NVIDIA driver on your system is too old
+(found version 12040)
+```
+
+`12040` = driver hỗ trợ CUDA **12.4**, còn torch đang cài được build cho CUDA mới hơn
+(cu126/cu128). Trên máy thuê, **driver thuộc về host — không sửa được**. Phải hạ torch
+cho khớp, không phải nâng driver.
+
+```bash
+# 1. xác nhận thủ phạm
+python -c "import torch; print(torch.__version__)"   # đuôi +cu126 / +cu128 = quá mới
+nvidia-smi | head -3
+
+# 2. gỡ bản của image rồi cài bản khớp driver
+pip uninstall -y torch torchvision torchaudio
+pip install torch --index-url https://download.pytorch.org/whl/cu124   # driver CUDA 12.4
+#                                                          .../cu121   # driver CUDA 12.1
+
+# 3. xác nhận
+python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+```
+
+Index `cu124` chỉ chứa các bản có build cu124 nên pip tự chọn bản mới nhất phù hợp.
+`torchvision`/`torchaudio` không module nào trong repo dùng — gỡ luôn cho gọn.
+
+> **Tới M4 nhớ kiểm tra lại:** `vllm` pin torch chặt, nên nó có thể **kéo torch ngược lên**
+> bản mà driver không chạy được. Cài `vllm` sau cùng rồi chạy lại lệnh xác nhận ở bước 3.
+
 ### Kiểm tra nhanh — chạy đủ 3 lệnh này TRƯỚC khi làm gì khác
 
 ```bash
@@ -205,6 +236,22 @@ quyết định `soft_weight` ở Phần B.
 
 > **Ước lượng:** M2-B chỉ là 745 forward pass prefill-only của một model 1.5B — vài phút.
 > Đừng thuê H100 riêng cho nó; gộp cùng phiên với M3-B đúng như §11.5.
+
+### 4.1 Đường lui nếu GPU chưa dùng được
+
+Nếu còn đang vật lộn với driver/torch, **Validation A và B không cần GPU** — chúng chỉ so
+sánh thứ hạng, kết quả giống hệt nhau trên CPU (`ranker.py` tự dùng float32 khi
+`device=cpu`). Chỉ Validation C (throughput) là mất ý nghĩa.
+
+```bash
+python -m src.rl.validate_reward --ranker_mode hf \
+    --ranker_model Qwen/Qwen2.5-1.5B-Instruct --device cpu \
+    --batch_size 8 --out data/rl/m2_validation_report_cpu.json
+```
+
+Chậm hơn nhiều (ước lượng 30–60 phút cho 745 prompt), nhưng cho ra **ρ và tỉ lệ trùng** —
+tức là đủ để quyết định `soft_weight` và đủ để biết reward có dùng được không, mà không
+tốn đồng nào. Chạy lại trên GPU sau để lấy con số throughput cho DoD.
 
 ---
 
