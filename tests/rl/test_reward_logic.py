@@ -274,7 +274,7 @@ def test_reward_decomposes_into_its_terms():
     r = _reward()
     b = r.per_example(GOOD_COMPLETION, _example())
     assert b.total == pytest.approx(
-        b.r_ndcg + 0.2 * b.r_ground - b.penalty_len - b.penalty_fmt
+        b.r_ndcg + b.r_soft + 0.2 * b.r_ground - b.penalty_len - b.penalty_fmt
     )
     assert not b.is_malformed
     assert b.penalty_fmt == 0.0
@@ -353,7 +353,9 @@ def test_r_null_is_cached_and_diagnostic_only():
     assert b.r_null == pytest.approx(first)
     assert b.beats_null in (True, False)
     # r_null must not be subtracted from the returned reward (§5.4)
-    assert b.total == pytest.approx(b.r_ndcg + 0.2 * b.r_ground - b.penalty_len - b.penalty_fmt)
+    assert b.total == pytest.approx(
+        b.r_ndcg + b.r_soft + 0.2 * b.r_ground - b.penalty_len - b.penalty_fmt
+    )
 
 
 def test_missing_required_column_raises_loudly():
@@ -431,9 +433,22 @@ def test_reward_never_raises_on_any_malformed_case():
 # continuous tie-breaker (soft_weight)
 # ---------------------------------------------------------------------------
 
-def test_soft_weight_defaults_to_the_plan_spec():
-    """Default config must reproduce §5 exactly: no soft term."""
+def test_soft_weight_is_on_by_default_per_the_m2b_measurement():
+    """
+    M2 Part B turned the soft term on. §M2's rule was "tie rate > 50% -> enable,
+    start at 0.3"; the real ranker ties on 72.5% of pairs under NDCG@5 alone
+    (docs/RESULTS.md). This pins the decision so it cannot be lost silently --
+    a default back at 0.0 would put M4 back on a reward whose groups collapse to
+    std(r)=0 (§9.2).
+    """
+    assert RewardConfig().soft_weight == 0.3
     b = _reward().per_example(GOOD_COMPLETION, _example())
+    assert b.r_soft == pytest.approx(0.3 * b.p_gold)
+
+
+def test_zero_soft_weight_still_reproduces_the_plan_spec_exactly():
+    """§5 as written must remain reachable, for ablations and for M7."""
+    b = _reward(soft_weight=0.0).per_example(GOOD_COMPLETION, _example())
     assert b.r_soft == 0.0
     assert b.total == pytest.approx(b.r_ndcg + 0.2 * b.r_ground - b.penalty_len - b.penalty_fmt)
 
@@ -451,10 +466,10 @@ def test_soft_weight_enters_the_total_when_enabled():
 def test_soft_weight_breaks_ties_that_ndcg_cannot():
     """
     The point of the soft term: two memories that put the gold in the same slot
-    score identically under any rank-only reward (measured 74% of the time on the
-    real ranker), which zeroes the GRPO advantage.
+    score identically under any rank-only reward (measured 71.1% of the time on
+    the real 3B ranker at M2 Part B), which zeroes the GRPO advantage.
     """
-    plain, soft = _reward(), _reward(soft_weight=0.3)
+    plain, soft = _reward(soft_weight=0.0), _reward(soft_weight=0.3)
     ex = _example()
 
     def totals(rw):

@@ -113,11 +113,16 @@ class FrozenRanker:
     def __init__(
         self,
         mode: str = "stub",
-        model_name: str = "Qwen/Qwen2.5-1.5B-Instruct",   # org prefix: must resolve on HF
+        # M2 Part B (docs/RESULTS.md): the planned Qwen2.5-1.5B-Instruct failed
+        # validation outright -- Spearman 0.307 vs the 0.6 DoD, and `lorem` memory
+        # outscored the real memory. 3B is §M2's prescribed fallback and passes
+        # Validation B. Org prefix required: must resolve on HF.
+        model_name: str = "Qwen/Qwen2.5-3B-Instruct",
         device: str = "cuda",
         include_instruction: bool = True,
         stub_fn: Optional[Callable[[str, int], float]] = None,
         max_prompt_tokens: int = 3072,
+        dtype: str = "float32",
     ):
         """
         Args:
@@ -127,9 +132,29 @@ class FrozenRanker:
                 the proxy faithful (§9.5). But the instruction is generated from
                 the target item, so it can dominate and flatten the reward across
                 different ``M_collab`` -- which is exactly the degenerate-group
-                failure of §9.2. M2 Validation A/B decides this empirically; see
+                failure of §9.2. **Settled by M2 Part B: keep True.** Dropping the
+                instruction more than halved the correlation with the real
+                ``LLM_Rec`` (Spearman 0.141 vs 0.307 on the 1.5B ranker), so it
+                does not flatten the signal -- it carries much of it. See
                 ``docs/RESULTS.md``.
             stub_fn: override the stub scoring, for tests that need a known order.
+            dtype: ``float32`` (default) or ``bfloat16`` on GPU.
+
+                **float32 is not a precision luxury here, it is what makes the
+                reward reproducible.** §5.1 chose the single-forward-pass design
+                precisely because it is deterministic ("GRPO has no critic, so
+                reward noise lands straight in the advantage variance"). In bf16
+                that promise is false: padding changes the floating-point
+                reduction order, so the *same* (prompt, completion) scores
+                differently depending on which other rollouts happen to share its
+                batch. Measured on Qwen2.5-3B-Instruct over 48 val users
+                (docs/RESULTS.md, M2 Part B): batch 24 vs batch 1 flips NDCG@5 for
+                2/48 users in bf16 and 0/48 in float32.
+
+                The model is extremely peaked -- ~0.99 of the probability mass
+                lands on one letter -- so the logit gaps *below* rank 1 are tiny
+                and a bf16-sized perturbation is enough to reorder them. NDCG@5
+                reads exactly that tail.
         """
         if mode not in ("stub", "hf"):
             raise ValueError(f"unknown ranker mode: {mode!r}")
@@ -139,6 +164,9 @@ class FrozenRanker:
         self.include_instruction = include_instruction
         self.stub_fn = stub_fn or _stub_logit
         self.max_prompt_tokens = max_prompt_tokens
+        if dtype not in ("float32", "bfloat16"):
+            raise ValueError(f"unknown ranker dtype: {dtype!r}")
+        self.dtype = dtype
 
         self._model = None
         self._tokenizer = None
@@ -159,11 +187,15 @@ class FrozenRanker:
         if self._tokenizer.pad_token is None:
             self._tokenizer.pad_token = self._tokenizer.eos_token
 
-        # Plain load + .to() rather than device_map=: the ranker is a single 1.5B
+        # Plain load + .to() rather than device_map=: the ranker is a single small
         # model on one device, so sharded loading buys nothing and device_map would
         # make `accelerate` a hard dependency of the reward path.
-        # bf16 on GPU; float32 on CPU, where bf16 matmuls are slow or unsupported.
-        dtype = torch.bfloat16 if str(self.device).startswith("cuda") else torch.float32
+        # float32 unless bf16 was asked for explicitly, and never on CPU where bf16
+        # matmuls are slow or unsupported. See the `dtype` note in __init__ for why
+        # the default is not bf16.
+        dtype = (torch.bfloat16
+                 if self.dtype == "bfloat16" and str(self.device).startswith("cuda")
+                 else torch.float32)
         self._model = AutoModelForCausalLM.from_pretrained(self.model_name, torch_dtype=dtype)
         self._model.to(self.device)
         self._model.eval()

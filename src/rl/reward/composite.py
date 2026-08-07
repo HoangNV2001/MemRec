@@ -43,7 +43,14 @@ class RewardConfig:
     chars_per_token: float = 4.0   # crude but consistent with SnippetPacker
 
     # Continuous tie-breaker: weight on the ranker's softmax probability of the
-    # gold candidate. Default 0.0 == exactly the reward written in §5.
+    # gold candidate. Set to 0.0 to recover exactly the reward written in §5.
+    #
+    # ENABLED at 0.3 by the M2 Part B measurement (docs/RESULTS.md). §M2's rule was
+    # "tie rate > 50% -> turn on, start at 0.3"; the real ranker
+    # (Qwen2.5-3B-Instruct, fp32) ties on 71.1% of user pairs under NDCG@5 and on
+    # 0.0% under p_gold. Turning it on is also what carries Validation A over the
+    # line: Spearman vs the real LLM_Rec is 0.5861 on NDCG@5 alone (below the 0.6
+    # DoD) and 0.6051 with this term. Every w in [0.1, 1.0] gives ~0.605.
     #
     # Why it exists. NDCG@k is a function of the gold's *rank* alone, so it takes
     # at most k+1 distinct values and two different memories that land the gold in
@@ -58,9 +65,8 @@ class RewardConfig:
     # p_gold is continuous, so it almost never ties, while NDCG stays the dominant
     # term and the reported metric stays interpretable. This is the same reasoning
     # §5.1 already used to reject Hit@1 in favour of NDCG@5, carried one step
-    # further. Left off by default: M2 Part B measures the real ranker's tie rate
-    # and decides.
-    soft_weight: float = 0.0
+    # further. M2 Part B has now made that measurement -- see the note above.
+    soft_weight: float = 0.3
 
 
 @dataclass
