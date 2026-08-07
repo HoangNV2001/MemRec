@@ -50,10 +50,15 @@ def parse_args():
     p.add_argument("--ranker_mode", choices=["stub", "hf"], default="stub")
     p.add_argument("--ranker_model", default="Qwen/Qwen2.5-1.5B-Instruct")
     p.add_argument("--device", default="cpu")
+    p.add_argument("--dtype", choices=["float32", "bfloat16"], default="float32")
     p.add_argument("--batch_size", type=int, default=64)
     p.add_argument("--no_instruction", action="store_true",
                    help="drop the InstructRec instruction from the ranker prompt")
     p.add_argument("--out", default="data/rl/m2_validation_report.json")
+    p.add_argument("--dump_pairs", default=None,
+                   help="also write every (user, arm) proxy/reference score pair to "
+                        "this path, so a failed run can be diagnosed without paying "
+                        "for the forward passes again")
     return p.parse_args()
 
 
@@ -105,6 +110,7 @@ def main():
         mode=args.ranker_mode,
         model_name=args.ranker_model,
         device=args.device,
+        dtype=args.dtype,
         include_instruction=not args.no_instruction,
     )
 
@@ -179,9 +185,13 @@ def main():
     # ---- tie rate: decides soft_weight (docs/RESULTS.md, M2 Part A) -------
     tie = _tie_rate_between_samples(proxy, keys)
 
+    # ---- within-user agreement: the number M4 actually depends on --------
+    within = _within_user_agreement(proxy, keys, reference)
+
     report = {
         "ranker_mode": args.ranker_mode,
         "ranker_model": args.ranker_model if args.ranker_mode == "hf" else None,
+        "dtype": args.dtype if args.ranker_mode == "hf" else None,
         "include_instruction": not args.no_instruction,
         "n_pairs": len(paired),
         "validation_a": {"spearman_rho": rho_all, "per_arm": per_arm_rho, "threshold": 0.6,
@@ -192,8 +202,26 @@ def main():
         "validation_c": {"reward_per_second": throughput, "batch_size": args.batch_size,
                          "threshold": 20.0, "pass": throughput >= 20.0},
         "tie_rate": tie,
+        "within_user": within,
     }
     _print_report(report)
+
+    if args.dump_pairs:
+        dump_path = PROJECT_ROOT / args.dump_pairs
+        dump_path.parent.mkdir(parents=True, exist_ok=True)
+        rows = [
+            {"user_id": uid, "arm": arm,
+             "proxy_ndcg_at_5": proxy[(uid, arm)]["ndcg_at_5"],
+             "proxy_hit_at_1": proxy[(uid, arm)]["hit_at_1"],
+             "proxy_p_gold": proxy[(uid, arm)]["p_gold"],
+             "reference_ndcg_at_5": reference["scores"][str(uid)][arm]["ndcg_at_5"]}
+            for (uid, arm) in keys if (uid, arm) in proxy
+        ]
+        with open(dump_path, "w", encoding="utf-8") as f:
+            json.dump({"meta": {k: report[k] for k in
+                                ("ranker_mode", "ranker_model", "include_instruction")},
+                       "pairs": rows}, f, indent=2)
+        print(f"pairs  -> {dump_path}")
 
     out_path = PROJECT_ROOT / args.out
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -210,9 +238,9 @@ def _tie_rate_between_samples(proxy: Dict, keys: Sequence) -> Dict:
     means std(r)=0 -> advantage 0 -> no gradient (§9.2), and dynamic sampling
     (§6.4) would filter past the 60% alarm in M4's kill criteria.
 
-    Measured on gpt-4o-mini at Part A: 80.5% under NDCG@5. If the 1.5B ranker is
-    similar, turn ``soft_weight`` on (start at 0.3); it adds the ranker's
-    continuous probability of the gold, which almost never ties.
+    Measured on gpt-4o-mini at Part A: 80.5% under NDCG@5. Part B measured the
+    real ranker (Qwen2.5-3B-Instruct, fp32) at 71.1% under NDCG@5 and 0.0% under
+    ``p_gold``, which tripped this rule and turned ``soft_weight`` on at 0.3.
     """
     users = sorted({u for (u, a) in keys if a == "sample1"})
     ndcg_ties = prob_ties = compared = 0
@@ -232,6 +260,75 @@ def _tie_rate_between_samples(proxy: Dict, keys: Sequence) -> Dict:
         "ndcg_at_5": ndcg_ties / compared,
         "p_gold": prob_ties / compared,
         "recommend_soft_weight": (ndcg_ties / compared) > 0.5,
+    }
+
+
+def _within_user_agreement(proxy: Dict, keys: Sequence, reference: Dict) -> Dict:
+    """
+    Does the proxy prefer the same ``M_collab`` as the real ``LLM_Rec``, *for the
+    same user*?
+
+    Validation A's pooled Spearman over all 745 pairs is dominated by user-to-user
+    difficulty ("this user is easy for everyone"), which GRPO never sees: every
+    rollout in a group belongs to **one** user and differs only in ``M_collab``.
+    A proxy can therefore score a healthy pooled rho while being useless as a
+    reward -- it would be agreeing about which users are easy, not about which
+    memory is better. This measures the latter directly.
+
+    Two views, both reported:
+
+    * ``mean_per_user_rho`` -- Spearman across the arms *within* each user,
+      averaged over users where the reference itself distinguishes the arms
+      (a user the reference scores flat carries no signal to agree with).
+    * ``sample1_vs_sample2`` -- the cleanest case: two independent draws of a real
+      ``M_collab``. Among users where gpt-4o-mini ranks one above the other, how
+      often does the proxy agree? This is exactly a GRPO group of size 2.
+    """
+    per_user_rho: List[float] = []
+    for uid in sorted({u for (u, _) in keys}):
+        px, rx = [], []
+        for arm in ARMS:
+            if (uid, arm) not in proxy:
+                continue
+            ref_arm = reference["scores"].get(str(uid), {}).get(arm, {})
+            if "ndcg_at_5" not in ref_arm:
+                continue
+            px.append(proxy[(uid, arm)]["ndcg_at_5"])
+            rx.append(ref_arm["ndcg_at_5"])
+        if len(px) < 3 or len(set(rx)) < 2:
+            continue                      # reference is flat here: nothing to agree with
+        rho = spearman(px, rx)
+        if rho == rho:                    # skip NaN (proxy flat across all arms)
+            per_user_rho.append(rho)
+
+    concordant = discordant = proxy_tied = 0
+    for uid in sorted({u for (u, a) in keys if a == "sample1"}):
+        a, b = proxy.get((uid, "sample1")), proxy.get((uid, "sample2"))
+        ref = reference["scores"].get(str(uid), {})
+        if not a or not b or "sample1" not in ref or "sample2" not in ref:
+            continue
+        ref_delta = ref["sample1"]["ndcg_at_5"] - ref["sample2"]["ndcg_at_5"]
+        if abs(ref_delta) < 1e-9:
+            continue                      # reference cannot tell them apart
+        proxy_delta = a["ndcg_at_5"] - b["ndcg_at_5"]
+        if abs(proxy_delta) < 1e-9:
+            proxy_tied += 1
+        elif (proxy_delta > 0) == (ref_delta > 0):
+            concordant += 1
+        else:
+            discordant += 1
+
+    decided = concordant + discordant
+    return {
+        "mean_per_user_rho": (sum(per_user_rho) / len(per_user_rho)) if per_user_rho else None,
+        "n_users_with_signal": len(per_user_rho),
+        "sample1_vs_sample2": {
+            "n_reference_distinguishes": decided + proxy_tied,
+            "proxy_concordant": concordant,
+            "proxy_discordant": discordant,
+            "proxy_tied": proxy_tied,
+            "accuracy_when_proxy_decides": (concordant / decided) if decided else None,
+        },
     }
 
 
@@ -315,6 +412,21 @@ def _print_report(report: Dict):
         print(f"     NDCG@5 identical  {100 * tie['ndcg_at_5']:.1f}%"
               f"   (gpt-4o-mini at Part A: 80.5%)")
         print(f"     p_gold identical  {100 * tie['p_gold']:.1f}%")
+    w = report.get("within_user") or {}
+    if w:
+        s = w["sample1_vs_sample2"]
+        rho = w["mean_per_user_rho"]
+        print(f"\nWITHIN-USER agreement  (what a GRPO group actually sees)")
+        print(f"     mean per-user rho across arms  "
+              f"{'n/a' if rho is None else f'{rho:.4f}'}   "
+              f"(n={w['n_users_with_signal']} users with reference signal)")
+        acc = s["accuracy_when_proxy_decides"]
+        print(f"     sample1 vs sample2: reference separates {s['n_reference_distinguishes']} users; "
+              f"proxy tied on {s['proxy_tied']},")
+        print(f"       of the {s['proxy_concordant'] + s['proxy_discordant']} it decided, "
+              f"{'n/a' if acc is None else f'{100 * acc:.1f}% agree'}  (coin flip = 50%)")
+
+    if tie:
         if tie["recommend_soft_weight"]:
             print("     -> ties > 50%: turn ON soft_weight (start 0.3). A tie inside a")
             print("        GRPO group is std(r)=0, i.e. no gradient at all (§9.2).")
