@@ -63,6 +63,8 @@ def parse_args():
     # back-filled every split with the *unvalidated* ranker.
     p.add_argument("--ranker_model", default=None)
     p.add_argument("--device", default="cuda")
+    p.add_argument("--scoring", choices=["listwise", "pointwise"], default="listwise",
+                   help="pointwise = one yes/no forward pass per candidate (§M2 fallback)")
     p.add_argument("--dtype", choices=["float32", "bfloat16"], default="float32")
     p.add_argument("--batch_size", type=int, default=32)
     p.add_argument("--no_instruction", action="store_true")
@@ -83,6 +85,7 @@ def main():
         **ranker_kwargs,
         device=args.device,
         dtype=args.dtype,
+        scoring=args.scoring,
         include_instruction=not args.no_instruction,
     )
     # Printed because every number written below is a property of *this* ranker:
@@ -159,6 +162,7 @@ def _record_provenance(split: str, path: Path, ranker: FrozenRanker, n: int):
         "n_records": n,
         "ranker_model": ranker.model_name,
         "dtype": ranker.dtype,
+        "scoring": ranker.scoring,
         "include_instruction": ranker.include_instruction,
         "written_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }

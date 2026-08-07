@@ -97,6 +97,63 @@ def build_ranker_prompt(
     return "".join(p if p.startswith("\n") else "\n" + p for p in parts).strip()
 
 
+def build_pointwise_prompt(
+    candidate_id: int,
+    title: str,
+    memory: str = "",
+    m_collab: Optional[Sequence[Dict]] = None,
+    instruction: Optional[str] = None,
+    user_id: Optional[int] = None,
+) -> str:
+    """
+    Render the yes/no prompt for **one** candidate. Pure function.
+
+    Deliberately identical to ``build_ranker_prompt`` above the candidate block --
+    same header, same section titles, same ``M_collab`` rendering -- so switching
+    ``scoring`` mode changes the question asked and nothing else. Only the
+    candidate section and the final instruction differ.
+
+    Why this exists (M2 Part B, docs/RESULTS.md). The listwise prompt derives all
+    ten scores from a single 10-way softmax, so the ranking below rank 1 comes from
+    tiny logit gaps and NDCG@5 takes only six distinct values -- two different
+    memories tie 71% of the time. Scoring each candidate independently gives ten
+    continuous, unconstrained scores, so ties stop being structural rather than
+    being papered over with an extra reward term.
+    """
+    parts = [
+        "You are an intelligent recommendation scoring system. Your task is to "
+        "evaluate how well a candidate item matches the target user's "
+        "preferences based on their personal memory and collaborative signals."
+    ]
+    if user_id is not None:
+        parts.append(f"\n**Target User:** User {user_id}")
+
+    if instruction:
+        parts.append(f"\n**User's Current Request:**\n{instruction}")
+
+    if m_collab:
+        parts.append("\n**User Preferences (Extracted from Collaborative Memories):**")
+        parts.append(
+            "Based on collaborative signals from neighboring users and items, "
+            "we have identified the following preference patterns:"
+        )
+        for i, facet in enumerate(m_collab[:10], 1):
+            text = facet.get("facet", facet.get("text", "N/A"))
+            conf = facet.get("confidence", 0.0)
+            parts.append(f"  {i}. {text} (confidence: {conf:.2f})")
+
+    mem = memory[:150] + "..." if memory and len(memory) > 150 else memory
+    parts.append("\n**Candidate Item:**")
+    line = f"  Item {candidate_id} ({title})"
+    parts.append(f"{line}: {mem}" if mem else line)
+
+    parts.append(
+        "\n**Your Task:**\nWould this user be likely to interact with this item "
+        "next? Answer Yes or No.\n\nAnswer:"
+    )
+    return "".join(p if p.startswith("\n") else "\n" + p for p in parts).strip()
+
+
 def _stub_logit(prompt: str, item_id: int) -> float:
     """
     Deterministic pseudo-logit from (prompt, item). Same input -> same score,
@@ -123,6 +180,7 @@ class FrozenRanker:
         stub_fn: Optional[Callable[[str, int], float]] = None,
         max_prompt_tokens: int = 3072,
         dtype: str = "float32",
+        scoring: str = "listwise",
     ):
         """
         Args:
@@ -155,10 +213,25 @@ class FrozenRanker:
                 lands on one letter -- so the logit gaps *below* rank 1 are tiny
                 and a bf16-sized perturbation is enough to reorder them. NDCG@5
                 reads exactly that tail.
+            scoring: ``listwise`` (§5.1 as written: one forward pass, softmax over
+                the candidate letters A-J) or ``pointwise`` (one forward pass *per
+                candidate*, score = P("Yes")).
+
+                Pointwise is §M2's second prescribed fallback, and M2 Part B is
+                what sent us to it: listwise derives ten scores from a single
+                10-way softmax, so NDCG@5 takes only six distinct values and two
+                different memories tie 71% of the time, which zeroes the GRPO
+                advantage. Ten independent continuous scores remove that ceiling
+                structurally. It costs ~10x the forward passes, which is why
+                listwise remains the default until pointwise is shown to be worth
+                it.
         """
         if mode not in ("stub", "hf"):
             raise ValueError(f"unknown ranker mode: {mode!r}")
+        if scoring not in ("listwise", "pointwise"):
+            raise ValueError(f"unknown scoring mode: {scoring!r}")
         self.mode = mode
+        self.scoring = scoring
         self.model_name = model_name
         self.device = device
         self.include_instruction = include_instruction
@@ -167,10 +240,15 @@ class FrozenRanker:
         if dtype not in ("float32", "bfloat16"):
             raise ValueError(f"unknown ranker dtype: {dtype!r}")
         self.dtype = dtype
+        # Pointwise expands one request into len(candidates) prompts, so the caller's
+        # batch_size no longer describes what reaches the GPU. This caps the real
+        # forward-pass batch independently.
+        self.pointwise_chunk = 64
 
         self._model = None
         self._tokenizer = None
         self._letter_token_ids: Optional[List[int]] = None
+        self._yes_no_token_ids: Optional[List[int]] = None
 
     # -- real model, loaded lazily so CPU tests never touch it ---------------
 
@@ -200,6 +278,7 @@ class FrozenRanker:
         self._model.to(self.device)
         self._model.eval()
         self._letter_token_ids = self._resolve_letter_tokens()
+        self._yes_no_token_ids = self._resolve_yes_no_tokens()
 
     def _resolve_letter_tokens(self) -> List[int]:
         """
@@ -225,6 +304,32 @@ class FrozenRanker:
             raise RuntimeError(
                 f"letter tokens collide for {self.model_name}: {ids}. "
                 "Two candidates would share a logit; pick another ranker."
+            )
+        return ids
+
+    def _resolve_yes_no_tokens(self) -> List[int]:
+        """
+        Map Yes/No to single token ids, for ``scoring="pointwise"``.
+
+        Same leading-space ambiguity as the letters, and the same hard requirement
+        that the two ids differ -- if they collided every candidate would score
+        identically and the reward would be silently constant.
+        """
+        ids = []
+        for word in ("Yes", "No"):
+            chosen = None
+            for form in (word, f" {word}"):
+                encoded = self._tokenizer.encode(form, add_special_tokens=False)
+                if len(encoded) == 1:
+                    chosen = encoded[0]
+                    break
+            if chosen is None:
+                chosen = self._tokenizer.encode(word, add_special_tokens=False)[0]
+            ids.append(chosen)
+        if ids[0] == ids[1]:
+            raise RuntimeError(
+                f"Yes/No map to the same token for {self.model_name}: {ids}. "
+                "Every candidate would score identically; pick another ranker."
             )
         return ids
 
@@ -277,7 +382,91 @@ class FrozenRanker:
                 )
                 for p, r in zip(prompts, requests)
             ]
+        if self.scoring == "pointwise":
+            return self._score_hf_pointwise(requests)
         return self._score_hf(prompts, [r["candidates"] for r in requests])
+
+    def _score_hf_pointwise(self, requests: Sequence[Dict]) -> List["RankerOutput"]:
+        """
+        One yes/no forward pass per candidate; score = P("Yes").
+
+        Every candidate of every request is flattened into a single list before
+        batching. Batching per request instead would cap the batch at one user's
+        candidate list (10), wasting most of the GPU on prompts that are already
+        ~half the length of the listwise one.
+        """
+        import torch
+
+        self._ensure_loaded()
+        flat, spans = [], []
+        for r in requests:
+            titles = r.get("candidate_titles") or {}
+            mems = r.get("candidate_memories") or {}
+            start = len(flat)
+            for cid in r["candidates"]:
+                flat.append(build_pointwise_prompt(
+                    candidate_id=cid,
+                    title=titles.get(str(cid), f"Item-{cid}"),
+                    memory=(mems or {}).get(str(cid), ""),
+                    m_collab=r.get("m_collab"),
+                    instruction=r.get("instruction") if self.include_instruction else None,
+                    user_id=r.get("user_id"),
+                ))
+            spans.append((start, len(flat)))
+
+        yes_id, no_id = self._yes_no_token_ids
+        probs: List[float] = []
+        for start in range(0, len(flat), self.pointwise_chunk):
+            chunk = flat[start:start + self.pointwise_chunk]
+            texts = [
+                self._tokenizer.apply_chat_template(
+                    [{"role": "user", "content": p}], tokenize=False,
+                    add_generation_prompt=True,
+                )
+                for p in chunk
+            ]
+            batch = self._tokenizer(
+                texts, return_tensors="pt", padding=True, truncation=True,
+                max_length=self.max_prompt_tokens,
+            ).to(self._model.device)
+            with torch.no_grad():
+                logits = self._last_position_logits(batch)
+            # Rank by the raw logit margin, NOT by softmax(P("Yes")).
+            #
+            # The model answers "No" to almost every candidate, so P("Yes") is
+            # routinely ~1e-30 and underflows to exactly 0.0 in float32 -- which
+            # silently recreates the tie problem pointwise exists to remove
+            # (measured: 8 of 10 candidates collapsing to one value). The margin is
+            # a strictly monotonic transform of P("Yes"), so the ranking is
+            # identical wherever the probability is representable, and it stays
+            # well-separated where the probability is not.
+            margin = (logits[:, yes_id] - logits[:, no_id]).float()
+            probs.extend(margin.tolist())
+
+        return [self._rank_from_scores(r["candidates"], probs[lo:hi])
+                for r, (lo, hi) in zip(requests, spans)]
+
+    @staticmethod
+    def _rank_from_scores(candidates: Sequence[int],
+                          scores: Sequence[float]) -> "RankerOutput":
+        """
+        Rank by independent per-candidate probabilities.
+
+        Unlike ``_rank_from_logits`` these are NOT renormalised across candidates:
+        forcing them to sum to 1 would reintroduce exactly the coupling that makes
+        the listwise scores tie.
+
+        ``scores`` here is the yes/no logit margin, not a probability in [0, 1] --
+        see ``_score_hf_pointwise`` for why the probability form is unusable. Any
+        consumer that needs a probability should apply a sigmoid, and should expect
+        it to underflow for most candidates.
+        """
+        order = sorted(range(len(candidates)), key=lambda i: (-scores[i], i))
+        return RankerOutput(
+            ranking=[int(candidates[i]) for i in order],
+            scores={int(candidates[i]): float(scores[i]) for i in range(len(candidates))},
+            logits={int(candidates[i]): float(scores[i]) for i in range(len(candidates))},
+        )
 
     def _score_hf(self, prompts: Sequence[str], candidate_lists) -> List[RankerOutput]:
         import torch

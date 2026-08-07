@@ -491,3 +491,66 @@ def test_tie_rate_is_reported():
 
 def _uniqueness(values):
     return len({round(v, 9) for v in values}) / len(values)
+
+
+# ---------------------------------------------------------------------------
+# pointwise scoring (M2 Part B fallback)
+# ---------------------------------------------------------------------------
+
+def test_pointwise_prompt_shows_exactly_one_candidate():
+    """
+    The whole point of pointwise is that a candidate is judged without seeing its
+    competitors. If another candidate leaked in, the scores would be coupled again
+    and the tie ceiling would come back.
+    """
+    from src.rl.reward.ranker import build_pointwise_prompt
+
+    p = build_pointwise_prompt(
+        candidate_id=101, title="Dune", memory="classic sci-fi",
+        m_collab=[{"facet": "likes epic science fiction", "confidence": 0.9}],
+        instruction="something long and strange", user_id=7,
+    )
+    assert "Item 101" in p and "Dune" in p
+    assert "Item 102" not in p
+    assert "likes epic science fiction" in p
+    assert p.rstrip().endswith("Answer:")
+
+
+def test_pointwise_prompt_matches_listwise_above_the_candidate_block():
+    """Switching scoring mode must change the question, not the user context."""
+    from src.rl.reward.ranker import build_pointwise_prompt, build_ranker_prompt
+
+    kw = dict(m_collab=[{"facet": "likes epic science fiction", "confidence": 0.9}],
+              instruction="find me a book", user_id=7)
+    lw = build_ranker_prompt(candidates=[101], candidate_titles={"101": "Dune"}, **kw)
+    pw = build_pointwise_prompt(candidate_id=101, title="Dune", **kw)
+
+    # The opening sentence differs by design ("each candidate" vs "a candidate"),
+    # because the question genuinely differs. What must match is everything
+    # describing the *user*: target, instruction, and the M_collab block.
+    def context(p):
+        return p[p.index("**Target User:**"):p.index("**Candidate Item")
+                 if "**Candidate Item" in p else p.index("**Candidate Items")]
+
+    assert context(lw) == context(pw)
+
+
+def test_pointwise_ranking_is_by_independent_scores_not_renormalised():
+    """
+    P("Yes") per candidate must survive into `scores` untouched -- that value is
+    what the reward reads as p_gold, and renormalising would recouple them.
+    """
+    from src.rl.reward.ranker import FrozenRanker
+
+    out = FrozenRanker._rank_from_scores([10, 11, 12], [0.9, 0.1, 0.5])
+    assert out.ranking == [10, 12, 11]
+    assert out.scores[10] == pytest.approx(0.9)
+    assert out.scores[12] == pytest.approx(0.5)
+    assert sum(out.scores.values()) == pytest.approx(1.5)   # NOT normalised to 1
+
+
+def test_unknown_scoring_mode_is_rejected():
+    from src.rl.reward.ranker import FrozenRanker
+
+    with pytest.raises(ValueError, match="scoring"):
+        FrozenRanker(mode="stub", scoring="pairwise")

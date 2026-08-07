@@ -68,6 +68,8 @@ def parse_args():
     p.add_argument("--ranker_mode", choices=["stub", "hf"], default="stub")
     p.add_argument("--ranker_model", default="Qwen/Qwen2.5-1.5B-Instruct")
     p.add_argument("--device", default="cpu")
+    p.add_argument("--scoring", choices=["listwise", "pointwise"], default="listwise",
+                   help="pointwise = one yes/no forward pass per candidate (§M2 fallback)")
     p.add_argument("--dtype", choices=["float32", "bfloat16"], default="float32")
     p.add_argument("--batch_size", type=int, default=64)
     p.add_argument("--no_instruction", action="store_true",
@@ -129,6 +131,7 @@ def main():
         model_name=args.ranker_model,
         device=args.device,
         dtype=args.dtype,
+        scoring=args.scoring,
         include_instruction=not args.no_instruction,
     )
 
@@ -213,6 +216,7 @@ def main():
         "ranker_mode": args.ranker_mode,
         "ranker_model": args.ranker_model if args.ranker_mode == "hf" else None,
         "dtype": args.dtype if args.ranker_mode == "hf" else None,
+        "scoring": args.scoring,
         "include_instruction": not args.no_instruction,
         "n_pairs": len(paired),
         "validation_a": {"spearman_rho": rho_all, "per_arm": per_arm_rho, "threshold": 0.6,
