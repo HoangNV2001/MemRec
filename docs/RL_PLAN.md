@@ -414,7 +414,7 @@ Mỗi milestone dưới đây gắn nhãn tầng: 🖥️ `T0` CPU · 🌐 `T0-A
 
 ---
 
-### ☐ M2 — Reward function · 🖥️`T0` rồi 🚀`T2` — **~3 GPU-hour** — **milestone rủi ro nhất**
+### ☑~ M2 — Reward function · 🖥️`T0` rồi 🔧`T1` — **~1.5 GPU-hour** — **milestone rủi ro nhất**
 
 **Phần A — viết code, không cần GPU** 🖥️ — **XONG 2026-08-06**
 - [x] `src/rl/reward/metrics.py`: `ndcg_at_k`, `hit_at_k` + unit test với ví dụ tính tay
@@ -434,17 +434,25 @@ Mỗi milestone dưới đây gắn nhãn tầng: 🖥️ `T0` CPU · 🌐 `T0-A
 >
 > **③ Hiệu chỉnh tiêu chí Validation B.** DoD dưới viết `r(thật) > r(user khác) > r(lorem) ≈ r(rỗng)`. Bất đẳng thức giữa **không đúng trên chính `LLM_Rec` thật**: `shuffled` 0.6090 ≈ `lorem` 0.6079 ≈ `empty` 0.6092, paired CI của cả hai đều chứa 0. Model thật **bỏ qua** memory sai chứ không bị nó đánh lừa. Đòi proxy tái hiện `shuffled > lorem` là đòi proxy dễ bị lừa hơn model nó thay thế. Tiêu chí mới: `r(thật) ≥ max(các arm hỏng) + 0.02`.
 
-**Phần B — cần GPU, gộp chung phiên với M3** 🚀
-- [ ] Bật chế độ thật của `ranker.py` (`Qwen2.5-1.5B-Instruct`, listwise, một forward pass, logprob token chỉ mục)
-- [ ] **Validation A — tương quan proxy:** chấm lại **745 cặp (user, arm) đã cache** bằng frozen 1.5B ranker, đo **Spearman ρ** với điểm gpt-4o-mini. *(Phía gpt-4o-mini đã cache xong ở Phần A — lên GPU chỉ so sánh, không gọi API nữa.)*
-- [ ] **Validation B — độ nhạy:** dùng 4 arm đã cache (thật / user khác / lorem / rỗng)
-- [ ] **Validation C — throughput:** ≥ 20 reward/s ở batch 64
-- [ ] **[thêm] Đo tỉ lệ trùng reward của ranker 1.5B** → quyết định bật `soft_weight` (xem ② ở trên). Trùng > 50% thì bật, khởi điểm `soft_weight = 0.3`.
-- [ ] **[thêm] Chạy thêm `--no_instruction`** để đối chứng. Phần A cho thấy instruction *không* làm phẳng tín hiệu memory trên `LLM_Rec` thật, nên kỳ vọng giữ `include_instruction=True`; vẫn đo để chắc.
-- [ ] Backfill `r_null` + `baseline_h1` vào 3 file jsonl bằng một job batch
-- [ ] Ghi vào `docs/RESULTS.md` mục "M2 Reward Validation"
+**Phần B — cần GPU, gộp chung phiên với M3** 🚀 — **CHẠY 2026-08-07 trên L4, ~1.5 GPU-hour**
+- [x] Bật chế độ thật của `ranker.py` — **nhưng ranker đổi thành `Qwen2.5-3B-Instruct`**, xem ④ dưới
+- [x] **Validation A — tương quan proxy:** ρ = **0.6051** với `NDCG@5 + 0.3·p_gold` ✓ *(riêng NDCG@5 đơn thuần chỉ 0.5861 ✗)*
+- [x] **Validation B — độ nhạy:** đạt, margin **+0.0038** (rất sát)
+- [~] **Validation C — throughput:** **chưa đo được trên L4** — 3B fp32 @ batch 64 không vừa 24 GB. Đo 1.3 reward/s @ batch 32. **Phải đo lại trên H100 đầu phiên M3/M4**
+- [x] **[thêm] Đo tỉ lệ trùng reward** → **71.1%** > 50% → **bật `soft_weight = 0.3`**
+- [x] **[thêm] Chạy thêm `--no_instruction`** → kém hơn hẳn (0.141 vs 0.307) → giữ `include_instruction=True`, đóng câu hỏi bỏ ngỏ của §5.1
+- [x] Backfill `r_null` + `baseline_h1` (+ **`baseline_p_gold`**, xem ⑤) vào 3 file jsonl
+- [x] Ghi vào `docs/RESULTS.md` mục "M2 Reward Validation"
 
 **DoD:** Spearman ρ ≥ **0.6** · Validation B cho `r(thật) ≥ max(r(user khác), r(lorem), r(rỗng)) + 0.02` *(đã hiệu chỉnh, xem ③ ở trên)* · throughput ≥ 20 reward/s.
+
+> **④ Ranker 1.5B fail hẳn, đã đổi sang 3B.** ρ = 0.3071, và `lorem` (0.4174) **thắng** memory thật (0.4091) — 1.5B gần như không đọc memory. Ngưỡng 0.6 là hợp lý chứ không phải bất khả thi: tự-tương quan của chính gpt-4o-mini là ρ = 0.899. Đây đúng là phương án dự phòng mục này đã viết sẵn. **Hệ quả cho §4.3:** ranker 8 GB → ~12 GB (3B fp32), tổng ~69–71 GB, vẫn vừa H100 nhưng chật hơn. 7B đã loại vì không còn chỗ cho policy + vLLM colocate.
+>
+> **⑤ `baseline_h1` nhị phân không lái được curriculum §6.4.** Ranker đóng băng tất định → Hit@1 mỗi user chỉ có thể 0.0 hoặc 1.0 → dải `[0.2, 0.8]` khớp **0 user**, làm rỗng tập train. Đã thêm `baseline_p_gold` liên tục; chọn trường nào lái curriculum để lại cho M4.
+>
+> **⑥ fp32 bắt buộc, không phải bf16.** Trong bf16 reward **không tất định** — padding đổi thứ tự cộng dồn nên cùng một rollout đổi điểm tuỳ batch (2/48 user lệch; fp32 lệch 0/48). §5.1 chọn one-forward-pass *vì* nó tất định, nên bf16 phá chính tiền đề đó.
+>
+> **⑦ ⚠️ Rủi ro chưa gỡ — reward phân biệt thô được, tinh thì không.** Đây là số một group GRPO thực sự nhìn thấy và **DoD gốc không đo tới**: ρ gộp bị chi phối bởi khác biệt *giữa* các user, thứ GRPO không bao giờ thấy. Đo trực tiếp: `sample1` vs `empty` (thô) đồng ý **72.4%**; `sample1` vs `sample2` (hai memory đều tốt) chỉ **37.5%**, ngẫu nhiên = 50%. Chưa tách được "proxy quá thô" khỏi "chính gpt-4o-mini cũng không phân biệt nổi" (nó trùng điểm 80.5%). Gỡ bằng thí nghiệm **CPU + API ~$1.5**: sinh thêm 3 mẫu `M_collab`/user → 10 cặp trong-user thay vì 1. **Nên chạy trước khi thuê H100.**
 
 **Nếu ρ < 0.6:** thử `Qwen2.5-3B-Instruct` làm ranker, hoặc đổi sang pointwise scoring. **Không được đi tiếp M4 với reward chưa validate** — 400 step trên reward sai là mất cả phiên thuê máy và cả tuần.
 

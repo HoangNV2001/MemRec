@@ -205,7 +205,7 @@ export HF_HOME=/workspace/hf-cache
 echo 'export HF_HOME=/workspace/hf-cache' >> ~/.bashrc
 
 # chỉ cần cho M2-B — đừng tải hết 12 GB ngay
-huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct     # ~3.1 GB  reward ranker (M2-B)
+huggingface-cli download Qwen/Qwen2.5-3B-Instruct       # ~6.2 GB  reward ranker (M2-B)
 huggingface-cli download BAAI/bge-small-en-v1.5         # ~130 MB  grounding (§5.2), chạy CPU
 
 # tới M3/M4 mới cần
@@ -214,7 +214,13 @@ huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct     # ~1 GB    dry-run tần
 ```
 
 Cả bốn tên đã được verify còn tồn tại trên HF ngày 2026-08-06 (§6.1 yêu cầu).
-Fallback nếu OOM ở M4: `Qwen/Qwen2.5-3B-Instruct`.
+Fallback nếu OOM ở M4: `Qwen/Qwen2.5-3B-Instruct` cho **policy**.
+
+> **Đổi từ 2026-08-07 (M2-B):** reward ranker là **3B, không phải 1.5B** — 1.5B fail
+> validation (ρ = 0.307 vs ngưỡng 0.6, `lorem` thắng memory thật). Ranker cũng chạy
+> **fp32 chứ không bf16**: trong bf16 reward không tất định vì padding đổi thứ tự
+> cộng dồn. Cộng lại: ~12 GB VRAM cho ranker thay vì 8 GB như §4.3 dự tính.
+> Xem `docs/RESULTS.md` mục "M2 Reward Validation → Phần B".
 
 ---
 
@@ -229,6 +235,11 @@ rồi tính tương quan. Chạy cả hai chế độ `include_instruction` và 
 `data/rl/m2_validation_report{,_no_instruction}.json`.
 
 DoD (§7 M2): Spearman ρ ≥ 0.6 · `r(thật) ≥ max(arm hỏng) + 0.02` · ≥ 20 reward/s @ batch 64.
+
+> **Đã chạy 2026-08-07 — không cần chạy lại.** Kết quả và mọi quyết định phát sinh
+> nằm ở `docs/RESULTS.md` mục "M2 Reward Validation → Phần B". Việc GPU duy nhất còn
+> nợ của M2 là **đo lại Validation C trên H100** (batch 64, fp32) — L4 24 GB không
+> chứa nổi 3B fp32 ở batch 64.
 
 Trước khi bật máy, đọc lại `docs/RESULTS.md` mục "M2 Reward Validation" — Phần A đã đo
 sẵn phía gpt-4o-mini và đã phát hiện vấn đề tỉ lệ trùng reward 74%, có ảnh hưởng tới

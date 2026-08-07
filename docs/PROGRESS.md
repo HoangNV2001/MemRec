@@ -121,3 +121,48 @@ Quyết định đã ra + lý do:
 Việc tiếp theo:
 - M2 Phần B trên GPU (gộp phiên với M3-B theo §11.5): `bash scripts/rl/02_validate_reward.sh hf`. Không còn gọi API — mọi thứ chấm lại trên cặp đã cache.
 - Nếu ρ < 0.6: theo plan thử `Qwen2.5-3B-Instruct` hoặc pointwise scoring trước khi đi tiếp M4.
+
+## M2 Phần B — Reward validation trên GPU — 2026-08-07
+
+Trạng thái: DONE MỘT PHẦN. Validation A + B đạt (sát nút, và chỉ nhờ `soft_weight`); Validation C hoãn sang H100. Chi tiết số liệu đầy đủ ở `docs/RESULTS.md` mục "M2 Reward Validation → Phần B".
+
+Máy: NVIDIA L4 24 GB (đúng tầng T1 mà `docs/DEPLOY_GPU.md` §1.6 khuyến nghị — **không** thuê H100 cho việc này). ~1.5 GPU-hour. **0 lời gọi API** — chấm lại đúng 745 cặp đã cache ở Phần A.
+
+Đã làm:
+- Verify môi trường trước khi chạy: torch 2.6.0+cu124 / CUDA available / L4, `verify_transfer` all pass, `pytest tests/rl/` 139 pass + 5 skip. Bật thêm 4 test `test_ranker_hf.py` (vốn skip vì thiếu `HF_TEST_MODEL`) bằng chính model thật → 4 pass.
+- Chạy Validation A/B/C cho 1.5B (cả `instruction` on/off), rồi 3B, rồi 3B fp32.
+- Thêm `--dump_pairs` + metric **within-user agreement** vào `validate_reward.py`; thêm `--dtype` cho `FrozenRanker`; viết `src/rl/backfill_baselines.py`.
+
+Số đo chính:
+- **1.5B hỏng thật, không phải sát nút:** ρ = 0.3071 (ngưỡng 0.6), và `lorem` (0.4174) **thắng** memory thật (0.4091). Khoảng cách `sample1 − empty` = +0.006 so với +0.111 trên `LLM_Rec` thật.
+- **Trần không phải vấn đề:** tự-tương quan của chính gpt-4o-mini là ρ = 0.899 → ngưỡng 0.6 hợp lý.
+- **3B (fp32):** ρ = 0.5861 với NDCG@5 đơn thuần (✗), **0.6051** với `NDCG@5 + 0.3·p_gold` (✓). Validation B đạt với margin **+0.0038**. Throughput 1.3 reward/s @ batch 32 trên L4.
+- **Tỉ lệ trùng 71.1%** (NDCG@5) vs **0.0%** (`p_gold`).
+
+Lệch so với kế hoạch:
+1. **Đổi frozen ranker 1.5B → `Qwen2.5-3B-Instruct`.** Đây đúng là phương án dự phòng §M2 đã viết sẵn ("Nếu ρ < 0.6: thử `Qwen2.5-3B-Instruct`"). Ảnh hưởng ngân sách VRAM §4.3: ranker 8 GB → ~12 GB fp32, tổng ~69–71 GB, vẫn vừa H100 80 GB nhưng chật hơn. **7B đã loại**: +11 GB nữa thì không còn chỗ cho policy + vLLM colocate.
+2. **`soft_weight` 0.0 → 0.3.** Quy tắc "trùng > 50% thì bật, khởi điểm 0.3" của chính §M2 đã kích hoạt (71.1%). Test cũ khoá mặc định = 0.0 đã được đổi thành khoá mặc định = 0.3, kèm một test riêng xác nhận `soft_weight=0.0` vẫn tái hiện đúng công thức §5 cho ablation.
+3. **`FrozenRanker` mặc định fp32 thay vì bf16.** Trong bf16 reward **không tất định**: padding đổi thứ tự cộng dồn nên cùng một rollout cho điểm khác nhau tuỳ batch (2/48 user lệch NDCG@5 giữa batch 24 và batch 1; fp32 lệch 0/48). §5.1 chọn thiết kế này *vì* nó tất định, nên bf16 làm sai chính tiền đề. Giá: VRAM ×2, throughput ~½.
+4. **Validation C hoãn.** 3B fp32 @ batch 64 không vừa L4 24 GB, nên con số "≥ 20 reward/s @ batch 64" **không đo được trên tầng T1**. Phải đo lại trên H100 ở phiên M3/M4. Không coi là đạt.
+5. **Thêm trường `baseline_p_gold`.** `baseline_h1` nhị phân (ranker đóng băng, tất định → chỉ 0.0 hoặc 1.0) khiến dải curriculum `[0.2, 0.8]` của §6.4 khớp **0 user** và làm rỗng tập train. `baseline_p_gold` liên tục diễn đạt đúng ý định "bỏ user quá dễ và quá khó". Ghi cả ba trường; chọn trường nào lái curriculum để lại cho M4.
+
+Quyết định đã ra + lý do:
+- **Giữ `include_instruction=True`** — đã đóng câu hỏi bỏ ngỏ của §5.1 bằng số: on 0.3071 vs off 0.1411 trên 1.5B.
+- **Không sửa prompt ranker.** Nghi ngờ "đọc logit ở đầu lượt assistant nên model muốn viết chữ thay vì một ký tự" đã được đo và **bác bỏ**: letter mass = 0.9998. Thêm prefix "Answer: " còn phá nó (mass → 0). Loại trừ được một nghi can trước khi đổ lỗi cho model.
+- **Đo thêm within-user agreement** (không có trong DoD gốc). ρ gộp trên 745 cặp bị chi phối bởi khác biệt *giữa* các user — thứ GRPO không bao giờ thấy, vì mọi rollout trong một group là cùng một user. Đây là số quyết định M4 có học được gì không, nên phải đo.
+
+⚠️ **Rủi ro lớn nhất phát hiện được (chưa giải quyết):**
+Reward phân biệt **thô** tốt (`sample1` vs `empty`: đồng ý 72.4%) nhưng phân biệt **tinh** thì không (`sample1` vs `sample2`: 37.5%, ngẫu nhiên = 50%). Cùng một cơ chế đo, nên tương phản là thật; stub ranker cho đúng 52% nên metric được hiệu chuẩn đúng. Hai cách đọc — proxy quá thô, **hoặc** chính gpt-4o-mini cũng không phân biệt nổi hai memory tốt (nó trùng điểm 80.5%) — chưa tách được với chỉ 2 mẫu/user. Cả hai đều dẫn tới: M4 dạy được "viết memory thật, bám neighbor", khó dạy được "memory A hơn memory B", gain sẽ bão hoà sớm.
+
+Hai bug đã bắt được lúc backfill, cả hai đều im lặng:
+1. Bản đầu `backfill_baselines.py` giữ default `--ranker_model` = 1.5B nên lần chạy đầu ghi đè 3 file jsonl bằng số của ranker **chưa validate**. Lộ ra vì `r_null` (0.4109) lệch arm `empty` của Validation (0.5123) — hai đường code phải cho cùng một số.
+2. Lần chạy lại (batch 32) ghi xong `train` + `val` rồi **OOM ở `test`**, để lại 1 split mang số cũ của 1.5B mà nhìn vào dữ liệu không thấy được. Chạy lại `test` riêng ở batch 8.
+
+Đã bỏ default trùng lặp (thừa kế từ `FrozenRanker`), in cấu hình ranker mỗi lần chạy, và thêm `data/rl/baselines_provenance.json` ghi model/dtype/số bản ghi cho từng split. Hash trong `verify_transfer.py` đã cập nhật (nội dung jsonl đổi thật, số dòng không đổi).
+
+Số backfill cuối (3B fp32): `r_null` train 0.5068 / val 0.5123 / test 0.5267. **Dải curriculum §6.4 chỉ giữ ~12% user** (141/1185 train) — không phải lỗi, nhưng M4 cần biết trước.
+
+Việc tiếp theo (cần người dùng quyết trước khi thuê H100):
+- **Đề xuất chạy trước, rẻ, không cần GPU (~$1.5, CPU + API):** sinh thêm 3 mẫu `M_collab`/user rồi chấm bằng gpt-4o-mini → số cặp so sánh trong-user tăng từ 1 lên 10 mỗi user. Đây là cách duy nhất tách "proxy quá thô" khỏi "không có tín hiệu tinh nào để học", và nó quyết định M4 có đáng thuê H100 hay không.
+- Đo lại Validation C trên H100 (batch 64, fp32) ngay đầu phiên M3/M4.
+- Cân nhắc lại ngân sách VRAM §4.3 với ranker 3B fp32 (~12 GB thay vì 8 GB).
