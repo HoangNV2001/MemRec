@@ -153,11 +153,19 @@ class FrozenRanker:
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-        self._model = AutoModelForCausalLM.from_pretrained(
-            self.model_name,
-            torch_dtype=torch.bfloat16,
-            device_map=self.device,
-        )
+        # Left padding: we read the logits at the final position, so every prompt's
+        # last real token must sit at index -1.
+        self._tokenizer.padding_side = "left"
+        if self._tokenizer.pad_token is None:
+            self._tokenizer.pad_token = self._tokenizer.eos_token
+
+        # Plain load + .to() rather than device_map=: the ranker is a single 1.5B
+        # model on one device, so sharded loading buys nothing and device_map would
+        # make `accelerate` a hard dependency of the reward path.
+        # bf16 on GPU; float32 on CPU, where bf16 matmuls are slow or unsupported.
+        dtype = torch.bfloat16 if str(self.device).startswith("cuda") else torch.float32
+        self._model = AutoModelForCausalLM.from_pretrained(self.model_name, torch_dtype=dtype)
+        self._model.to(self.device)
         self._model.eval()
         self._letter_token_ids = self._resolve_letter_tokens()
 
@@ -253,19 +261,50 @@ class FrozenRanker:
             texts,
             return_tensors="pt",
             padding=True,
-            padding_side="left",   # last position must be the real end of every prompt
             truncation=True,
             max_length=self.max_prompt_tokens,
         ).to(self._model.device)
 
         with torch.no_grad():
-            logits = self._model(**batch).logits[:, -1, :]   # prefill only, no generation
+            logits = self._last_position_logits(batch)   # prefill only, no generation
 
         outputs = []
         for row, candidates in zip(logits, candidate_lists):
             letter_logits = [row[self._letter_token_ids[i]].item() for i in range(len(candidates))]
             outputs.append(self._rank_from_logits(candidates, letter_logits))
         return outputs
+
+    def _last_position_logits(self, batch):
+        """
+        Vocabulary logits at the final position only, shape ``(B, V)``.
+
+        Calling ``model(**batch).logits`` would materialise logits for *every*
+        position: at batch 64 x 3072 tokens x 151936 vocab that is **60 GB** in
+        bf16, to use 19 MB of it. That OOMs before the first reward is ever
+        computed. Two ways to avoid it, tried in order of officialness:
+
+        1. ``logits_to_keep=1`` (transformers >= 4.49; ``num_logits_to_keep`` on
+           4.45-4.48) -- the supported way to ask for a trailing slice.
+        2. Run the base transformer and apply ``lm_head`` to the last hidden state
+           ourselves. Works on any decoder exposing ``.model`` / ``.lm_head``.
+        """
+        for kwarg in ("logits_to_keep", "num_logits_to_keep"):
+            try:
+                return self._model(**batch, **{kwarg: 1}).logits[:, -1, :]
+            except TypeError:
+                continue        # this transformers version does not accept it
+
+        base = getattr(self._model, "model", None)
+        head = getattr(self._model, "lm_head", None)
+        if base is not None and head is not None:
+            hidden = base(**batch).last_hidden_state[:, -1, :]
+            return head(hidden)
+
+        raise RuntimeError(
+            f"cannot take a last-position logit slice for {self.model_name}: it "
+            f"accepts neither logits_to_keep nor exposes .model/.lm_head. Computing "
+            f"full logits would need ~60 GB at batch 64. Use a different ranker."
+        )
 
     @staticmethod
     def _rank_from_logits(candidates: Sequence[int], letter_logits: Sequence[float]) -> RankerOutput:
