@@ -701,3 +701,33 @@ def test_score_many_matches_per_example_and_batches_the_ranker():
     # per_example loop above goes through .score and is not counted here.
     assert calls["batches"] == 3
     assert calls["requests"] == 10
+
+
+def test_grounding_caches_snippet_embeddings_across_rollouts():
+    """
+    Neighbour snippets belong to the user, not the rollout, so every generation
+    for one prompt cites the same text: 8 teacher samples at M3, G=8 rollouts per
+    group at M4. Without a cache bge-small re-encodes identical strings eight
+    times, and that was measurably the whole bottleneck while scoring the M3
+    samples -- 720% CPU with the GPU idle.
+    """
+    calls = {"n": 0, "texts": 0}
+
+    class CountingEncoder(FakeEncoder):
+        def encode(self, texts):
+            calls["n"] += 1
+            calls["texts"] += len(list(texts))
+            return FakeEncoder.encode(self, texts)
+
+    scorer = GroundingScorer(encoder=CountingEncoder(), n_facets=7)
+    facets = [{"facet": "epic fantasy dragons", "supporting_neighbors": ["Item-1"]}]
+    snippets = {"Item-1": "a long snippet about dragons and epic fantasy"}
+
+    first = scorer.score(facets, snippets)
+    after_first = calls["texts"]
+    for _ in range(7):                      # the other seven rollouts of the group
+        again = scorer.score(facets, snippets)
+        assert again.score == pytest.approx(first.score)
+
+    assert calls["texts"] == after_first     # nothing re-encoded
+    assert scorer.cache_hits > 0

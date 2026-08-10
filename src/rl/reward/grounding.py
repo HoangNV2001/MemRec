@@ -89,15 +89,40 @@ class GroundingScorer:
         encoder: Optional[Encoder] = None,
         tau: float = DEFAULT_TAU,
         n_facets: int = 7,
+        cache_size: int = 65536,
     ):
         self.encoder = encoder
         self.tau = tau
         self.n_facets = n_facets
+        # Snippet text -> vector. Neighbour snippets are a property of the *user*,
+        # not of the rollout, so every generation for one prompt cites the same
+        # handful of them: 8 teacher samples per user at M3, and G=8 rollouts per
+        # group at M4, re-encoding identical text 8 times. Measured while scoring
+        # 9480 M3 samples, grounding was the whole bottleneck -- 720% CPU with the
+        # GPU idle -- because bge-small ran on CPU once per rollout.
+        #
+        # Facet texts are cached too: they repeat far less, but a hit costs one
+        # dict lookup and RL sampling does produce near-duplicates.
+        self._cache: Dict[str, object] = {}
+        self.cache_size = cache_size
+        self.cache_hits = 0
+        self.cache_misses = 0
 
     def _encode(self, texts: Sequence[str]):
+        """Encode with a text-keyed cache; only misses reach the encoder."""
         if self.encoder is None:
             self.encoder = SentenceTransformerEncoder()
-        return self.encoder.encode(texts)
+        texts = list(texts)
+        missing = [t for t in dict.fromkeys(texts) if t not in self._cache]
+        if missing:
+            vectors = self.encoder.encode(missing)
+            if len(self._cache) + len(missing) > self.cache_size:
+                self._cache.clear()      # crude, but this is a warm-start cache
+            for text, vec in zip(missing, vectors):
+                self._cache[text] = vec
+        self.cache_misses += len(missing)
+        self.cache_hits += len(texts) - len(missing)
+        return [self._cache[t] for t in texts]
 
     def score(
         self,
