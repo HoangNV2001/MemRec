@@ -527,6 +527,34 @@ Hệ quả ngân sách nếu giữ nguyên 2/s: 32 rollout tốn 16s thay vì 1.
 
 > **Ghi chú về chính ngưỡng 20/s:** nó được đặt ở §5.1 cho ranker **1.5B** — model đã được chứng minh là không dùng được. Ngưỡng đúng phải suy ra từ ngân sách step-time thực tế, không phải giữ nguyên con số viết cho một cấu hình đã bị loại. Đây là thay đổi kế hoạch, cần người dùng quyết theo §10.8.
 
+#### Bật fast path: nhanh 2×, nhưng MẤT tính tất định
+
+Đã build `causal-conv1d 1.6.2.post1` từ source (`--no-build-isolation`, `MAX_JOBS=4`, ~20 phút; không có wheel dựng sẵn). Cảnh báo fallback của transformers biến mất → fast path thật sự bật.
+
+| batch | torch fallback | **fast path** | VRAM peak |
+|---:|---:|---:|---:|
+| 16 | 0.95/s | **2.09/s** | 11.8 GB |
+| 32 | 1.53/s | **2.82/s** | 15.4 GB |
+| 48 | — | 2.07/s ↓ | 18.8 GB |
+| 64 | OOM | OOM | — |
+
+Batch 48 **tụt** so với 32 — L4 đã bão hoà, không phải chỗ để đo Validation C.
+
+| | torch fallback | fast path |
+|---|---|---|
+| Tất định bf16 (batch 1 vs 24) | **0/48** | **3/48 = 6.3%** |
+| `letter_mass` | 0.997475 | 0.997472 ✅ không đổi |
+
+`letter_mass` không đổi → **ρ = 0.7726 vẫn đứng vững**, kernel mới không làm lệch phép chấm.
+
+Nhưng kernel mới **không bất biến theo batch**. §5.1 chọn one-forward-pass *vì* tính tất định, nên đây là đánh đổi thật. Đặt cạnh chuẩn đã đo trong phiên này: nền nhiễu của chính gpt-4o-mini @ temp 0 là **8.6%**, của Luna là **18.0%**. Tức 6.3% **thấp hơn nhiễu của chính model đang được xấp xỉ** — nhưng nó là nhiễu *cộng thêm*, không phải nhiễu của đích.
+
+#### Validation C: không đo được ở tầng T1, không phải "fail"
+
+L4 24 GB không chứa nổi batch 64, và bão hoà từ batch 32. Ngoại suy thô theo FLOPs: prefill 32 × ~1200 token ở 4.2B mất 11.3 s trên L4 ≈ **28 TFLOPS hiệu dụng**; H100 cho prefill thực tế ~400 TFLOPS → **~14×** → ước **20–40 reward/s @ batch 64**, và batch 64 thì vừa thoải mái. Nghĩa là ngưỡng 20/s **nhiều khả năng đạt trên đúng tầng T2 mà M4 vốn chạy**.
+
+§11.5 đã lên lịch đo lại Validation C ở đầu phiên M3/M4 trên H100. Trạng thái đúng của C là **⏸ chưa đo được ở T1**, không phải ❌.
+
 ### Hướng đi tiếp — sau khi đã loại pointwise
 
 Đã thử và loại: **ranker 3B** (ρ 0.5573), **`soft_weight`** (làm tệ hơn), **pointwise** (ρ 0.4010, trong-user vẫn ngẫu nhiên). Phương án dự phòng §M2 ghi sẵn đã dùng hết.
