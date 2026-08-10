@@ -266,3 +266,35 @@ Quyết định đã ra + lý do:
 Ghi chú phương pháp luận đáng giữ: hình dạng thống kê "~20% cặp tách được, biên độ ~0.33" **là thứ nhiễu thuần tuý cũng tạo ra**, vì NDCG@5 rất thô. Kết luận "tín hiệu tinh có thật và lớn" của lần đo trước vẫn đứng (gpt-4o-mini chấm ở temp 0, tất định), nhưng từ nay mọi phát biểu về phân biệt trong-user phải kèm đối chứng nhiễu của chính judge đó.
 
 Việc tiếp theo — **cần người dùng quyết**. Hướng duy nhất chưa thử và tấn công đúng chỗ trần thật sự nằm: **đổi *dạng* reward**, bỏ `f(thứ hạng gold)` sang đại lượng liên tục. Ứng viên rẻ nhất: `LLMReranker` vốn trả về **điểm số cho từng candidate**, nhưng `_score` hiện chỉ lưu `ranking`/`ndcg_at_5`/`hit_at_1` và **vứt điểm thô đi**. Chấm lại 1192 cặp bằng gpt-4o-mini ở temp 0 có lưu điểm thô (**~$0.52, tất định**) là đủ để trả lời: biên `điểm(gold) − max(điểm khác)` có thoát được trần hoà 80% không.
+
+## M2 Phần B (tiếp) — đổi *dạng* reward sang `gold_margin`: blocker §9.2 đã hạ xuống dưới ngưỡng — 2026-08-10
+
+Trạng thái: **hướng đi đã tìm được.** Trần hoà — thứ mà mọi nâng cấp người chấm không chạm tới (80.1% → 79.1%) — bị hạ bằng cách đổi *dạng* reward. Số liệu: `docs/RESULTS.md` mục "Đổi *dạng* reward: `gold_margin`".
+
+Chi phí: **$0.85 API, 12 phút, 0 GPU** (1192 cặp + 745 cặp chấm lặp lấy nền nhiễu).
+
+Đã làm:
+- `_score` trong `build_val_reference.py` giờ lưu thêm `scores` (điểm 0–1 cho từng candidate), `gold_score`, `gold_margin`. Trước đây `LLMReranker` trả về điểm thô rồi bị **vứt đi** ngay sau khi sort — không khôi phục lại được nếu không trả tiền chạy lại.
+- Chấm lại 1192 cặp bằng gpt-4o-mini @ temp 0, rồi chấm lặp 745 cặp lần hai để lấy nền nhiễu của từng đại lượng.
+
+Số đo:
+
+| Đại lượng | Tách 2 memory khác nhau | Nền nhiễu | Tín hiệu THẬT |
+|---|---:|---:|---:|
+| `ndcg_at_5` | 19.3% | 8.6% | 10.7 điểm |
+| `gold_score` | 21.6% | 8.1% | 13.5 điểm |
+| **`gold_margin`** | **34.1%** | 13.4% | **20.7 điểm** |
+
+- **Group suy biến (`std(r)=0`): NDCG@5 67.8%/62.4% → `gold_margin` 42.6%/43.6%** (hai lần chạy độc lập). Từ trên ngưỡng báo động 60% của §9.2 xuống dưới, và ổn định.
+- **Margin đồng hướng với NDCG@5**, không cãi nhau: 88.5% [83.2, 92.3] cùng lần chạy, **76.2% [69.1, 82.2] tái lập chéo hai lần chạy độc lập**. ρ gộp 0.8670. Tương phản với `p_gold` của `soft_weight`: 40.1%, dưới ngẫu nhiên.
+- Margin mang tín hiệu chất lượng memory: headroom +0.0583 trên thang 0.1674 = **35% tương đối** (NDCG@5: 12%).
+
+Lệch so với kế hoạch: **gpt-4o-mini @ `temperature=0` KHÔNG tất định** — 8.6% cặp đổi điểm giữa hai lần chạy y hệt. §5.1 giả định người chấm tất định; giả định đó sai kể cả với temp 0 qua API. Mọi tỉ lệ "tách được" từ nay phải báo cáo kèm nền nhiễu của chính đại lượng đó.
+
+Quyết định đã ra + lý do:
+- **`gold_margin` là dạng reward được chọn để đi tiếp.** Nó tăng nhiễu (8.6% → 13.4%) nhưng tăng khả năng tách nhanh hơn nhiều (19.3% → 34.1%), nên tín hiệu thật gần gấp đôi. Quan trọng hơn: nó **đồng hướng** với NDCG@5 chứ không thay thế nó — đây là khác biệt bản chất so với `p_gold`, thứ được giao đúng những cặp NDCG không phán được và trên đó nó phản tín hiệu.
+- **Giữ NDCG@5 làm metric BÁO CÁO.** Margin là tín hiệu huấn luyện; bảng kết quả vẫn phải là H@k/N@k để so được với paper gốc.
+
+Việc tiếp theo — **cần người dùng quyết**, hai câu hỏi độc lập:
+1. **Ai tính reward trong vòng lặp M4?** (a) gpt-4o-mini qua API: ~$5.6/run, tương quan hoàn hảo theo định nghĩa, 0 VRAM, nhưng 8.6% nhiễu; (b) proxy 3B local: **chưa biết có bám được margin không** — mọi phép đo Validation A/within-user trước đây dùng NDCG@5 ở cả hai phía, mục tiêu vừa đổi nên kết luận cũ không tự động áp dụng. Trả lời được bằng ~1.4 GPU-h trên L4 (`FrozenRanker` đã trả softmax nên margin tính được ngay; `m2_pairs*.json` chỉ lưu `proxy_p_gold`, thiếu max của phần còn lại).
+2. **`LLM_Rec` cuối cùng là gpt-4o-mini hay gpt-5.6-luna?** Luna cho headroom +0.1759 vs +0.1112 và mọi số tuyệt đối tốt hơn, chi phí chạy lại M0 ~$2.45 — nhưng nhiễu gấp đôi. Để lại M7a.

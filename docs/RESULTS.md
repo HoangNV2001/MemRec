@@ -403,6 +403,59 @@ Một model mạnh hơn hẳn cho **cùng một tỉ lệ hoà**. Nguyên nhân 
 | Luna làm **`LLM_Rec` cho bảng kết quả** | ⭕ **Hấp dẫn ở trục thô.** Validation B margin +0.1545 (so với +0.0120 của proxy 3B), headroom +0.1759. Nhiễu triệt tiêu khi lấy TB trên 993 test user. Giá chạy lại M0 chỉ ~$2.45. Nhưng **không** giải quyết được trần hoà |
 | Nâng cấp người chấm để cứu tín hiệu tinh | ❌ **Đóng vĩnh viễn** — xem bảng tỉ lệ hoà |
 
+### ✅ Đổi *dạng* reward: `gold_margin` — hướng duy nhất còn lại, và nó CHẠY
+
+Mọi reward đã thử đều là `f(thứ hạng gold)`, nên nhận tối đa `k+1` giá trị. `LLMReranker` vốn trả **điểm 0–1 cho từng candidate**, nhưng `_score` chỉ lưu `ranking`/`ndcg_at_5`/`hit_at_1` rồi **vứt điểm thô đi**. Đã lưu lại và định nghĩa:
+
+```
+gold_margin = điểm(gold) − max(điểm của 9 candidate còn lại)
+```
+
+Chấm lại 1192 cặp đã cache bằng gpt-4o-mini @ `temperature=0`, cộng một lần chấm lặp 745 cặp để lấy nền nhiễu. **$0.85, 12 phút, 0 GPU.**
+
+> **gpt-4o-mini @ temp 0 KHÔNG tất định.** Hai lần chạy độc lập trên cùng `(user, arm)` cho khác điểm ở **8.6%** số ca (Luna @ temp 1: 18.3%). Sạch hơn nhiều nhưng không phải 0 — nên mọi tỉ lệ "tách được" dưới đây đều báo cáo kèm nền nhiễu của chính đại lượng đó.
+
+| Đại lượng | Tách 2 memory **khác nhau** | **Nền nhiễu** (cùng memory, 2 lần chạy) | **Tín hiệu THẬT** |
+|---|---:|---:|---:|
+| `ndcg_at_5` (dạng hiện tại) | 19.3% | 8.6% | **10.7 điểm** |
+| `gold_score` | 21.6% | 8.1% | 13.5 điểm |
+| **`gold_margin`** | **34.1%** | 13.4% | **20.7 điểm** |
+
+Margin **nhiễu hơn** (13.4% vs 8.6%) đúng như dự đoán cho một đại lượng liên tục — nhưng nó tách nhiều hơn *nhanh hơn* mức nhiễu tăng, nên **tín hiệu thật gần gấp đôi**.
+
+#### Nó là cùng một phán đoán đo mịn hơn, không phải tín hiệu cãi nhau
+
+Đây đúng chỗ `soft_weight`'s `p_gold` đã chết, nên phải đối chiếu trực tiếp:
+
+| Số hạng liên tục | Đồng ý với NDCG@5 ở những cặp NDCG phán được |
+|---|---|
+| `p_gold` (đã loại) | **40.1%** [33.5, 47.1] — **dưới ngẫu nhiên**, phản tín hiệu |
+| `gold_margin`, cùng lần chạy | **88.5%** [83.2, 92.3] |
+| `gold_margin`, **tái lập chéo hai lần chạy độc lập** | **76.2%** [69.1, 82.2] |
+
+ρ(NDCG@5, margin) gộp = **0.8670**. Con số tái lập chéo 76.2% là bằng chứng mạnh hơn 88.5% vì nó gánh nhiễu của **cả hai** lần chạy.
+
+#### Con số quyết định cho M4 — chế độ hỏng §9.2
+
+```
+User có CẢ 5 mẫu cùng điểm  →  std(r) = 0  →  không gradient
+                      lần 1     lần 2
+  NDCG@5              67.8%     62.4%    ← TRÊN/sát ngưỡng báo động 60%
+  gold_margin         42.6%     43.6%    ← DƯỚI ngưỡng, ổn định giữa 2 lần chạy
+```
+
+Đây chính là blocker đã chặn M4 từ đầu. Margin đưa nó từ "báo động" xuống "chấp nhận được", và con số tái lập ổn định giữa hai lần chạy độc lập.
+
+Margin cũng mang tín hiệu chất lượng memory thật: `real` +0.1674 vs arm hỏng tệ nhất +0.1091 → headroom **+0.0583, tức 35% tương đối** (NDCG@5 chỉ 12% tương đối).
+
+#### Điều này thay đổi gì, và điều gì vẫn CHƯA giải quyết
+
+✅ **Dạng reward đã có lời giải.** Trần hoà — thứ mà nâng cấp người chấm không chạm tới được (80.1% → 79.1%) — bị đổi dạng reward hạ xuống 65.9%, và tỉ lệ group suy biến từ ~65% xuống ~43%.
+
+⚠️ **Nhưng phép đo này dùng gpt-4o-mini làm người chấm, tức reward là một lời gọi API trong vòng lặp.** Chi phí: ~$5.6/run (cùng số lời gọi, dạng reward không đổi giá). Đổi lại được tương quan hoàn hảo theo định nghĩa và 0 VRAM.
+
+❓ **Chưa biết proxy 3B local có bám được `margin` không.** Toàn bộ Validation A/within-user trước đây đo với NDCG@5 ở **cả hai** phía; mục tiêu vừa đổi, nên kết luận cũ không tự động áp dụng. `FrozenRanker` đã trả về softmax trên candidate nên margin tính được ngay, nhưng `m2_pairs*.json` chỉ lưu `proxy_p_gold` chứ không lưu max của phần còn lại → phải chạy lại trên GPU (~1.4 GPU-h trên L4) mới trả lời được.
+
 ### Hướng đi tiếp — sau khi đã loại pointwise
 
 Đã thử và loại: **ranker 3B** (ρ 0.5573), **`soft_weight`** (làm tệ hơn), **pointwise** (ρ 0.4010, trong-user vẫn ngẫu nhiên). Phương án dự phòng §M2 ghi sẵn đã dùng hết.

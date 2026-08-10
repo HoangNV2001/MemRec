@@ -107,11 +107,23 @@ def _score(reranker: LLMReranker, record: Dict, facets: List[Dict], k: int) -> D
     )
     ranked = [s["item_id"] for s in sorted(scores, key=lambda s: s.get("score", 0), reverse=True)]
     gold = int(record["gold_item_id"])
+    raw = {int(s["item_id"]): float(s.get("score", 0.0)) for s in scores if "item_id" in s}
+    others = [v for i, v in raw.items() if i != gold]
     return {
         "ranking": ranked,
         "gold_rank": rank_of(ranked, gold),
         "ndcg_at_5": ndcg_at_k(ranked, gold, k),
         "hit_at_1": hit_at_k(ranked, gold, 1),
+        # Raw per-candidate relevance scores, kept because every rank-based
+        # reward is a function of the gold's *position* and therefore takes at
+        # most k+1 values -- two memories that land the gold in the same slot
+        # are indistinguishable no matter how good the judge is (measured:
+        # gpt-4o-mini ties 80.1% of within-user pairs, gpt-5.6-luna 79.1%).
+        # `gold_margin` is continuous and does not collapse that way. Cheap to
+        # store, impossible to recover later without paying for the pass again.
+        "scores": raw,
+        "gold_score": raw.get(gold),
+        "gold_margin": (raw[gold] - max(others)) if gold in raw and others else None,
     }
 
 
