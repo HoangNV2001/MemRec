@@ -310,14 +310,58 @@ Ghi kèm `data/rl/baselines_provenance.json` (model + dtype + số bản ghi + t
 
 **Điều KHÔNG kết luận:** rằng ý tưởng đồ án sai. Tín hiệu tinh có thật và lớn (0.34 NDCG@5 trên 296 cặp, gấp 3 lần hiệu ứng thô) — chỉ là **proxy 3B hiện tại không đọc được nó**. Đây là vấn đề của proxy, không phải của bài toán.
 
-### Hướng đi tiếp (chưa chọn — cần người dùng quyết)
+### Pointwise scoring (§M2 phương án 2) — đã thử, KHÔNG cứu được
+
+Chấm từng candidate một câu hỏi Yes/No độc lập, xếp hạng theo **hiệu logit** `Yes−No`. 1192 cặp, 3B fp32, L4, ~73 phút.
+
+> **Bug đã bắt trước khi nó làm hỏng số:** bản đầu xếp hạng theo `softmax(P("Yes"))`. Model trả lời "No" cho gần như mọi candidate → `P(Yes) ≈ 1e-30` → **underflow về đúng 0.0** trong float32, làm 8/10 candidate sập về một giá trị và **tái tạo lại chính bài toán trùng mà pointwise sinh ra để diệt**. Hiệu logit là biến đổi đơn điệu tương đương nhưng ổn định số học; sau khi đổi, cả 10 candidate đều phân biệt.
+
+| | listwise | pointwise | gpt-4o-mini |
+|---|---:|---:|---:|
+| **Validation A** — ρ gộp | **0.5573** | **0.4010** | — |
+| **Validation B** — margin | +0.0120 | **+0.0661** | — |
+| Độ nhạy thô `real − empty` | +0.0516 | **+0.0861** | +0.0994 |
+| Trong-user, cặp NDCG phán được | 60.6% [50.8, 69.7] | 56.3% [46.7, 65.5] | — |
+| Trong-user, cặp NDCG hoà (tiebreaker) | 40.1% [33.5, 47.1] | 44.6% [37.7, 51.6] | — |
+| **Trong-user, gộp** | **47.0%** | **48.6%** | — |
+| Tỉ lệ trùng NDCG@5 | 70.8% | 66.0% | 80.5% |
+| Throughput (L4, fp32) | 1.38/s | **0.30/s** | — |
+
+**Đọc kỹ, có hai chiều ngược nhau:**
+
+- **Pointwise TỐT HƠN ở vùng thô.** Độ nhạy `real − empty` là +0.0861, sát `LLM_Rec` thật (+0.0994) hơn hẳn listwise (+0.0516); margin Validation B gấp 5.5 lần. Nó phân biệt "memory thật vs memory rác" tốt hơn thật sự.
+- **Pointwise TỆ HƠN ở ρ gộp** (0.40 vs 0.56) — nó chấm "user có thích item này không" theo giá trị tuyệt đối, một bài toán khác với xếp hạng, nên đồng thuận với gpt-4o-mini về *user nào dễ* kém đi.
+- **Trong-user thì cả hai đều là ngẫu nhiên** (47.0% và 48.6%, CI của cả hai đều chứa 50%).
+
+#### ⛔ Kết luận: nút thắt KHÔNG nằm ở scoring mode
+
+Hai thiết kế scorer khác nhau về bản chất — một softmax 10 chiều có ràng buộc tổng bằng 1, và mười điểm Yes/No hoàn toàn độc lập — cho **cùng một kết quả trong-user: ngẫu nhiên**. Đổi cách hỏi không giải quyết được. Nút thắt nằm ở tầng trên:
+
+1. **Model 3B đơn giản là yếu hơn hẳn ở chính bài toán này.** NDCG@5 tuyệt đối: gpt-4o-mini 0.709 vs 3B 0.564–0.577 (ngẫu nhiên = 0.295). Một model kém hơn nhiều ở việc xếp hạng thì không thể tái hiện được phán đoán tinh của model giỏi hơn. Đây là giả thuyết mạnh nhất còn lại.
+2. **Hoặc trần nằm ở *dạng* reward** — `f(thứ hạng gold)` chỉ có 6 giá trị. Pilot đã xác nhận: pointwise vẫn trùng 66%, vì hai memory đặt gold vào cùng vị trí thì NDCG y hệt nhau bất kể scorer liên tục đến đâu. **Em đã sai khi nói pointwise "thoát trần 6 giá trị"** — trần đó nội tại trong dạng reward, không phải ở scorer.
+
+#### 🔧 Căng thẳng kiến trúc mới lộ ra (quan trọng cho M4)
+
+§4.3 muốn ranker **colocate** cùng policy 4B + vLLM trên một H100 → trần ranker ~3B. Nhưng đo được rằng **3B quá yếu để làm proxy trung thực**. Hai ràng buộc này mâu thuẫn nhau. Ba cách thoát:
+
+| Cách | Đánh đổi |
+|---|---|
+| Ranker chạy GPU riêng (2 GPU) | $/h cao hơn nhưng có thể ít giờ hơn; cho phép 7B+ |
+| Thu nhỏ policy (1.5B thay vì 4B) để nhường VRAM cho ranker 7B | Policy nhỏ hơn → đóng góp "LM_Mem nhỏ" vẫn giữ được, thậm chí mạnh hơn |
+| Reward gọi API gpt-4o-mini | 0 VRAM, tương quan hoàn hảo theo định nghĩa; ~$17–30 + latency |
+
+### Hướng đi tiếp — sau khi đã loại pointwise
+
+Đã thử và loại: **ranker 3B** (ρ 0.5573), **`soft_weight`** (làm tệ hơn), **pointwise** (ρ 0.4010, trong-user vẫn ngẫu nhiên). Phương án dự phòng §M2 ghi sẵn đã dùng hết.
 
 | Hướng | Chi phí | Lý lẽ |
 |---|---|---|
-| **Pointwise scoring** | ~2–3 GPU-hour | §M2 đã ghi sẵn là phương án 2 sau "thử 3B". Chấm từng candidate riêng (`P(yes)`) cho điểm liên tục, không bị trần 6 giá trị của NDCG@5 → tấn công thẳng vào bài toán trùng. Rẻ nhất trong các hướng thật sự khác biệt |
-| **Ranker 7B** | ~1 GPU-hour để thử | Trả lời "đây có phải giới hạn dung lượng model không". L40 48 GB thử được. **Nhưng** không dùng được ở M4 nếu colocate với vLLM (§4.3) — chỉ có giá trị chẩn đoán |
-| **Reward = gpt-4o-mini trực tiếp** | ~$17–30 + latency | Bỏ proxy. Đắt và chậm, nhưng đúng định nghĩa là tương quan hoàn hảo với `LLM_Rec` |
-| **Thu hẹp phát biểu đồ án** | 0 | Chấp nhận reward chỉ phân biệt thô, đặt mục tiêu M4 là "GRPO ≥ prompted ở vùng thô + ngắn hơn" (trục cost của Figure 4), bỏ tham vọng vượt về accuracy |
+| **Ranker 7B/8B, chẩn đoán** ⭐ | ~1–2 GPU-h trên L40 48 GB | Kiểm tra trực tiếp giả thuyết mạnh nhất còn lại: "3B quá yếu". Nếu 7B đưa trong-user lên rõ trên 50% → biết chắc là vấn đề dung lượng, và bài toán chuyển thành bố trí VRAM (3 cách ở trên). Nếu 7B **cũng** ngẫu nhiên → proxy nội bộ là ngõ cụt, phải đổi sang reward API hoặc thu hẹp phát biểu. **Rẻ và loại trừ được nhiều nhất** |
+| Reward = gpt-4o-mini trực tiếp | ~$17–30 + latency mỗi step | Bỏ hẳn proxy. Tương quan hoàn hảo theo định nghĩa. Làm M4 chậm đi đáng kể nhưng không tốn VRAM |
+| Đổi *dạng* reward | ~1 GPU-h | Bỏ NDCG@5 (6 giá trị) sang đại lượng liên tục theo thứ hạng — ví dụ log-rank, hoặc điểm gold chuẩn hoá theo phân phối trong chính user. Tấn công trần trùng ở đúng chỗ nó thật sự nằm |
+| Thu hẹp phát biểu đồ án | 0 | Nhắm trục **cost** của Figure 4 ("ngang accuracy, memory ngắn/rẻ hơn"). Reward hiện tại **đủ dùng cho việc này** — Validation B đạt, và pointwise đạt tốt (margin +0.0661). Chỉ bỏ tham vọng vượt accuracy |
+
+> Nếu chọn hướng "thu hẹp phát biểu": **dùng pointwise, không dùng listwise.** Nó nhạy với chất lượng memory gần bằng `LLM_Rec` thật (+0.0861 vs +0.0994) — tức là dạy được đúng bài học thô mà phát biểu đó cần. Đổi lại phải chịu 0.3 reward/s, nên phải giải bài throughput trước.
 
 ---
 

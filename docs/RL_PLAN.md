@@ -456,7 +456,13 @@ Mỗi milestone dưới đây gắn nhãn tầng: 🖥️ `T0` CPU · 🌐 `T0-A
 
 **Nếu ρ < 0.6:** thử `Qwen2.5-3B-Instruct` làm ranker, hoặc đổi sang pointwise scoring. **Không được đi tiếp M4 với reward chưa validate** — 400 step trên reward sai là mất cả phiên thuê máy và cả tuần.
 
-> **⑧ ĐIỀU KIỆN NÀY ĐANG KHÔNG THOẢ (2026-08-07).** Đã thử 3B — vẫn fail (ρ = 0.5573). Còn lại **pointwise scoring**, là phương án 2 chính dòng này ghi sẵn. Ngoài ra reward không xếp hạng nổi hai memory tốt cho cùng một user (60.6% trên 1/3 số cặp, ngẫu nhiên ở phần còn lại), và bài toán trùng reward 70.8% chưa có lời giải.
+> **⑧ ĐIỀU KIỆN NÀY ĐANG KHÔNG THOẢ (2026-08-07). CẢ HAI phương án dự phòng của chính dòng trên đã dùng hết.**
+> - Phương án 1 — **ranker 3B**: fail, ρ = 0.5573 (tối đa 0.5833 với mọi `soft_weight`).
+> - Phương án 2 — **pointwise scoring**: fail, ρ = 0.4010. Trong-user vẫn ngẫu nhiên (48.6%, CI [43.0, 54.3]).
+>
+> Hai thiết kế scorer khác nhau về bản chất cho **cùng một kết quả trong-user: ngẫu nhiên** → **nút thắt không nằm ở scoring mode**. Reward không xếp hạng nổi hai memory tốt cho cùng một user, và bài toán trùng reward (70.8% listwise / 66.0% pointwise) chưa có lời giải — trần đó nội tại trong *dạng* reward `f(thứ hạng gold)`, không phải ở scorer.
+>
+> **Căng thẳng kiến trúc phải giải trước khi mở M4:** §4.3 muốn ranker colocate → trần ~3B; nhưng 3B đo được là quá yếu (NDCG@5 tuyệt đối 0.564–0.577 vs gpt-4o-mini 0.709, ngẫu nhiên 0.295). Ba cách thoát ở cuối mục M2 trong `docs/RESULTS.md`.
 >
 > **Nhưng ý tưởng đồ án KHÔNG bị bác bỏ:** tín hiệu tinh có thật và lớn — 296/1490 cặp phân biệt được với biên độ trung bình 0.3413, gấp ~3 lần hiệu ứng thô +0.1112, tập trung ở 36% user. Đây là vấn đề của **proxy**, không phải của bài toán.
 >

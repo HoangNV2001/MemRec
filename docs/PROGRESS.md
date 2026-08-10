@@ -203,3 +203,39 @@ Ghi chú: heuristic tự động ban đầu của em in ra "LLM_Rec mostly CANNO
 
 Việc tiếp theo — **cần người dùng quyết**, 4 hướng đã liệt kê ở cuối mục M2 trong `docs/RESULTS.md`:
 pointwise scoring (~2–3 GPU-h, là phương án 2 §M2 đã ghi sẵn) · ranker 7B (chẩn đoán, không dùng được ở M4 vì VRAM) · reward = gpt-4o-mini trực tiếp (~$17–30) · thu hẹp phát biểu đồ án về trục cost của Figure 4.
+
+## M2 Phần B (tiếp) — pointwise scoring: đã thử, KHÔNG cứu được — 2026-08-07
+
+Trạng thái: **M2 vẫn KHÔNG ĐẠT DoD. M4 vẫn bị chặn.** Phương án dự phòng cuối cùng mà §M2 ghi sẵn ("hoặc đổi sang pointwise scoring") đã được thực hiện và loại. Số liệu đầy đủ: `docs/RESULTS.md` mục "Pointwise scoring (§M2 phương án 2)".
+
+Chi phí: ~1.2 GPU-hour trên L4 (73 phút cho 1192 cặp), **0 lời gọi API** — chấm lại đúng bộ cặp đã cache.
+
+Đã làm:
+- `FrozenRanker` thêm tham số `scoring ∈ {listwise, pointwise}` (mặc định giữ `listwise` = §5.1 nguyên bản). Pointwise hỏi Yes/No độc lập cho từng candidate, batch phẳng theo `pointwise_chunk=64`.
+- `--scoring` xuyên suốt `validate_reward.py`, `backfill_baselines.py`, `02_validate_reward.sh`. 4 test mới trong `tests/rl/test_reward_logic.py`.
+- Chạy full 1192 cặp (8 arm × 149 user), 3B fp32, so sánh trực tiếp với listwise trên cùng bộ cặp.
+
+Số đo:
+
+| | listwise | pointwise | gpt-4o-mini |
+|---|---:|---:|---:|
+| Validation A — ρ gộp | **0.5573** | **0.4010** | — |
+| Validation B — margin | +0.0120 | **+0.0661** | — |
+| Độ nhạy thô `real − empty` | +0.0516 | **+0.0861** | +0.0994 |
+| Trong-user, cặp NDCG phán được | 60.6% [50.8, 69.7] | 56.3% [46.7, 65.5] | — |
+| Trong-user, gộp (296 cặp) | 47.0% [41.3, 52.6] | 48.6% [43.0, 54.3] | — |
+| Tỉ lệ trùng NDCG@5 | 70.8% | 66.0% | 80.5% |
+| Throughput (L4, fp32) | 1.38/s | 0.30/s | — |
+
+Bug đã bắt trước khi nó làm hỏng số: bản đầu xếp hạng theo `softmax(P("Yes"))`. Model trả "No" cho gần như mọi candidate → `P(Yes) ≈ 1e-30` → **underflow về đúng 0.0** trong fp32, 8/10 candidate sập về cùng một giá trị, **tái tạo lại chính bài toán trùng mà pointwise sinh ra để diệt**. Đổi sang hiệu logit `Yes−No` (đơn điệu tương đương, ổn định số học) → cả 10 candidate phân biệt.
+
+Lệch so với kế hoạch: không có lệch mới — đây đúng là nhánh dự phòng §M2 đã viết. Mặc định `scoring` giữ `listwise` vì pointwise không đạt Validation A.
+
+Quyết định đã ra + lý do:
+- **Nút thắt KHÔNG nằm ở scoring mode.** Hai thiết kế khác nhau về bản chất — một softmax 10 chiều tổng bằng 1, và mười điểm Yes/No hoàn toàn độc lập — cho **cùng một kết quả trong-user: ngẫu nhiên** (47.0% và 48.6%, CI của cả hai chứa 50%). Đổi cách hỏi không giải quyết được; giả thuyết mạnh nhất còn lại là **3B đơn giản quá yếu ở chính bài toán xếp hạng này** (NDCG@5 tuyệt đối: gpt-4o-mini 0.709 vs 3B 0.564–0.577, ngẫu nhiên 0.295).
+- **Đính chính một phát biểu sai của em:** pointwise **không** "thoát trần 6 giá trị của NDCG@5". Trần đó nội tại trong *dạng* reward `f(thứ hạng gold)` — hai memory đặt gold vào cùng vị trí thì NDCG y hệt nhau bất kể scorer liên tục đến đâu. Pilot xác nhận: pointwise vẫn trùng 66%.
+- **Nhưng pointwise thắng rõ ở vùng thô** (`real − empty` +0.0861 vs +0.0516, sát `LLM_Rec` thật +0.0994). Nếu sau này chọn hướng thu hẹp phát biểu về trục cost thì **dùng pointwise**, và phải giải bài throughput trước (0.30/s là không dùng được cho vòng lặp GRPO).
+
+Căng thẳng kiến trúc mới lộ ra (quan trọng cho M4): §4.3 muốn ranker colocate cùng policy 4B + vLLM trên một H100 → trần ranker ~3B. Nhưng đo được rằng 3B quá yếu để làm proxy trung thực. Hai ràng buộc mâu thuẫn nhau; ba cách thoát (2 GPU / thu nhỏ policy / reward qua API) ở `docs/RESULTS.md`.
+
+Việc tiếp theo — **cần người dùng quyết**, 4 hướng ở cuối mục M2 trong `docs/RESULTS.md`. Đề xuất ưu tiên: **ranker 7B/8B làm phép chẩn đoán** (~1–2 GPU-h trên GPU ≥40 GB) — rẻ nhất và loại trừ được nhiều nhất, vì nó kiểm tra trực tiếp giả thuyết mạnh nhất còn lại.
