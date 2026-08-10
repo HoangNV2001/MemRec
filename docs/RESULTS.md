@@ -456,6 +456,25 @@ Margin cũng mang tín hiệu chất lượng memory thật: `real` +0.1674 vs a
 
 ❓ **Chưa biết proxy 3B local có bám được `margin` không.** Toàn bộ Validation A/within-user trước đây đo với NDCG@5 ở **cả hai** phía; mục tiêu vừa đổi, nên kết luận cũ không tự động áp dụng. `FrozenRanker` đã trả về softmax trên candidate nên margin tính được ngay, nhưng `m2_pairs*.json` chỉ lưu `proxy_p_gold` chứ không lưu max của phần còn lại → phải chạy lại trên GPU (~1.4 GPU-h trên L4) mới trả lời được.
 
+#### ⚠️ Luna + `gold_margin`: 0% group suy biến, và đó là một cái BẪY
+
+Đo đầy đủ cả hai judge × cả hai dạng reward, mỗi ô kèm nền nhiễu riêng (2 lần chạy độc lập trên cùng memory). **$2.2 API.**
+
+| Judge | Dạng reward | Tách 2 memory khác | Nền nhiễu | **Tín hiệu THẬT** | Group suy biến |
+|---|---|---:|---:|---:|---:|
+| gpt-4o-mini | `ndcg_at_5` | 19.3% | 8.6% | 10.7 điểm | 67.8% |
+| **gpt-4o-mini** | **`gold_margin`** | 34.1% | 13.4% | **20.7 điểm** | **42.6%** |
+| gpt-5.6-luna | `ndcg_at_5` | 20.9% | 18.0% | 3.0 điểm | 65.8% |
+| gpt-5.6-luna | `gold_margin` | **94.0%** | **92.9%** | **1.1 điểm** | **0.0%** |
+
+Nhìn cột cuối, Luna + margin trông như đã **giải xong hoàn toàn** blocker §9.2: không còn một group suy biến nào. Nhìn cột nền nhiễu thì thấy vì sao: nó tách được 94.0% số cặp trong khi **nhiễu thuần tuý đã tách 92.9%**. Nó phân biệt mọi thứ vì nó **ngẫu nhiên**, không phải vì nó biết gì.
+
+Đây **chính xác là chế độ hỏng của `soft_weight`'s `p_gold`**, chỉ ở dạng quyến rũ hơn: một đại lượng liên tục không bao giờ hoà, nên trên giấy nó "chữa" được group suy biến, còn thực tế nó bơm nhiễu vào đúng chỗ cần tín hiệu. Lần trước phát hiện bằng agreement dưới 50%; lần này chỉ phát hiện được nhờ nền nhiễu — **agreement không bắt được nó** (Luna margin vs Luna NDCG đồng hướng 86.9%, nhưng cả hai đến từ *cùng một* lời gọi nên tương quan theo cấu trúc).
+
+**Luna là evaluator giỏi, reward tồi.** Số gộp của nó rất tốt (headroom NDCG +0.1724, margin +0.0951 vs gpt-4o-mini +0.0583) vì nhiễu triệt tiêu khi lấy trung bình trên 149 user. Nhưng GRPO tiêu thụ reward **từng rollout một**, và ở mức đó nó gần như toàn nhiễu. Nguyên nhân gốc: API từ chối `temperature=0` cho họ gpt-5.
+
+→ **Reward được chọn: `gpt-4o-mini` + `gold_margin`** — 20.7 điểm tín hiệu thật, ~$5.6/run, nhiễu 8.6%. Luna vẫn dùng được cho bảng eval cuối nếu muốn.
+
 ### Hướng đi tiếp — sau khi đã loại pointwise
 
 Đã thử và loại: **ranker 3B** (ρ 0.5573), **`soft_weight`** (làm tệ hơn), **pointwise** (ρ 0.4010, trong-user vẫn ngẫu nhiên). Phương án dự phòng §M2 ghi sẵn đã dùng hết.
