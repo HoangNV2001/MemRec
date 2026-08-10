@@ -511,10 +511,21 @@ Cả ba dòng có CI **nằm trọn trên 50%**. Đây là lần đầu tiên tr
 
 #### Còn lại đúng một hạng mục fail: Validation C
 
-2.0 reward/s @ batch 16, cần ≥ 20/s @ batch 64. Ba nguyên nhân, đều gỡ được:
-1. **`flash-linear-attention` + `causal-conv1d` chưa cài** → Qwen3.5 dùng hybrid linear-attention và đang chạy **torch fallback** (transformers in cảnh báo mỗi lần load).
-2. Batch 16 vì L4 24 GB, không phải vì thuật toán.
-3. bf16 — nhưng tính tất định của bf16 **chưa đo lại cho model này** (kết luận cũ là của Qwen2.5-3B).
+| batch | reward/s | VRAM peak |
+|---:|---:|---:|
+| 16 | 0.95 | 11.8 GB |
+| 32 | 1.53 | 15.4 GB |
+| 64 | — | **OOM trên L4 24 GB** |
+
+Cần ≥ 20/s @ batch 64. Ngoại suy batch 64 ≈ 2.3/s → **thiếu ~10×**.
+
+**✅ bf16 tất định cho model này: lệch 0/48 user** giữa batch 1 và batch 24 (Qwen2.5-3B: bf16 lệch 2/48, phải dùng fp32). Nghĩa là **không cần fp32** — giữ được 8.4 GB weights thay vì ~17 GB và giữ nguyên tốc độ. Đây là tin tốt cho ngân sách VRAM §4.3 khi reward quay về chạy local.
+
+**Fast path vẫn CHƯA bật.** Đã cài `flash-linear-attention 0.5.2` nhưng transformers vẫn in dòng fallback — nó còn đòi `causal-conv1d`, và gói này **không có wheel dựng sẵn** (chỉ có source tarball, phải biên dịch CUDA extension). Mọi số throughput ở trên vì thế là **cận dưới**, đo trên torch fallback của hybrid linear-attention.
+
+Hệ quả ngân sách nếu giữ nguyên 2/s: 32 rollout tốn 16s thay vì 1.5s như §11.3 dự toán → step ~32s thay vì ~18s → một run M4 ~6h thay vì 3.5h → M4 cần ~43h thay vì 25h, **vượt ngân sách Phase 1 (50h)**.
+
+> **Ghi chú về chính ngưỡng 20/s:** nó được đặt ở §5.1 cho ranker **1.5B** — model đã được chứng minh là không dùng được. Ngưỡng đúng phải suy ra từ ngân sách step-time thực tế, không phải giữ nguyên con số viết cho một cấu hình đã bị loại. Đây là thay đổi kế hoạch, cần người dùng quyết theo §10.8.
 
 ### Hướng đi tiếp — sau khi đã loại pointwise
 
