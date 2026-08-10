@@ -484,35 +484,16 @@ class FrozenRanker:
 
     def _templated(self, prompt: str) -> str:
         """
-        Apply the chat template so that the NEXT token is the answer itself.
+        Chat template with thinking disabled -- see ``src.rl.policy.chat_text``.
 
-        The whole scorer reads the logits at one position and expects the model to
-        be about to emit a candidate letter. Reasoning models break that: their
-        template ends the generation prompt inside an open ``<think>`` block, so
-        the next token is the first word of a chain of thought, and the letter
-        logits being read are noise from the tail of the distribution. Measured on
-        Qwen3.5-4B before this fix: mass on A-J = **0.00002** (Qwen2.5-3B: 0.9998),
-        top token 'The' at p=0.82 -- and the resulting NDCG@5 was 0.34 on every
-        arm, i.e. random (0.295), which reads as "the model is weak" rather than
-        "the scorer is pointed at the wrong token".
-
-        ``enable_thinking=False`` is the supported way to ask for a template with
-        no thinking block; templates that do not accept the kwarg are unaffected.
-        If one opens a thinking block anyway, close it explicitly.
+        Delegated rather than duplicated: the policy needs the identical handling
+        (§6.2's completion budget, and the token/query axis of the thesis), and a
+        second copy of this rule is a second thing to forget. This file has
+        already paid twice for a duplicated default.
         """
-        msgs = [{"role": "user", "content": prompt}]
-        try:
-            text = self._tokenizer.apply_chat_template(
-                msgs, tokenize=False, add_generation_prompt=True, enable_thinking=False
-            )
-        except TypeError:      # template does not take the kwarg -- the common case
-            text = self._tokenizer.apply_chat_template(
-                msgs, tokenize=False, add_generation_prompt=True
-            )
-        stripped = text.rstrip()
-        if stripped.endswith("<think>"):
-            text = stripped + "\n</think>\n\n"
-        return text
+        from src.rl.policy import chat_text
+
+        return chat_text(self._tokenizer, prompt)
 
     def letter_mass(self, prompt: str) -> float:
         """

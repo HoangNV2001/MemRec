@@ -99,6 +99,49 @@ def to_chat(prompt: str) -> List[Dict[str, str]]:
     return [{"role": "user", "content": prompt}]
 
 
+def chat_text(tokenizer, prompt: str, add_generation_prompt: bool = True) -> str:
+    """
+    Render the chat template with **thinking disabled**, for every local model.
+
+    Reasoning models end the generation prompt inside an open ``<think>`` block,
+    which breaks this project in two separate places, so the handling lives here
+    once rather than in each caller:
+
+    * **As the reward ranker.** The scorer reads the logits at exactly one
+      position and expects a candidate letter. Inside a thinking block the next
+      token is the first word of a chain of thought instead: measured on
+      Qwen3.5-4B, mass on A-J was 0.00002 against 0.9998 for Qwen2.5-3B, and the
+      resulting NDCG@5 was 0.34 on every arm -- random, and indistinguishable
+      from "this model is too weak". Closing the block moved Spearman rho from
+      0.1232 to 0.7726.
+
+    * **As the policy (`LM_Mem`).** A memory preceded by a few hundred tokens of
+      reasoning blows past the 384-token completion budget of §6.2, inflates
+      ``completion_length_mean`` (the §9.3 reward-hacking alarm), and undercuts
+      the thesis directly: the contribution is a better point on the
+      accuracy x cost curve, and tokens per query are that axis. The SFT targets
+      are bare JSON with no thinking block, so training and generation would also
+      disagree if the template were left as-is.
+
+    ``enable_thinking=False`` is the supported way to ask; templates that do not
+    accept the kwarg are unaffected. If one opens the block anyway, close it.
+    """
+    msgs = to_chat(prompt)
+    try:
+        text = tokenizer.apply_chat_template(
+            msgs, tokenize=False, add_generation_prompt=add_generation_prompt,
+            enable_thinking=False,
+        )
+    except TypeError:      # template does not take the kwarg -- the common case
+        text = tokenizer.apply_chat_template(
+            msgs, tokenize=False, add_generation_prompt=add_generation_prompt,
+        )
+    stripped = text.rstrip()
+    if stripped.endswith("<think>"):
+        text = stripped + "\n</think>\n\n"
+    return text
+
+
 # ---------------------------------------------------------------------------
 # Parsing
 # ---------------------------------------------------------------------------
