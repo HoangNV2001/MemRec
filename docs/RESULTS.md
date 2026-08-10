@@ -350,6 +350,59 @@ Hai thiết kế scorer khác nhau về bản chất — một softmax 10 chiề
 | Thu nhỏ policy (1.5B thay vì 4B) để nhường VRAM cho ranker 7B | Policy nhỏ hơn → đóng góp "LM_Mem nhỏ" vẫn giữ được, thậm chí mạnh hơn |
 | Reward gọi API gpt-4o-mini | 0 VRAM, tương quan hoàn hảo theo định nghĩa; ~$17–30 + latency |
 
+### Đổi `LLM_Rec` sang model mạnh hơn (gpt-5.6-luna) — đã đo, và nó ĐÓNG một họ giải pháp
+
+Chấm lại **đúng 1192 cặp `(user, arm)` đã cache** bằng `gpt-5.6-luna` thay cho gpt-4o-mini. Không sinh memory mới, không GPU. Kèm 298 lời gọi đối chứng nhiễu. **$1.40, 5.5 phút.**
+
+> **Ràng buộc kỹ thuật phải biết trước:** họ gpt-5 **từ chối `temperature=0`** (kiểm chứng trực tiếp với API: `400 Only the default (1) value is supported`), và từ chối `max_tokens` (phải dùng `max_completion_tokens`). Reranker của repo chấm ở `temperature=0.0` để tất định — nên **judge thuộc họ gpt-5 là ngẫu nhiên**. Đã nới điều kiện chọn tham số trong `llm_client.py` (trước đó chỉ khớp chuỗi `nano`); đường gpt-4o-mini không đổi một byte.
+
+| arm | gpt-5.6-luna | gpt-4o-mini |
+|---|---:|---:|
+| sample1–5 (memory thật, TB) | **0.8214** | 0.7126 |
+| shuffled | 0.6411 | 0.6090 |
+| lorem | 0.6469 | 0.6079 |
+| empty | 0.6455 | 0.6092 |
+| **headroom `real − empty`** | **+0.1759** | +0.1112 |
+| **Validation B margin** | **+0.1545** | — |
+
+#### ✅ Hai tin tốt
+
+1. **Tiền đề đồ án không chỉ sống sót mà mạnh hơn.** Lo ngại "reranker mạnh hơn thì tự suy ra sở thích, memory thành thừa" đã bị **bác bỏ**: headroom tăng từ +0.1112 lên **+0.1759**. Luna cũng là recommender giỏi hơn hẳn (0.82 vs 0.71 NDCG@5 trên arm thật).
+2. **ρ(Luna, gpt-4o-mini) = 0.6635 — vượt ngưỡng Validation A 0.6.** Đây là **thứ đầu tiên trong cả M2 đạt Validation A**. Và nó là **cận dưới**, vì Luna tự nhiễu còn reference thì tất định. Tức là nếu giữ `LLM_Rec` = gpt-4o-mini thì Luna *về mặt tương quan gộp* đủ tư cách làm reward.
+
+#### ⛔ Phép đối chứng nhiễu, và vì sao nó đóng cả một họ giải pháp
+
+Chấm **cùng một memory** (`sample1`) 3 lần cho mỗi user, rồi so với việc chấm **hai memory khác nhau**:
+
+| So cái gì | Cặp | Phân biệt được | Biên độ TB |
+|---|---:|---:|---:|
+| Hai memory **khác nhau** (Luna) | 1490 | **20.9%** | 0.3312 |
+| **Cùng một memory**, chấm 2 lần (Luna) | 447 | **18.3%** | 0.3096 |
+| | | **chênh 2.6 điểm** | |
+
+**Gần như toàn bộ khả năng "phân biệt hai memory" của Luna là nhiễu lấy mẫu của chính nó.** Nó phân biệt một memory với *chính nó* gần bằng phân biệt nó với một memory khác.
+
+Đây cũng là một cảnh báo phương pháp luận: hình dạng thống kê "~20% cặp tách được, biên độ ~0.33" **là thứ nhiễu thuần tuý cũng tạo ra**, vì NDCG@5 rất thô — mọi xáo trộn đẩy gold đi một bậc đều tạo bước nhảy ~0.3. Con số 296 cặp / 0.3413 của gpt-4o-mini vẫn đứng vững (nó chấm ở temperature 0, tất định, nên khác biệt bắt buộc đến từ memory), nhưng **biên độ giống nhau không hàm ý nguyên nhân giống nhau**.
+
+#### 🔒 Kết luận cứng: trần 80% là của BÀI TOÁN, không phải của người chấm
+
+| Người chấm | Tỉ lệ hoà trong-user |
+|---|---:|
+| gpt-4o-mini (temp 0) | **80.1%** |
+| gpt-5.6-luna (temp 1) | **79.1%** |
+
+Một model mạnh hơn hẳn cho **cùng một tỉ lệ hoà**. Nguyên nhân là cấu trúc: 10 candidate + NDCG@5 chỉ có 6 giá trị + hai memory tốt thường đặt gold vào cùng một vị trí.
+
+→ **Toàn bộ họ giải pháp "nâng cấp người chấm" đã đóng.** 1.5B → 3B → pointwise → gpt-5.6-luna: không nhánh nào vượt được trần này, vì trần không nằm ở người chấm. Mua kết luận này bằng **$1.40 và 5.5 phút**.
+
+#### Hệ quả cho từng phương án
+
+| Phương án | Trạng thái sau phép đo |
+|---|---|
+| Luna làm **reward trong vòng lặp M4** | ❌ **Loại.** Không phải vì tiền ($12.1/run, chấp nhận được) mà vì ~88% khả năng phân biệt của nó là nhiễu, và nhiễu reward đi thẳng vào advantage của GRPO (§5.1 chọn one-forward-pass *vì* tính tất định). Muốn khử phải chấm lặp k lần → chi phí và độ trễ ×k, để đổi lấy 2.6 điểm tín hiệu thật |
+| Luna làm **`LLM_Rec` cho bảng kết quả** | ⭕ **Hấp dẫn ở trục thô.** Validation B margin +0.1545 (so với +0.0120 của proxy 3B), headroom +0.1759. Nhiễu triệt tiêu khi lấy TB trên 993 test user. Giá chạy lại M0 chỉ ~$2.45. Nhưng **không** giải quyết được trần hoà |
+| Nâng cấp người chấm để cứu tín hiệu tinh | ❌ **Đóng vĩnh viễn** — xem bảng tỉ lệ hoà |
+
 ### Hướng đi tiếp — sau khi đã loại pointwise
 
 Đã thử và loại: **ranker 3B** (ρ 0.5573), **`soft_weight`** (làm tệ hơn), **pointwise** (ρ 0.4010, trong-user vẫn ngẫu nhiên). Phương án dự phòng §M2 ghi sẵn đã dùng hết.

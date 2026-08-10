@@ -239,3 +239,30 @@ Quyết định đã ra + lý do:
 Căng thẳng kiến trúc mới lộ ra (quan trọng cho M4): §4.3 muốn ranker colocate cùng policy 4B + vLLM trên một H100 → trần ranker ~3B. Nhưng đo được rằng 3B quá yếu để làm proxy trung thực. Hai ràng buộc mâu thuẫn nhau; ba cách thoát (2 GPU / thu nhỏ policy / reward qua API) ở `docs/RESULTS.md`.
 
 Việc tiếp theo — **cần người dùng quyết**, 4 hướng ở cuối mục M2 trong `docs/RESULTS.md`. Đề xuất ưu tiên: **ranker 7B/8B làm phép chẩn đoán** (~1–2 GPU-h trên GPU ≥40 GB) — rẻ nhất và loại trừ được nhiều nhất, vì nó kiểm tra trực tiếp giả thuyết mạnh nhất còn lại.
+
+## M2 Phần B (tiếp) — đổi `LLM_Rec` sang gpt-5.6-luna: đóng họ giải pháp "nâng cấp người chấm" — 2026-08-10
+
+Trạng thái: **M2 vẫn KHÔNG ĐẠT DoD**, nhưng đã loại trừ dứt điểm một họ giải pháp và **bác bỏ được rủi ro lớn nhất của việc đổi `LLM_Rec`**. Số liệu: `docs/RESULTS.md` mục "Đổi `LLM_Rec` sang model mạnh hơn".
+
+Chi phí: **$1.40 API, 5.5 phút, 0 GPU.** Chấm lại đúng 1192 cặp `(user, arm)` đã cache + 298 lời gọi đối chứng nhiễu.
+
+Đã làm:
+- `src/rl/rescore_reference.py` — chấm lại các arm đã cache bằng một judge khác. Dựng lại chính xác facet của từng arm (`shuffled` phải lấy đúng cặp ghép theo thứ tự file lúc build, nếu ghép khác là so với một arm khác hẳn).
+- Vá `src/models/llm_client.py`: điều kiện chọn `max_completion_tokens` / bỏ `temperature` trước đây chỉ khớp chuỗi `nano`, nay khớp cả họ `gpt-5`/`o1`/`o3`/`o4` bằng prefix. **Đường gpt-4o-mini không đổi** (§10.4).
+
+Số đo:
+- **Headroom tăng, không giảm:** `real − empty` = **+0.1759** trên Luna vs +0.1112 trên gpt-4o-mini. Lo ngại "reranker mạnh hơn thì memory thành thừa" đã bị bác bỏ bằng số.
+- **ρ(Luna, gpt-4o-mini) = 0.6635** — vượt ngưỡng Validation A 0.6, và là cận dưới vì Luna tự nhiễu. Đây là thứ đầu tiên trong cả M2 đạt Validation A.
+- **Validation B margin +0.1545** (proxy 3B listwise: +0.0120).
+- **Tỉ lệ hoà trong-user: Luna 79.1% vs gpt-4o-mini 80.1%** — gần như y hệt.
+
+Lệch so với kế hoạch: họ gpt-5 **không nhận `temperature=0`** (kiểm chứng trực tiếp với API). Reranker của repo chấm ở temp 0 để tất định, nên mọi judge họ gpt-5 là **ngẫu nhiên**. Đây không phải lựa chọn, là ràng buộc của API.
+
+Quyết định đã ra + lý do:
+- **Loại Luna khỏi vai reward trong vòng lặp M4.** Không phải vì tiền ($12.1/run là chấp nhận được) mà vì phép đối chứng nhiễu: chấm **cùng một memory** 2 lần đã tách 18.3% số cặp, trong khi chấm **hai memory khác nhau** tách 20.9% — **~88% khả năng phân biệt của nó là nhiễu của chính nó**. §5.1 chọn thiết kế one-forward-pass *vì* tính tất định; nhiễu reward đi thẳng vào variance của advantage khi GRPO không có critic.
+- **Đóng vĩnh viễn họ giải pháp "nâng cấp người chấm".** 1.5B → 3B → pointwise → gpt-5.6-luna. Tỉ lệ hoà không nhúc nhích (80.1% → 79.1%) khi đổi sang model mạnh hơn hẳn → **trần nằm ở *bài toán*** (10 candidate, NDCG@5 chỉ 6 giá trị, hai memory tốt thường đặt gold cùng vị trí), không nằm ở người chấm. Mọi nỗ lực tiếp theo theo hướng này là lãng phí.
+- **Giữ mở phương án Luna làm `LLM_Rec` cho bảng kết quả cuối** (không phải cho vòng lặp). Nhiễu triệt tiêu khi lấy trung bình trên 993 test user; chi phí chạy lại M0 chỉ ~$2.45; và mọi số tuyệt đối đều tốt hơn. Quyết định để lại M7a.
+
+Ghi chú phương pháp luận đáng giữ: hình dạng thống kê "~20% cặp tách được, biên độ ~0.33" **là thứ nhiễu thuần tuý cũng tạo ra**, vì NDCG@5 rất thô. Kết luận "tín hiệu tinh có thật và lớn" của lần đo trước vẫn đứng (gpt-4o-mini chấm ở temp 0, tất định), nhưng từ nay mọi phát biểu về phân biệt trong-user phải kèm đối chứng nhiễu của chính judge đó.
+
+Việc tiếp theo — **cần người dùng quyết**. Hướng duy nhất chưa thử và tấn công đúng chỗ trần thật sự nằm: **đổi *dạng* reward**, bỏ `f(thứ hạng gold)` sang đại lượng liên tục. Ứng viên rẻ nhất: `LLMReranker` vốn trả về **điểm số cho từng candidate**, nhưng `_score` hiện chỉ lưu `ranking`/`ndcg_at_5`/`hit_at_1` và **vứt điểm thô đi**. Chấm lại 1192 cặp bằng gpt-4o-mini ở temp 0 có lưu điểm thô (**~$0.52, tất định**) là đủ để trả lời: biên `điểm(gold) − max(điểm khác)` có thoát được trần hoà 80% không.

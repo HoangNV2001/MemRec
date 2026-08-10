@@ -9,6 +9,17 @@ from pathlib import Path
 from datetime import datetime
 from openai import AzureOpenAI, OpenAI
 
+# Model families that require 'max_completion_tokens' and refuse a custom
+# 'temperature'. Matched as a prefix on the lowercased model name so that
+# gpt-4o / gpt-4o-mini and every OpenAI-compatible third-party model keep the
+# classic parameter set.
+_RESTRICTED_SAMPLING_PREFIXES = ("gpt-5", "o1", "o3", "o4")
+
+
+def _restricted_sampling_params(model: str) -> bool:
+    name = (model or "").lower()
+    return name.startswith(_RESTRICTED_SAMPLING_PREFIXES)
+
 
 class LLMClient:
     """LLM client supporting multiple providers"""
@@ -143,12 +154,20 @@ class LLMClient:
             'messages': messages
         }
         
-        # Use max_completion_tokens for gpt-5-nano, max_tokens for others
-        # gpt-5-nano requires max_completion_tokens instead of max_tokens
-        if 'gpt-5-nano' in self.model.lower() or 'nano' in self.model.lower():
+        # Newer OpenAI model families reject 'max_tokens' (they want
+        # 'max_completion_tokens') and reject any 'temperature' other than the
+        # default 1.0. Verified against the live API for gpt-5.6-luna:
+        #   max_tokens=64            -> 400 "Unsupported parameter"
+        #   temperature=0.0          -> 400 "Only the default (1) value is supported"
+        # The original check here was a substring match on 'nano', which caught
+        # gpt-5-nano and nothing else in the family. Widened to the whole family;
+        # gpt-4o* still takes the branch below, byte-for-byte as before, so the
+        # original eval path is unaffected (RL_PLAN.md §10.4).
+        if _restricted_sampling_params(self.model):
             kwargs['max_completion_tokens'] = max_tokens
-            # gpt-5-nano does NOT support custom temperature (only default 1.0)
-            # Do NOT add temperature parameter for this model
+            # Temperature is deliberately NOT forwarded: the API rejects every
+            # value except 1.0, so a caller asking for 0.0 gets sampling, not an
+            # error. Callers that depend on determinism must check this.
         else:
             kwargs['max_tokens'] = max_tokens
             # Only add temperature if specified (for non-nano models)
