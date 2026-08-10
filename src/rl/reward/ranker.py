@@ -170,16 +170,30 @@ class FrozenRanker:
     def __init__(
         self,
         mode: str = "stub",
-        # M2 Part B (docs/RESULTS.md): the planned Qwen2.5-1.5B-Instruct failed
-        # validation outright -- Spearman 0.307 vs the 0.6 DoD, and `lorem` memory
-        # outscored the real memory. 3B is §M2's prescribed fallback and passes
-        # Validation B. Org prefix required: must resolve on HF.
-        model_name: str = "Qwen/Qwen2.5-3B-Instruct",
+        # M2 (docs/RESULTS.md). The planned Qwen2.5-1.5B-Instruct failed outright
+        # -- Spearman 0.307 against a 0.6 DoD, and `lorem` memory outscored real
+        # memory. §M2's prescribed fallback, Qwen2.5-3B, only reached 0.5573 and
+        # was at chance on the within-user comparisons a GRPO group actually sees.
+        # Qwen3.5-4B is the first to pass: rho = 0.7726, Validation B with room,
+        # and 62.9% within-user agreement. It also outranks the judge it
+        # approximates (NDCG@5 0.75 vs gpt-4o-mini's 0.71).
+        #
+        # This default is load-bearing. `backfill_baselines.py` once carried its
+        # own copy of the model name, silently wrote every split with an
+        # unvalidated ranker, and the numbers looked perfectly normal. Everything
+        # now inherits from here; `data/rl/baselines_provenance.json` records what
+        # actually produced each file.
+        model_name: str = "Qwen/Qwen3.5-4B",
         device: str = "cuda",
         include_instruction: bool = True,
         stub_fn: Optional[Callable[[str, int], float]] = None,
         max_prompt_tokens: int = 3072,
-        dtype: str = "float32",
+        # bfloat16, not float32. The fp32 default existed because Qwen2.5-3B was
+        # not batch-invariant in bf16 (2/48 users moved between batch 1 and 24),
+        # and §5.1 chose the one-forward-pass design *because* it is deterministic.
+        # Qwen3.5-4B measures 0/48 under the torch attention path, so the fp32 tax
+        # -- double the VRAM, half the speed -- buys nothing here.
+        dtype: str = "bfloat16",
         scoring: str = "listwise",
     ):
         """

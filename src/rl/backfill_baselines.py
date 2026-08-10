@@ -65,7 +65,10 @@ def parse_args():
     p.add_argument("--device", default="cuda")
     p.add_argument("--scoring", choices=["listwise", "pointwise"], default="listwise",
                    help="pointwise = one yes/no forward pass per candidate (§M2 fallback)")
-    p.add_argument("--dtype", choices=["float32", "bfloat16"], default="float32")
+    # Same reason as --ranker_model above: no default here. A duplicated dtype
+    # default silently overrode the validated one and OOM'd a 4B model into fp32
+    # on a 24 GB card -- the second time this file grew a second source of truth.
+    p.add_argument("--dtype", choices=["float32", "bfloat16"], default=None)
     p.add_argument("--batch_size", type=int, default=32)
     p.add_argument("--no_instruction", action="store_true")
     p.add_argument("--ndcg_k", type=int, default=5)
@@ -84,7 +87,7 @@ def main():
         mode=args.ranker_mode,
         **ranker_kwargs,
         device=args.device,
-        dtype=args.dtype,
+        **({} if args.dtype is None else {"dtype": args.dtype}),
         scoring=args.scoring,
         include_instruction=not args.no_instruction,
     )

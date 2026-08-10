@@ -70,7 +70,8 @@ def parse_args():
     p.add_argument("--device", default="cpu")
     p.add_argument("--scoring", choices=["listwise", "pointwise"], default="listwise",
                    help="pointwise = one yes/no forward pass per candidate (§M2 fallback)")
-    p.add_argument("--dtype", choices=["float32", "bfloat16"], default="float32")
+    p.add_argument("--dtype", choices=["float32", "bfloat16"], default=None,
+                   help="default: whatever FrozenRanker validated at M2")
     p.add_argument("--batch_size", type=int, default=64)
     p.add_argument("--no_instruction", action="store_true",
                    help="drop the InstructRec instruction from the ranker prompt")
@@ -130,7 +131,7 @@ def main():
         mode=args.ranker_mode,
         model_name=args.ranker_model,
         device=args.device,
-        dtype=args.dtype,
+        **({} if args.dtype is None else {"dtype": args.dtype}),
         scoring=args.scoring,
         include_instruction=not args.no_instruction,
     )
@@ -215,7 +216,7 @@ def main():
     report = {
         "ranker_mode": args.ranker_mode,
         "ranker_model": args.ranker_model if args.ranker_mode == "hf" else None,
-        "dtype": args.dtype if args.ranker_mode == "hf" else None,
+        "dtype": ranker.dtype if args.ranker_mode == "hf" else None,
         "scoring": args.scoring,
         "include_instruction": not args.no_instruction,
         "n_pairs": len(paired),

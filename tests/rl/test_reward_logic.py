@@ -662,3 +662,42 @@ def test_margin_weight_zero_recovers_the_reward_written_in_section_5():
     on = _margin_reward(logits).per_example(GOOD_COMPLETION, ex)
     assert off.r_margin == 0.0
     assert on.total == pytest.approx(off.total + 0.02 * on.margin_logit)
+
+
+def test_score_many_matches_per_example_and_batches_the_ranker():
+    """
+    §5.1 budgets the reward assuming 64 rollouts share a forward pass. The
+    batching lived in FrozenRanker.score_batch and nothing above it ever called
+    it with more than one request, so a whole GRPO step was scored one prompt at
+    a time. score_many fixes that; this pins both halves of the contract --
+    identical numbers, and one ranker call per batch rather than per rollout.
+    """
+    calls = {"batches": 0, "requests": 0}
+    inner = FrozenRanker(mode="stub")
+
+    class CountingRanker:
+        def score(self, **kw):
+            return inner.score(**kw)
+
+        def score_batch(self, requests):
+            calls["batches"] += 1
+            calls["requests"] += len(requests)
+            return inner.score_batch(requests)
+
+    completions = [
+        '{"facets": [{"facet": "variant %d fantasy", "confidence": 0.8, '
+        '"supporting_neighbors": ["Item-1"]}]}' % i
+        for i in range(10)
+    ]
+    examples = [_example() for _ in completions]
+
+    reward = StageRReward(ranker=CountingRanker(),
+                          grounding=GroundingScorer(encoder=FakeEncoder(), n_facets=7))
+    batched = reward.score_many(completions, examples, batch_size=4)
+    one_at_a_time = [reward.per_example(c, e) for c, e in zip(completions, examples)]
+
+    assert [b.total for b in batched] == pytest.approx([b.total for b in one_at_a_time])
+    # 10 rollouts at batch 4 -> ceil(10/4) = 3 forward passes, not 10. The
+    # per_example loop above goes through .score and is not counted here.
+    assert calls["batches"] == 3
+    assert calls["requests"] == 10

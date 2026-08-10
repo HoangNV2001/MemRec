@@ -166,6 +166,10 @@ class StageRReward:
         self.grounding = grounding or GroundingScorer(n_facets=self.config.n_facets)
         self._null_cache: Dict[int, float] = {}
         self.last_breakdowns: List[RewardBreakdown] = []
+        # Ranker forward-pass batch. §5.1 assumes 64; 32 is what a 24 GB card
+        # holds for a 4B ranker at ~1200-token prompts (48 is already past
+        # saturation, 64 OOMs). Raise on an H100.
+        self.ranker_batch_size = 32
 
     __name__ = "stage_r_reward"   # TRL uses this for logging column names
 
@@ -229,25 +233,83 @@ class StageRReward:
                 completion_tokens=self._estimate_tokens(completion or ""),
             )
 
-    def _per_example(self, completion: str, example: Dict) -> RewardBreakdown:
+    def _prepare(self, completion: str, example: Dict):
+        """Parse the completion and build the ranker request it implies."""
         cfg = self.config
         snippets = example.get("neighbor_snippets") or {}
         allowed_ids = list(snippets) or example.get("neighbor_ids") or None
-
         parsed = parse_facets(completion, valid_node_ids=allowed_ids, max_facets=cfg.n_facets)
-
-        # A malformed completion is scored as "no memory at all" rather than as a
-        # constant, so groups of malformed rollouts still differ by prompt.
-        m_collab = parsed.facets if parsed.facets else None
-
-        out = self.ranker.score(
+        request = dict(
             candidates=example["candidates"],
             candidate_titles=example.get("candidate_titles", {}),
             candidate_memories=example.get("candidate_memories", {}),
-            m_collab=m_collab,
+            # A malformed completion is scored as "no memory at all" rather than
+            # as a constant, so groups of malformed rollouts still differ by prompt.
+            m_collab=parsed.facets if parsed.facets else None,
             instruction=example.get("instruction"),
             user_id=example.get("user_id"),
         )
+        return parsed, request, snippets
+
+    def score_many(self, completions: Sequence[str], examples: Sequence[Dict],
+                   batch_size: int = 32) -> List[RewardBreakdown]:
+        """
+        Score many rollouts with **batched** ranker forward passes.
+
+        ``per_example`` calls the ranker one prompt at a time, which is what the
+        TRL entry point used to do for a whole step. §5.1 sizes the reward budget
+        assuming 64 rollouts share a forward pass ("Batch được 64 rollout cùng
+        lúc"), and that assumption did not survive the composite: the batching
+        lived in ``FrozenRanker.score_batch`` and nothing above it ever called it
+        with more than one request. Measured on Qwen3.5-4B, batch 1 runs at ~1/s
+        against ~2.8/s at batch 32, so a 400-step M4 run was going to pay roughly
+        three times the reward cost §11.3 budgeted.
+
+        Everything outside the ranker -- parsing, grounding, penalties -- stays
+        per example, so the returned breakdowns are identical to ``per_example``
+        up to the ranker's own batch-composition noise.
+        """
+        prepared, requests = [], []
+        for completion, example in zip(completions, examples):
+            try:
+                parsed, request, snippets = self._prepare(_as_text(completion), example)
+            except Exception:  # noqa: BLE001 - fall back to the guarded path
+                prepared.append(None)
+                continue
+            prepared.append((parsed, snippets))
+            requests.append((len(prepared) - 1, request))
+
+        outs: Dict[int, Any] = {}
+        for start in range(0, len(requests), batch_size):
+            chunk = requests[start:start + batch_size]
+            for (idx, _), out in zip(chunk, self.ranker.score_batch([r for _, r in chunk])):
+                outs[idx] = out
+
+        results = []
+        for i, (completion, example) in enumerate(zip(completions, examples)):
+            if prepared[i] is None or i not in outs:
+                results.append(self.per_example(_as_text(completion), example))
+                continue
+            parsed, snippets = prepared[i]
+            try:
+                results.append(self._finish(_as_text(completion), example,
+                                            parsed, snippets, outs[i]))
+            except Exception:  # noqa: BLE001 - one bad rollout must not kill a step
+                results.append(RewardBreakdown(
+                    total=-self.config.lambda_fmt,
+                    penalty_fmt=self.config.lambda_fmt,
+                    is_malformed=True,
+                    completion_tokens=self._estimate_tokens(_as_text(completion) or ""),
+                ))
+        return results
+
+    def _per_example(self, completion: str, example: Dict) -> RewardBreakdown:
+        parsed, request, snippets = self._prepare(completion, example)
+        out = self.ranker.score(**request)
+        return self._finish(completion, example, parsed, snippets, out)
+
+    def _finish(self, completion: str, example: Dict, parsed, snippets, out) -> RewardBreakdown:
+        cfg = self.config
         gold = int(example["gold_item_id"])
         r_ndcg = ndcg_at_k(out.ranking, gold, cfg.ndcg_k)
         p_gold = float(out.scores.get(gold, 0.0))
@@ -308,11 +370,14 @@ class StageRReward:
         each a list aligned with ``completions``.
         """
         completions = list(completions or [])
-        breakdowns = []
-        for i, completion in enumerate(completions):
-            example = {key: values[i] for key, values in columns.items()
-                       if isinstance(values, (list, tuple)) and i < len(values)}
-            breakdowns.append(self.per_example(_as_text(completion), example))
+        examples = [
+            {key: values[i] for key, values in columns.items()
+             if isinstance(values, (list, tuple)) and i < len(values)}
+            for i in range(len(completions))
+        ]
+        # Batched: a GRPO step scores G x prompts rollouts at once and §5.1 budgets
+        # them sharing forward passes. See score_many.
+        breakdowns = self.score_many(completions, examples, batch_size=self.ranker_batch_size)
 
         self.last_breakdowns = breakdowns
         return [b.total for b in breakdowns]
