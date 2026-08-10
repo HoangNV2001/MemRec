@@ -468,14 +468,65 @@ class FrozenRanker:
             logits={int(candidates[i]): float(scores[i]) for i in range(len(candidates))},
         )
 
+    def _templated(self, prompt: str) -> str:
+        """
+        Apply the chat template so that the NEXT token is the answer itself.
+
+        The whole scorer reads the logits at one position and expects the model to
+        be about to emit a candidate letter. Reasoning models break that: their
+        template ends the generation prompt inside an open ``<think>`` block, so
+        the next token is the first word of a chain of thought, and the letter
+        logits being read are noise from the tail of the distribution. Measured on
+        Qwen3.5-4B before this fix: mass on A-J = **0.00002** (Qwen2.5-3B: 0.9998),
+        top token 'The' at p=0.82 -- and the resulting NDCG@5 was 0.34 on every
+        arm, i.e. random (0.295), which reads as "the model is weak" rather than
+        "the scorer is pointed at the wrong token".
+
+        ``enable_thinking=False`` is the supported way to ask for a template with
+        no thinking block; templates that do not accept the kwarg are unaffected.
+        If one opens a thinking block anyway, close it explicitly.
+        """
+        msgs = [{"role": "user", "content": prompt}]
+        try:
+            text = self._tokenizer.apply_chat_template(
+                msgs, tokenize=False, add_generation_prompt=True, enable_thinking=False
+            )
+        except TypeError:      # template does not take the kwarg -- the common case
+            text = self._tokenizer.apply_chat_template(
+                msgs, tokenize=False, add_generation_prompt=True
+            )
+        stripped = text.rstrip()
+        if stripped.endswith("<think>"):
+            text = stripped + "\n</think>\n\n"
+        return text
+
+    def letter_mass(self, prompt: str) -> float:
+        """
+        Softmax mass the model puts on A-J at the position the scorer reads.
+
+        A number near 1.0 means the one-forward-pass design of §5.1 holds for this
+        model. A number near 0 means every score this ranker returns is noise, and
+        it is invisible downstream -- the NDCG just looks like a weak model. Cheap
+        enough to assert before trusting any ranker on a checkpoint not seen before.
+        """
+        import torch
+
+        self._ensure_loaded()
+        batch = self._tokenizer(
+            [self._templated(prompt)], return_tensors="pt",
+            truncation=True, max_length=self.max_prompt_tokens,
+        ).to(self._model.device)
+        with torch.no_grad():
+            row = self._last_position_logits(batch)[0].float()
+        probs = torch.softmax(row, dim=-1)
+        return float(sum(probs[i].item() for i in self._letter_token_ids))
+
     def _score_hf(self, prompts: Sequence[str], candidate_lists) -> List[RankerOutput]:
         import torch
 
         self._ensure_loaded()
         texts = [
-            self._tokenizer.apply_chat_template(
-                [{"role": "user", "content": p}], tokenize=False, add_generation_prompt=True
-            )
+            self._templated(p)
             for p in prompts
         ]
         batch = self._tokenizer(

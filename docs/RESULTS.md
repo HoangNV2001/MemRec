@@ -475,6 +475,47 @@ Nhìn cột cuối, Luna + margin trông như đã **giải xong hoàn toàn** b
 
 → **Reward được chọn: `gpt-4o-mini` + `gold_margin`** — 20.7 điểm tín hiệu thật, ~$5.6/run, nhiễu 8.6%. Luna vẫn dùng được cho bảng eval cuối nếu muốn.
 
+### ✅✅ `Qwen3.5-4B` làm frozen ranker — Validation A và B ĐẠT, lần đầu tiên
+
+> **Bug đã suýt cho kết luận ngược, và nó im lặng.** Lần chạy đầu cho ρ = 0.1232, NDCG@5 ≈ **0.34 trên mọi arm kể cả `empty`** (ngẫu nhiên = 0.295) — đọc thô thì kết luận "Qwen3.5-4B quá yếu". Nguyên nhân thật: **Qwen3.5 là reasoning model**, chat template kết thúc generation prompt **bên trong khối `<think>` đang mở**, nên token kế tiếp là chữ đầu của chuỗi suy luận chứ không phải chữ cái đáp án.
+>
+> ```
+> LETTER MASS trên A–J = 0.000020      (Qwen2.5-3B: 0.9998)
+> token model muốn sinh: 'The' p=0.82 · 'Thinking' p=0.18
+> ```
+>
+> Sau khi vá (`enable_thinking=False`, và đóng `<think>` tường minh nếu template vẫn mở): **0.997475**. Cùng một model, cùng một lệnh, ρ đi từ **0.1232 → 0.7726**. Đã thêm `FrozenRanker.letter_mass()` làm phép kiểm bắt buộc trước khi tin bất kỳ ranker nào trên checkpoint lạ.
+
+| Hạng mục | Qwen2.5-3B (fp32) | **Qwen3.5-4B (bf16)** | Ngưỡng |
+|---|---:|---:|---|
+| **A** Spearman ρ | 0.5573 ✗ | **0.7726** ✅ | ≥ 0.6 |
+| **B** thứ tự arm | margin +0.0120, sát | ✅ **đạt cả thứ tự gốc** `real > shuffled > lorem ≈ empty` | |
+| **C** throughput | 1.38/s | 2.0/s @ batch 16 ✗ | ≥ 20/s @ batch 64 |
+| headroom `real − empty` | +0.0516 | **+0.1371** | (gpt-4o-mini +0.1112) |
+| NDCG@5 tuyệt đối, arm thật | 0.564–0.577 | **0.736–0.756** | (gpt-4o-mini 0.703–0.722) |
+| Tỉ lệ trùng NDCG@5 | 70.8% | 84.1% | |
+
+**Qwen3.5-4B xếp hạng giỏi hơn cả gpt-4o-mini** (0.75 vs 0.71) — nó không còn là "proxy rẻ tiền xấp xỉ model xịn" nữa. Điều này cũng giải thích vì sao ρ dừng ở 0.77 chứ không cao hơn: nó bất đồng với gpt-4o-mini ở những chỗ nó **đúng hơn**.
+
+#### Within-user — chỗ đã giết mọi ranker trước đó
+
+| Ai quyết định | Qwen2.5-3B | **Qwen3.5-4B** |
+|---|---|---|
+| NDCG@5 tự quyết | 60.6% [50.8, 69.7] | **67.3%** [57.8, 75.6] ✅ |
+| NDCG hoà → `p_gold` phá hoà | 40.1% [33.5, 47.1] **dưới ngẫu nhiên** | **61.5%** [54.4, 68.1] ✅ |
+| **GỘP 296 cặp** | **47.0% = ngẫu nhiên** | **63.5%** [57.9, 68.8] ✅ |
+
+Cả ba dòng có CI **nằm trọn trên 50%**. Đây là lần đầu tiên trong toàn bộ M2.
+
+> ⚠️ **`soft_weight` có thể phải BẬT LẠI — nhưng chưa được bật vội.** Lý do tắt nó là `p_gold` phản tín hiệu **trên ranker 3B** (40.1%). Trên Qwen3.5-4B nó **thuận** tín hiệu (61.5%, CI trên 50%). Kết luận cũ là thuộc tính của model cũ, không phải của số hạng. Nhưng đây sẽ là lần đảo chiều thứ ba của cùng một tham số, nên **phải đo kèm nền nhiễu** (theo bài học từ Luna + margin) trước khi đổi mặc định.
+
+#### Còn lại đúng một hạng mục fail: Validation C
+
+2.0 reward/s @ batch 16, cần ≥ 20/s @ batch 64. Ba nguyên nhân, đều gỡ được:
+1. **`flash-linear-attention` + `causal-conv1d` chưa cài** → Qwen3.5 dùng hybrid linear-attention và đang chạy **torch fallback** (transformers in cảnh báo mỗi lần load).
+2. Batch 16 vì L4 24 GB, không phải vì thuật toán.
+3. bf16 — nhưng tính tất định của bf16 **chưa đo lại cho model này** (kết luận cũ là của Qwen2.5-3B).
+
 ### Hướng đi tiếp — sau khi đã loại pointwise
 
 Đã thử và loại: **ranker 3B** (ρ 0.5573), **`soft_weight`** (làm tệ hơn), **pointwise** (ρ 0.4010, trong-user vẫn ngẫu nhiên). Phương án dự phòng §M2 ghi sẵn đã dùng hết.
