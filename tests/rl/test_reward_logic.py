@@ -274,7 +274,7 @@ def test_reward_decomposes_into_its_terms():
     r = _reward()
     b = r.per_example(GOOD_COMPLETION, _example())
     assert b.total == pytest.approx(
-        b.r_ndcg + b.r_soft + 0.2 * b.r_ground - b.penalty_len - b.penalty_fmt
+        b.r_ndcg + b.r_soft + b.r_margin + 0.2 * b.r_ground - b.penalty_len - b.penalty_fmt
     )
     assert not b.is_malformed
     assert b.penalty_fmt == 0.0
@@ -354,7 +354,7 @@ def test_r_null_is_cached_and_diagnostic_only():
     assert b.beats_null in (True, False)
     # r_null must not be subtracted from the returned reward (§5.4)
     assert b.total == pytest.approx(
-        b.r_ndcg + b.r_soft + 0.2 * b.r_ground - b.penalty_len - b.penalty_fmt
+        b.r_ndcg + b.r_soft + b.r_margin + 0.2 * b.r_ground - b.penalty_len - b.penalty_fmt
     )
 
 
@@ -445,7 +445,9 @@ def test_soft_weight_is_off_because_measurement_ruled_against_it():
     the default so the earlier, wrong decision cannot quietly come back.
     """
     assert RewardConfig().soft_weight == 0.0
-    b = _reward().per_example(GOOD_COMPLETION, _example())
+    # margin_weight off too, so this isolates the soft term rather than the
+    # continuous term that replaced it.
+    b = _reward(margin_weight=0.0).per_example(GOOD_COMPLETION, _example())
     assert b.r_soft == 0.0
     assert b.total == pytest.approx(b.r_ndcg + 0.2 * b.r_ground - b.penalty_len - b.penalty_fmt)
 
@@ -456,7 +458,7 @@ def test_soft_weight_enters_the_total_when_enabled():
     assert 0.0 <= b.p_gold <= 1.0
     assert b.r_soft == pytest.approx(0.3 * b.p_gold)
     assert b.total == pytest.approx(
-        b.r_ndcg + b.r_soft + 0.2 * b.r_ground - b.penalty_len - b.penalty_fmt
+        b.r_ndcg + b.r_soft + b.r_margin + 0.2 * b.r_ground - b.penalty_len - b.penalty_fmt
     )
 
 
@@ -466,7 +468,10 @@ def test_soft_weight_breaks_ties_that_ndcg_cannot():
     score identically under any rank-only reward (measured 71.1% of the time on
     the real 3B ranker at M2 Part B), which zeroes the GRPO advantage.
     """
-    plain, soft = _reward(soft_weight=0.0), _reward(soft_weight=0.3)
+    # Both sides run with margin_weight=0.0: the question here is what the SOFT
+    # term does on its own, and leaving the margin on would break the ties for it.
+    plain = _reward(soft_weight=0.0, margin_weight=0.0)
+    soft = _reward(soft_weight=0.3, margin_weight=0.0)
     ex = _example()
 
     def totals(rw):
@@ -554,3 +559,106 @@ def test_unknown_scoring_mode_is_rejected():
 
     with pytest.raises(ValueError, match="scoring"):
         FrozenRanker(mode="stub", scoring="pairwise")
+
+
+# --- margin_logit: the continuous term that replaced soft_weight -------------
+#
+# docs/RESULTS.md (M2): NDCG@5 is a function of the gold's rank, so it takes at
+# most k+1 values and leaves 71.1% of five-sample groups completely flat. A flat
+# group is std(r)=0 and no gradient at all (§9.2). These lock the replacement in
+# place, including the two ways it was nearly got wrong.
+
+
+class FixedLogitRanker:
+    """Ranker returning logits chosen by the test, so margins are exact."""
+
+    def __init__(self, logits, expose_logits=True):
+        self.logits = dict(logits)
+        self.expose_logits = expose_logits
+
+    def score(self, candidates, **_):
+        from src.rl.reward.ranker import RankerOutput
+
+        picked = {int(c): float(self.logits.get(int(c), 0.0)) for c in candidates}
+        top = max(picked.values())
+        exps = {k: math.exp(v - top) for k, v in picked.items()}
+        z = sum(exps.values())
+        return RankerOutput(
+            ranking=[k for k, _ in sorted(picked.items(), key=lambda kv: -kv[1])],
+            scores={k: v / z for k, v in exps.items()},
+            logits=picked if self.expose_logits else {},
+        )
+
+
+def _margin_reward(logits, expose_logits=True, **cfg):
+    return StageRReward(
+        ranker=FixedLogitRanker(logits, expose_logits),
+        grounding=GroundingScorer(encoder=FakeEncoder(), n_facets=7),
+        config=RewardConfig(**cfg),
+    )
+
+
+def test_margin_weight_default_is_the_measured_value():
+    """
+    0.02 is not a guess. Any w > 0 breaks every tie (the sweep is a step
+    function, not a curve) and within-user accuracy is flat at 62.9% across
+    [0.005, 0.05], eroding from w >= 0.1 as the margin starts overriding NDCG@5
+    rather than breaking its ties.
+    """
+    assert RewardConfig().margin_weight == 0.02
+
+
+def test_soft_weight_stays_off_now_that_margin_replaces_it():
+    """
+    Both are continuous tie-breakers, so enabling both double-counts. Given the
+    same job -- the pairs NDCG@5 cannot judge -- p_gold agreed 40.1% of the time
+    (below chance) and margin_logit 58.4% (above it).
+    """
+    assert RewardConfig().soft_weight == 0.0
+
+
+def test_margin_is_the_logit_gap_to_the_best_competitor():
+    r = _margin_reward({101: 4.0, 102: 1.5, 103: -2.0})
+    b = r.per_example(GOOD_COMPLETION, _example(gold_item_id=101))
+    assert b.margin_logit == pytest.approx(4.0 - 1.5)
+    assert b.r_margin == pytest.approx(0.02 * 2.5)
+
+
+def test_margin_is_negative_when_the_gold_is_beaten():
+    r = _margin_reward({101: 0.5, 102: 3.0, 103: 1.0})
+    b = r.per_example(GOOD_COMPLETION, _example(gold_item_id=101))
+    assert b.margin_logit == pytest.approx(0.5 - 3.0)
+
+
+def test_margin_separates_two_rollouts_that_ndcg_ties():
+    """
+    The whole point. Two memories that put the gold in the same slot get the
+    same NDCG@5 and would leave the group at std(r)=0; the margin still tells
+    them apart, so the group produces a gradient.
+    """
+    ex = _example(gold_item_id=101)
+    a = _margin_reward({101: 5.0, 102: 1.0, 103: 0.0}).per_example(GOOD_COMPLETION, ex)
+    b = _margin_reward({101: 5.0, 102: 4.9, 103: 0.0}).per_example(GOOD_COMPLETION, ex)
+    assert a.r_ndcg == b.r_ndcg          # same gold rank -> NDCG cannot separate
+    assert a.total != b.total            # margin can
+
+
+def test_margin_degrades_to_zero_when_the_ranker_exposes_no_logits():
+    """
+    The pointwise path returns no logit map. A reward that raised there would
+    fail three hours into a rented session, so it falls back to plain NDCG@5.
+    """
+    r = _margin_reward({101: 4.0, 102: 1.0, 103: 0.0}, expose_logits=False)
+    b = r.per_example(GOOD_COMPLETION, _example(gold_item_id=101))
+    assert b.margin_logit == 0.0
+    assert b.r_margin == 0.0
+
+
+def test_margin_weight_zero_recovers_the_reward_written_in_section_5():
+    """The M5 ablation needs the original formula reachable from config alone."""
+    logits = {101: 4.0, 102: 1.5, 103: -2.0}
+    ex = _example(gold_item_id=101)
+    off = _margin_reward(logits, margin_weight=0.0).per_example(GOOD_COMPLETION, ex)
+    on = _margin_reward(logits).per_example(GOOD_COMPLETION, ex)
+    assert off.r_margin == 0.0
+    assert on.total == pytest.approx(off.total + 0.02 * on.margin_logit)

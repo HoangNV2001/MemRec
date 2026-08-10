@@ -84,6 +84,45 @@ class RewardConfig:
     # continuous term is what failed.
     soft_weight: float = 0.0
 
+    # Weight on the ranker's *logit* margin between the gold candidate and its
+    # best competitor. This is the continuous term that works, and it replaces
+    # `soft_weight` above rather than joining it (docs/RESULTS.md, M2).
+    #
+    # Why a continuous term is needed at all. NDCG@k is a function of the gold's
+    # rank alone, so it takes at most k+1 values, and two memories that land the
+    # gold in the same slot score identically. That ceiling belongs to the *task*,
+    # not to whoever is scoring: gpt-4o-mini ties 80.1% of within-user pairs and
+    # gpt-5.6-luna, a much stronger model, ties 79.1%. On Qwen3.5-4B it leaves
+    # 71.1% of five-sample groups completely flat -- std(r)=0, advantage 0, no
+    # gradient (§9.2), i.e. M4 would train on under a third of its data.
+    #
+    # Measured on 149 val users x 5 teacher samples, against the real LLM_Rec:
+    #
+    #   NDCG@5 decides                 72/102  = 70.6%  [61.1, 78.6]
+    #   NDCG@5 ties -> margin decides  101/173 = 58.4%  [50.9, 65.5]
+    #   combined                       173/275 = 62.9%  [57.1, 68.4]
+    #   degenerate groups              71.1% -> 0.0%
+    #
+    # That middle row is the whole difference from `soft_weight`: given the same
+    # job, p_gold came back at 40.1%, below chance. margin_logit is above it.
+    #
+    # Why the *logit* margin and not the probability margin. This ranker puts
+    # ~99% of the letter mass on a single token, so p(gold) - max p(other)
+    # saturates near +-1 and what is left moving is floating-point noise: it
+    # separates 99.9% of pairs against a 98.3% noise floor, which is 1.6 points
+    # of real signal dressed up as a perfect score. The logit form is unbounded
+    # and gives 90.4% against 48.6%.
+    #
+    # Why 0.02. A weight sweep is a step function, not a curve -- any w > 0 breaks
+    # every tie, and accuracy is flat at 62.9% across [0.005, 0.05], eroding only
+    # from w >= 0.1 as the margin starts overriding NDCG instead of breaking its
+    # ties. 0.02 sits in the middle of the flat region, and keeps the magnitudes
+    # ordered too: NDCG's real-vs-corrupted headroom is +0.131 against the
+    # margin's +1.09, so 0.02 * 1.09 stays the smaller term.
+    #
+    # Set to 0.0 to recover exactly the reward written in §5, for the M5 ablation.
+    margin_weight: float = 0.02
+
 
 @dataclass
 class RewardBreakdown:
@@ -106,6 +145,8 @@ class RewardBreakdown:
     beats_null: Optional[bool] = None
     p_gold: float = 0.0            # ranker probability mass on the gold candidate
     r_soft: float = 0.0            # soft_weight * p_gold, 0 unless enabled
+    margin_logit: float = 0.0      # logit(gold) - max logit(other candidate)
+    r_margin: float = 0.0          # margin_weight * margin_logit
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -211,6 +252,12 @@ class StageRReward:
         r_ndcg = ndcg_at_k(out.ranking, gold, cfg.ndcg_k)
         p_gold = float(out.scores.get(gold, 0.0))
         r_soft = cfg.soft_weight * p_gold
+        # Continuous tie-breaker. Defaults to 0.0 when the ranker exposes no
+        # logits (the pointwise path) so the reward degrades to plain NDCG@5
+        # rather than raising three hours into a rented session.
+        others = [v for i, v in out.logits.items() if i != gold]
+        margin_logit = float(out.logits[gold] - max(others)) if (gold in out.logits and others) else 0.0
+        r_margin = cfg.margin_weight * margin_logit
 
         ground = self.grounding.score(parsed.facets, snippets) if parsed.facets else None
         r_ground = ground.score if ground else 0.0
@@ -220,7 +267,8 @@ class StageRReward:
         # intended: truncation should still cost the format penalty (§9.4).
         penalty_fmt = 0.0 if parsed.is_valid else cfg.lambda_fmt
 
-        total = r_ndcg + r_soft + cfg.lambda_ground * r_ground - penalty_len - penalty_fmt
+        total = (r_ndcg + r_soft + r_margin + cfg.lambda_ground * r_ground
+                 - penalty_len - penalty_fmt)
 
         null_value = example.get("r_null")
         if null_value is None:
@@ -243,6 +291,8 @@ class StageRReward:
             beats_null=(r_ndcg > null_value) if null_value is not None else None,
             p_gold=p_gold,
             r_soft=r_soft,
+            margin_logit=margin_logit,
+            r_margin=r_margin,
         )
 
     # -- TRL entry point ----------------------------------------------------
@@ -279,6 +329,7 @@ class StageRReward:
             "reward_std": _std([b.total for b in rows]),
             "r_ndcg_mean": sum(b.r_ndcg for b in rows) / n,
             "p_gold_mean": sum(b.p_gold for b in rows) / n,
+            "margin_logit_mean": sum(b.margin_logit for b in rows) / n,
             # Fraction of rollouts sharing their reward with another rollout in the
             # batch. The single best early-warning for §9.2 group degeneracy.
             "reward_tie_rate": _tie_rate([b.total for b in rows]),
