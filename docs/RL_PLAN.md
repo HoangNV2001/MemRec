@@ -414,7 +414,7 @@ Mỗi milestone dưới đây gắn nhãn tầng: 🖥️ `T0` CPU · 🌐 `T0-A
 
 ---
 
-### ☒ M2 — Reward function · 🖥️`T0` rồi 🔧`T1` — **~2 GPU-hour** — **KHÔNG ĐẠT, M4 bị chặn**
+### ☑ M2 — Reward function · 🖥️`T0` rồi 🔧`T1` — **~5 GPU-hour** — **ĐẠT (C hoãn sang H100)**
 
 **Phần A — viết code, không cần GPU** 🖥️ — **XONG 2026-08-06**
 - [x] `src/rl/reward/metrics.py`: `ndcg_at_k`, `hit_at_k` + unit test với ví dụ tính tay
@@ -436,9 +436,9 @@ Mỗi milestone dưới đây gắn nhãn tầng: 🖥️ `T0` CPU · 🌐 `T0-A
 
 **Phần B — cần GPU, gộp chung phiên với M3** 🚀 — **CHẠY 2026-08-07 trên L4, ~1.5 GPU-hour**
 - [x] Bật chế độ thật của `ranker.py` — **nhưng ranker đổi thành `Qwen2.5-3B-Instruct`**, xem ④ dưới
-- [ ] **Validation A — tương quan proxy: ❌ FAIL.** ρ = **0.5573** (§5 nguyên bản), tối đa 0.5833 với mọi `soft_weight`. Con số 0.6051 báo cáo lúc đầu là artifact của việc chỉ có 2/5 arm là memory thật — thêm 3 arm mẫu thật thì tụt xuống
-- [x] **Validation B — độ nhạy:** đạt, margin +0.0007 (`sample1`) / +0.0120 (TB 5 arm thật) — cực sát
-- [~] **Validation C — throughput:** **chưa đo được trên L4** — 3B fp32 @ batch 64 không vừa 24 GB. Đo 1.3 reward/s @ batch 32. **Phải đo lại trên H100 đầu phiên M3/M4**
+- [x] **Validation A — tương quan proxy: ✅ ĐẠT, ρ = 0.7726** với ranker **`Qwen/Qwen3.5-4B`**. Đường đi: 1.5B 0.3071 → 3B 0.5573 → pointwise 0.4010 → Qwen3.5-4B **0.7726**. Xem ⑨ về bug đã suýt cho kết luận ngược
+- [x] **Validation B — độ nhạy:** ✅ đạt rộng rãi với Qwen3.5-4B — headroom +0.1310, và tái hiện được **cả thứ tự gốc** `real > shuffled > lorem ≈ empty` mà chính gpt-4o-mini không thoả
+- [~] **Validation C — throughput:** **không đo được ở tầng T1.** L4 24 GB OOM ở batch 64 và bão hoà từ batch 32 (2.82/s với fast path). Ngoại suy FLOPs → 20–40/s trên H100. **Phải đo ở đầu phiên M3-B/M4**
 - [x] **[thêm] Đo tỉ lệ trùng reward** → 70.8% → bật `soft_weight = 0.3` → **đo lại trên 5 mẫu/user → TẮT về 0.0**: `p_gold` phá hoà ở 40.1%, CI [33.5, 47.1], tức **dưới ngẫu nhiên**. Bài toán trùng reward vẫn CHƯA có lời giải
 - [x] **[thêm] Chạy thêm `--no_instruction`** → kém hơn hẳn (0.141 vs 0.307) → giữ `include_instruction=True`, đóng câu hỏi bỏ ngỏ của §5.1
 - [x] Backfill `r_null` + `baseline_h1` (+ **`baseline_p_gold`**, xem ⑤) vào 3 file jsonl
@@ -456,7 +456,15 @@ Mỗi milestone dưới đây gắn nhãn tầng: 🖥️ `T0` CPU · 🌐 `T0-A
 
 **Nếu ρ < 0.6:** thử `Qwen2.5-3B-Instruct` làm ranker, hoặc đổi sang pointwise scoring. **Không được đi tiếp M4 với reward chưa validate** — 400 step trên reward sai là mất cả phiên thuê máy và cả tuần.
 
-> **⑧ ĐIỀU KIỆN NÀY ĐANG KHÔNG THOẢ (2026-08-07). CẢ HAI phương án dự phòng của chính dòng trên đã dùng hết.**
+> **⑨ ĐÃ GỠ (2026-08-10) — `Qwen/Qwen3.5-4B` + `margin_logit`.** Hai thay đổi, mỗi cái gỡ một nửa bế tắc.
+>
+> **(a) Đổi ranker sang Qwen3.5-4B → ρ 0.5573 → 0.7726.** Nhưng lần chạy đầu cho ρ = **0.1232** và NDCG@5 ≈ 0.34 trên *mọi* arm (ngẫu nhiên 0.295) — đọc thô thì kết luận "4B quá yếu". Nguyên nhân thật: **Qwen3.5 là reasoning model**, chat template kết thúc generation prompt **bên trong khối `<think>` đang mở**, nên token mà scorer đọc là chữ đầu của chuỗi suy luận. Letter mass = **0.000020** (Qwen2.5-3B: 0.9998). Sau khi đóng khối: **0.997475**, ρ = 0.7726. Đã thêm `FrozenRanker.letter_mass()` làm phép kiểm bắt buộc cho mọi checkpoint lạ — bug này **im lặng**, nó chỉ hiện ra như "model kém".
+>
+> **(b) Đổi *dạng* reward sang `r_ndcg + 0.02 · margin_logit` → group suy biến 71.1% → 0.0%.** Trần hoà là của **bài toán**, không phải của người chấm (gpt-4o-mini hoà 80.1%, gpt-5.6-luna 79.1% — model mạnh hơn hẳn cho cùng tỉ lệ). Phải đổi dạng reward. `margin_logit` phá hoà ở **58.4%** [50.9, 65.5] — trên ngẫu nhiên — trong khi `p_gold` của `soft_weight` làm đúng việc đó ở **40.1%**, dưới ngẫu nhiên. **`soft_weight` bị thay thế, không phải bật lại.**
+>
+> **Bài học phương pháp luận, áp dụng từ đây trở đi:** mọi phát biểu "tách được X% cặp" phải kèm **nền nhiễu của chính đại lượng đó** (chấm lại cùng dữ liệu, khác batch/lần gọi). Hai ứng viên đã bị loại **chỉ nhờ** phép này, và cả hai đều trông như chiến thắng nếu không có nó: `gpt-5.6-luna + margin` (tách 94.0%, nền nhiễu 92.9%) và `margin_prob` (99.9% / 98.3%). Cả hai đều cho "0% group suy biến".
+>
+> **⑧ Bối cảnh lịch sử — điều kiện này ĐÃ KHÔNG THOẢ (2026-08-07). Cả hai phương án dự phòng của chính dòng trên đã dùng hết.**
 > - Phương án 1 — **ranker 3B**: fail, ρ = 0.5573 (tối đa 0.5833 với mọi `soft_weight`).
 > - Phương án 2 — **pointwise scoring**: fail, ρ = 0.4010. Trong-user vẫn ngẫu nhiên (48.6%, CI [43.0, 54.3]).
 >

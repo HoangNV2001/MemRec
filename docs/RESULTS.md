@@ -555,6 +555,56 @@ L4 24 GB không chứa nổi batch 64, và bão hoà từ batch 32. Ngoại suy 
 
 §11.5 đã lên lịch đo lại Validation C ở đầu phiên M3/M4 trên H100. Trạng thái đúng của C là **⏸ chưa đo được ở T1**, không phải ❌.
 
+### ✅ `margin_logit` — group suy biến 71.1% → 0.0%, M2 có lời giải trọn vẹn
+
+Qwen3.5-4B đạt Validation A nhưng vẫn **hoà 84% cặp trong-user**, nên phần lớn group GRPO vẫn `std(r) = 0`. `src/rl/measure_margin.py` chấm cả 1192 cặp đã cache, rồi **chấm lại 5 arm mẫu ở batch khác** để mọi tỉ lệ đều có nền nhiễu riêng. 8.7 phút GPU.
+
+| Đại lượng | Tách | Nền nhiễu | **THẬT** | Group suy biến |
+|---|---:|---:|---:|---:|
+| `ndcg_at_5` | 16.4% | 3.6% | 12.8 đ | **71.1%** |
+| `margin_prob` | 99.9% | 98.3% | **1.6 đ** | 0.0% |
+| **`margin_logit`** | 90.4% | 48.6% | **41.8 đ** | **0.0%** |
+
+**`margin_prob` là bẫy** — cùng hình dạng với Luna+margin (94.0% trên nền 92.9%). Ranker dồn ~99% letter mass vào một token nên margin xác suất bão hoà quanh ±1, phần còn nhúc nhích là **kernel chứ không phải memory**. Nó đáng đo đúng vì nó là dạng *giống thang 0–1 của gpt-4o-mini nhất*, và nếu không có pass đối chứng thì "0.0% group suy biến" đã trông như chiến thắng.
+
+#### `margin_logit` khác `p_gold` ở đúng chỗ quyết định
+
+| Ai quyết định | `margin_logit` / Qwen3.5-4B | `p_gold` / Qwen2.5-3B |
+|---|---|---|
+| NDCG@5 tự quyết | **70.6%** [61.1, 78.6] | 60.6% |
+| NDCG hoà → phá hoà | **58.4%** [50.9, 65.5] ✅ | **40.1%** ❌ dưới ngẫu nhiên |
+| **GỘP** | **62.9%** [57.1, 68.4] | 47.0% = ngẫu nhiên |
+
+Cùng một nhiệm vụ, kết quả ngược nhau: `p_gold` phản tín hiệu ở đúng những cặp NDCG không phán được; `margin_logit` trên ngẫu nhiên ở đó, và nhân gần **3× vùng phủ** (102 → 275 cặp).
+
+#### Trọng số: hàm bậc thang, không phải đường đánh đổi
+
+| w | Đồng ý within-user | Cặp phủ | Group suy biến |
+|---:|---:|---:|---:|
+| 0.0 | 70.6% | 102 | 71.1% |
+| 0.005 – 0.05 | **62.9%** | **275** | **0.0%** |
+| 0.1 | 62.2% | 275 | 0.0% |
+| 1.0 | 59.6% | 275 | 0.0% |
+
+Mọi `w > 0` phá sạch mọi hoà; độ chính xác **phẳng** trong `[0.005, 0.05]` và chỉ xói từ `w ≥ 0.1` khi margin bắt đầu **lấn át** NDCG thay vì phá hoà nó.
+
+**Chốt `w = 0.02`.** Kiểm thang đo: headroom NDCG +0.131 vs margin +1.09 → đóng góp ~0.022, nhỏ hơn NDCG cả về đo lường lẫn độ lớn.
+
+> **Đánh đổi phải nói rõ:** nền nhiễu của `margin_logit` là **48.6%** dưới kernel fast path (NDCG@5: 3.6%). Một nửa độ tán trong group là kernel chứ không phải memory. Đó là **variance chứ không phải bias**, và 62.9% đã tính cả nó — nhưng đây là lý do **torch fallback** (bất biến batch, chậm 2×) vẫn là lựa chọn sống cho M4.
+
+### 🎯 Trạng thái M2 cuối cùng
+
+| Hạng mục | Kết quả |
+|---|---|
+| **A** Spearman ρ ≥ 0.6 | ✅ **0.7726** (`Qwen3.5-4B`) |
+| **B** `r(thật) ≥ max(arm hỏng) + 0.02` | ✅ đạt, kể cả thứ tự gốc `real > shuffled > lorem ≈ empty` |
+| **C** ≥ 20 reward/s @ batch 64 | ⏸ **không đo được ở T1** — L4 24 GB OOM ở batch 64, bão hoà từ batch 32. Ước 20–40/s trên H100; §11.5 đã lên lịch đo ở đầu phiên M3-B/M4 |
+| Chế độ hỏng §9.2 (group suy biến) | ✅ **71.1% → 0.0%** với `margin_logit` |
+| Within-user agreement | ✅ **62.9%** [57.1, 68.4] |
+| Tất định | ✅ bf16 bất biến batch **0/48** với torch fallback (3/48 với fast path) |
+
+**M2 ĐẠT.** Hạng mục duy nhất chưa xác nhận là throughput, và nó không đo được ở tầng máy này chứ không phải trượt.
+
 ### Hướng đi tiếp — sau khi đã loại pointwise
 
 Đã thử và loại: **ranker 3B** (ρ 0.5573), **`soft_weight`** (làm tệ hơn), **pointwise** (ρ 0.4010, trong-user vẫn ngẫu nhiên). Phương án dự phòng §M2 ghi sẵn đã dùng hết.

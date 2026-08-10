@@ -298,3 +298,40 @@ Quyết định đã ra + lý do:
 Việc tiếp theo — **cần người dùng quyết**, hai câu hỏi độc lập:
 1. **Ai tính reward trong vòng lặp M4?** (a) gpt-4o-mini qua API: ~$5.6/run, tương quan hoàn hảo theo định nghĩa, 0 VRAM, nhưng 8.6% nhiễu; (b) proxy 3B local: **chưa biết có bám được margin không** — mọi phép đo Validation A/within-user trước đây dùng NDCG@5 ở cả hai phía, mục tiêu vừa đổi nên kết luận cũ không tự động áp dụng. Trả lời được bằng ~1.4 GPU-h trên L4 (`FrozenRanker` đã trả softmax nên margin tính được ngay; `m2_pairs*.json` chỉ lưu `proxy_p_gold`, thiếu max của phần còn lại).
 2. **`LLM_Rec` cuối cùng là gpt-4o-mini hay gpt-5.6-luna?** Luna cho headroom +0.1759 vs +0.1112 và mọi số tuyệt đối tốt hơn, chi phí chạy lại M0 ~$2.45 — nhưng nhiễu gấp đôi. Để lại M7a.
+
+## M2 — ĐẠT — 2026-08-10
+
+Trạng thái: **DONE.** Validation A ✅ 0.7726 · B ✅ · C ⏸ không đo được ở tầng T1. **M4 hết bị chặn.** Số liệu đầy đủ: `docs/RESULTS.md` mục "M2 Reward Validation".
+
+Chi phí ngày hôm nay: **~$5.5 API + ~4 GPU-hour trên L4.** Vẫn chưa thuê H100 một giờ nào. Tổng M2: ~$6.5 + ~6.5 GPU-h rẻ.
+
+Đã làm:
+- `src/rl/rescore_reference.py` — chấm lại arm đã cache bằng judge khác (đổi người chấm rẻ vì memory là nửa đắt tiền và đã nằm trên đĩa).
+- `src/rl/measure_margin.py` — đo dạng reward liên tục trên ranker local, mỗi tỉ lệ kèm nền nhiễu riêng.
+- `_score` của `build_val_reference.py` lưu thêm điểm thô từng candidate (`scores`, `gold_score`, `gold_margin`) — trước đây `LLMReranker` trả về rồi bị vứt ngay sau khi sort.
+- `FrozenRanker._templated()` + `letter_mass()`; `llm_client.py` nhận diện họ model bằng prefix thay vì chuỗi con `nano`.
+- Nâng `transformers` 4.57.1 → 5.14.1 (cần cho `qwen3_5`), build `causal-conv1d 1.6.2.post1` từ source. `pytest tests/rl/` giữ 146 pass / 5 skip qua cả hai.
+
+Số đo chính:
+- **Ranker `Qwen/Qwen3.5-4B`**: ρ = **0.7726** (1.5B 0.3071 → 3B 0.5573 → pointwise 0.4010). NDCG@5 tuyệt đối 0.736–0.756, **cao hơn gpt-4o-mini** (0.703–0.722). Headroom +0.1310. bf16 bất biến batch 0/48 (torch fallback).
+- **Reward `r_ndcg + 0.02·margin_logit`**: group suy biến **71.1% → 0.0%**, within-user **62.9%** [57.1, 68.4], phá hoà ở 58.4% [50.9, 65.5].
+- **Trần hoà là của bài toán, không của người chấm**: gpt-4o-mini 80.1%, gpt-5.6-luna 79.1%.
+- **Tiền đề đồ án sống sót reranker mạnh hơn**: headroom trên Luna +0.1724 vs gpt-4o-mini +0.1112 — memory KHÔNG thành thừa khi reranker khoẻ lên.
+
+Lệch so với kế hoạch:
+1. **Ranker `Qwen2.5-1.5B` → `Qwen/Qwen3.5-4B`** (§6.1 ghi 1.5B, fallback "giữ nguyên"). Ảnh hưởng §4.3: ranker bf16 8.4 GB, **không cần fp32** vì model này bất biến batch — rẻ hơn phương án 3B fp32 (~12 GB).
+2. **Dạng reward đổi từ `f(thứ hạng gold)` sang `r_ndcg + w·margin_logit`.** §5.1 chỉ có `r_ndcg`. Không phải tinh chỉnh: với reward chỉ theo rank thì 71% group không có gradient, tức M4 chạy 400 step trên 29% dữ liệu.
+3. **`soft_weight` bị THAY THẾ, không bật lại.** Cùng vai trò, nhưng `p_gold` phá hoà ở 40.1% (dưới ngẫu nhiên) còn `margin_logit` ở 58.4% (trên).
+4. **`temperature=0` không khả dụng cho họ gpt-5**, và **gpt-4o-mini @ temp 0 cũng không tất định** (8.6%). §5.1 xây trên tiền đề "người chấm tất định" — tiền đề đó sai kể cả với API.
+
+Quyết định đã ra + lý do:
+- **Reward chạy local, không gọi API trong vòng lặp.** Đã đo `gpt-5.6-luna` làm reward và loại: nó tách 94.0% cặp trên nền nhiễu **92.9%** → 1.1 điểm tín hiệu thật. Nó là evaluator giỏi nhất đã đo nhưng reward tồi, vì API không cho tắt sampling. Local ranker gỡ luôn cả nhiễu, chi phí và VRAM.
+- **Mọi tỉ lệ "tách được" từ nay phải kèm nền nhiễu của chính nó.** Hai ứng viên bị loại *chỉ nhờ* phép này, cả hai đều cho "0% group suy biến" và đều trông như chiến thắng: `luna + margin` và `margin_prob`.
+- **Validation C ghi ⏸ chứ không ❌.** L4 24 GB OOM ở batch 64 và bão hoà từ batch 32 — không phải chỗ để kiểm ngưỡng viết cho H100. §11.5 đã lên lịch đo ở đầu phiên M3-B/M4.
+
+Bug đã bắt (đều im lặng, đều suýt cho kết luận ngược):
+1. **Chat template của reasoning model.** Qwen3.5 kết thúc generation prompt trong khối `<think>` đang mở → scorer đọc token đầu của chuỗi suy luận. Letter mass 0.000020. ρ 0.1232 → 0.7726 sau khi đóng khối. Hiện ra y hệt "model quá yếu".
+2. **`margin_prob` bão hoà.** Ranker dồn ~99% mass vào một token → margin xác suất bão hoà ±1, phần nhúc nhích là kernel. Chỉ nền nhiễu bắt được.
+3. **`llm_client` nhận diện model bằng chuỗi con `nano`** → bắt được gpt-5-nano và không gì khác trong họ.
+
+Việc tiếp theo: **M3.** Phần A (CPU + API, ~$7): sinh 8 mẫu `M_collab`/user cho 1185 train user bằng gpt-4o-mini. Phần B (~4 GPU-h): chấm bằng ranker Qwen3.5-4B đã validate, giữ top-1/user nếu `r > r_null`, SFT LoRA. Đo lại Validation C ở đầu phiên GPU.
