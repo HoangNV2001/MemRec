@@ -25,8 +25,23 @@ from typing import Callable, Dict, List, Optional, Sequence
 import hashlib
 import math
 
-# Candidate labels. Ten candidates is the paper's protocol (§2).
-LETTERS = "ABCDEFGHIJ"
+# Candidate labels, one single token each. Ten candidates is the paper's
+# evaluation protocol (§2) and the reported metrics keep it, but the reward is a
+# *training signal* and nothing forces it onto the same candidate set. NDCG@5
+# over ten candidates takes six values, which is where the 80% within-user tie
+# ceiling comes from -- it survives every scorer upgrade because it is a property
+# of the protocol, not of the judge. A wider reward-side list gives the gold rank
+# more places to land.
+#
+# 26 is the hard limit of this design, not a choice: the whole scorer reads one
+# forward pass of next-token logits restricted to the label tokens, so a label
+# must be a single token. A-Z are verified single-token and collision-free on
+# Qwen3.5-4B; beyond that, labels tokenise into pieces and the one-pass trick
+# stops working.
+#
+# Prompts for ten candidates are byte-identical to before: build_ranker_prompt
+# zips labels against candidates, so it still uses A-J.
+LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 
 @dataclass
