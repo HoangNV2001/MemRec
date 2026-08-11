@@ -335,3 +335,38 @@ Bug đã bắt (đều im lặng, đều suýt cho kết luận ngược):
 3. **`llm_client` nhận diện model bằng chuỗi con `nano`** → bắt được gpt-5-nano và không gì khác trong họ.
 
 Việc tiếp theo: **M3.** Phần A (CPU + API, ~$7): sinh 8 mẫu `M_collab`/user cho 1185 train user bằng gpt-4o-mini. Phần B (~4 GPU-h): chấm bằng ranker Qwen3.5-4B đã validate, giữ top-1/user nếu `r > r_null`, SFT LoRA. Đo lại Validation C ở đầu phiên GPU.
+
+## M3 + ĐÓNG DỰ ÁN — 2026-08-11
+
+Trạng thái: **M3 XONG (chưa eval). M4 KHÔNG THỰC HIỆN. Dự án đóng.** Tổng kết đầy đủ ở đầu `docs/RESULTS.md`.
+
+### M3 đã làm
+
+- **Phần A** (CPU + API): `src/rl/build_sft_teacher.py` — 1185 train user × 8 mẫu `M_collab` từ gpt-4o-mini @ temp 1.0. **$2.88, 18.8 phút.** 0/9480 mẫu rỗng, 0/1185 user có cả 8 mẫu giống hệt, median 276 token.
+- **Phần B bước 1** (GPU): `src/rl/select_sft_data.py` — chấm 9480 mẫu bằng reward M2 đầy đủ, giữ top-1/user nếu thắng `r_null`. **457/1185 user (38.6%)**; 728 bị loại, phần lớn là số học vì **40.8% user có `r_null` = 1.0** (gold đã đứng nhất khi không có memory, nên `r > r_null` không thể thoả).
+- **Phần B bước 2** (GPU): `src/rl/sft.py` — LoRA r=32/α=64 all-linear, 2 epoch, lr 1e-5, `enable_thinking=False`, loss chỉ trên completion. **116 step, train_loss 0.3902, 24.8 phút, VRAM peak 15.1 GB** → `checkpoints/rl/sft_books`.
+- `src/rl/eval_sft.py` đã viết (DoD M3: JSON hợp lệ ≥95%, NDCG@5 không tụt so với base) nhưng **chưa chạy**.
+
+### Số đo quyết định việc đóng dự án
+
+- **Dự báo group suy biến trên tập train thật**, đúng hình dạng 8 mẫu/group mà M4 sẽ lấy: `std(r) = 0` ở **0/1185 = 0.0%** (ngưỡng báo động §M4: 60%). M4 hết bị chặn về kỹ thuật.
+- **Nhưng phân rã ra thì yếu hơn nhiều:** **734/1185 = 61.9%** group **không có khác biệt thứ hạng nào** (NDCG@5 phẳng). Ở những group đó toàn bộ hướng gradient do `margin_logit` quyết định, mà nó chỉ đồng ý với `LLM_Rec` thật **58.4%** [50.9, 65.5]. Chỉ **38.1%** group có tín hiệu rank thật.
+- **Thí nghiệm cuối — nới candidate list của reward lên N=26** (`src/rl/measure_wider_candidates.py`, 5.7 phút GPU, 0 API). Giả thuyết: trần trùng thuộc về protocol N=10 nên nới độ phân giải sẽ phá được. **Bác bỏ:** tỉ lệ hoà giảm thật (MRR@26 hoà 67.0% vs NDCG@5@10 hoà 83.6%) nhưng độ chính xác giảm tương ứng, và tín hiệu ròng không đổi (+43 vs +42) hoặc tệ hơn khi cộng margin (+56 vs +71). Các cặp hoà **không giấu tín hiệu dùng được**.
+
+### Quyết định đã ra + lý do
+
+- **Đóng dự án.** Chủ đồ án đặt điều kiện cứng: đóng góp phải là accuracy tốt hơn MemRec gốc **≥ +0.05 NDCG@5**, và nói rõ đóng góp về cost không đáp ứng yêu cầu. Trần oracle đo được của Stage-R synthesis là **+0.06→+0.08**, reward tốt nhất đúng 62.9% within-user, ước lượng thực tế **+0.02→+0.035**, xác suất chạm +0.05 khoảng **15–20%**. Không đủ để cam kết 25 GPU-hour còn lại.
+- **Dừng trước khi thuê H100.** Tổng tiêu: **~$16 API + ~13 GPU-h trên L4**, ~11% ngân sách §11, trong 5 ngày / 14 tuần. Đây đúng là việc chế độ LEAN §2.5 và cổng M2 được thiết kế để làm — mua kết luận chặn đường bằng tiền lẻ thay vì bằng vài phiên H100.
+- **Không thử tiếp ranker 9B hay G=16.** Đã có ba điểm dữ liệu cho thấy nâng cấp scorer không chạm được trần (3B→4B đưa within-user 47%→63%, không phải 80%; và gpt-5.6-luna mạnh hơn hẳn gpt-4o-mini vẫn hoà 79%). Thử tiếp là kéo dài mà không đổi bản chất.
+
+### Giá trị còn lại
+
+Hai đóng góp phương pháp luận, đúng và dùng được độc lập với kết quả accuracy — chi tiết ở `docs/RESULTS.md`:
+1. **ρ gộp là metric sai** để validate reward proxy cho GRPO (bị chi phối bởi phương sai giữa các user, thứ group không bao giờ thấy).
+2. **Mọi tỉ lệ "phân biệt được X%" phải kèm nền nhiễu của chính nó.** Ba ứng viên bị loại *chỉ nhờ* phép này, cả ba đều cho "0% group suy biến" và đều trông như chiến thắng.
+
+Ba bug im lặng cũng đã ghi lại (chat template của reasoning model; default trùng lặp hai lần trong cùng một file; `StageRReward` chưa bao giờ batch ranker).
+
+### Việc còn dang dở
+
+`eval_sft` chưa chạy (~20 phút GPU) · Validation C chưa đo được ở tầng T1 · bug RNG của M0 chưa sửa · bảng chính §8 để trống vì không có M4.

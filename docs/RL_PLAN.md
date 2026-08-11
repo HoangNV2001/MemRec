@@ -2,7 +2,8 @@
 
 > **Đặt file này tại:** `docs/RL_PLAN.md` trong repo `rutgerswiselab/MemRec`.
 > **Đối tượng đọc:** tác giả đồ án + coding agent thực thi theo từng milestone.
-> **Trạng thái:** `DRAFT — chưa bắt đầu M0`
+> **Trạng thái:** `ĐÓNG 2026-08-11 — dừng ở cuối M3, không thực hiện M4.`
+> Lý do: chủ đồ án đặt điều kiện cứng "accuracy tốt hơn MemRec gốc ≥ +0.05 NDCG@5"; đo được trần oracle của Stage-R synthesis là +0.06→+0.08 và reward tốt nhất chỉ đúng 62.9% within-user, cho ước lượng thực tế +0.02→+0.035. **Tổng kết đầy đủ ở đầu `docs/RESULTS.md`.** Dừng trước khi thuê H100 lần nào: ~$16 API + ~13h GPU rẻ, ~11% ngân sách.
 > **Cập nhật lần cuối:** _(agent điền)_
 
 ---
@@ -478,7 +479,7 @@ Mỗi milestone dưới đây gắn nhãn tầng: 🖥️ `T0` CPU · 🌐 `T0-A
 
 ---
 
-### ☐ M3 — Warm-start bằng rejection sampling · 🌐`T0-API` + 🚀`T2` — **~4 GPU-hour**
+### ☑~ M3 — Warm-start bằng rejection sampling · 🌐`T0-API` + 🚀`T2` — **~3 GPU-hour** — **XONG, CHƯA EVAL**
 
 RL thuần từ base 4B trên JSON có cấu trúc sẽ collapse format. Bắt buộc warm-start.
 
@@ -504,7 +505,9 @@ RL thuần từ base 4B trên JSON có cấu trúc sẽ collapse format. Bắt b
 
 ---
 
-### ☐ M4 — Huấn luyện GRPO · 🔧`T1` rồi 🚀`T2` — **~25 GPU-hour** — **milestone chính**
+### ☒ M4 — Huấn luyện GRPO · 🔧`T1` rồi 🚀`T2` — **~25 GPU-hour** — **KHÔNG THỰC HIỆN, dự án đóng**
+
+> **Không bắt đầu.** M2 đã đạt và M4 hết bị chặn về mặt kỹ thuật (group suy biến 0.0%), nhưng trần accuracy đo được không thoả điều kiện cứng ≥ +0.05 mà chủ đồ án đặt ra. Xem tổng kết ở đầu `docs/RESULTS.md`. Mọi mục dưới đây giữ nguyên làm tài liệu thiết kế.
 
 **Phần A — plumbing trên GPU rẻ** 🔧 (`A10`/`L4`, ~$0.5/h)
 - [ ] Viết `src/rl/train_grpo.py` dùng TRL `GRPOTrainer`, init từ checkpoint SFT M3

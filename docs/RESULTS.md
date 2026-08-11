@@ -4,6 +4,116 @@
 
 ---
 
+# 🔚 TỔNG KẾT — DỰ ÁN ĐÓNG 2026-08-11
+
+**Trạng thái: dừng ở cuối M3, không thực hiện M4 (GRPO).**
+
+Lý do dừng là một tiêu chí do chủ đồ án đặt ra và một phép đo mâu thuẫn với nó:
+
+> **Điều kiện cứng:** đóng góp phải là accuracy **tốt hơn MemRec gốc ≥ +0.05 NDCG@5**.
+> **Đo được:** trần oracle của việc cải thiện Stage-R synthesis là **+0.06 → +0.08**, và reward tốt nhất dựng được chỉ đúng **62.9%** trên các so sánh within-user mà GRPO thực sự dùng. Ước lượng gain thực tế **+0.02 → +0.035**; xác suất chạm +0.05 khoảng **15–20%**.
+
+Không đủ để cam kết 25 GPU-hour còn lại của M4. Quyết định dừng được ra **trước** khi thuê H100 lần nào.
+
+## Những gì đã được CHỨNG MINH (dùng lại được)
+
+| Phát hiện | Số đo |
+|---|---|
+| Collaborative memory có tác dụng thật lên `LLM_Rec` | **+0.1112** NDCG@5, CI [+0.064, +0.159], n=149 |
+| Tác dụng đó **không** biến mất với reranker mạnh hơn | +0.1724 (gpt-5.6-luna) · +0.1371 (Qwen3.5-4B) |
+| Reward proxy nội bộ **đạt** validation | ρ = **0.7726** (`Qwen3.5-4B`), Validation B đạt cả thứ tự gốc |
+| Group suy biến §9.2 giải quyết được | **71.1% → 0.0%** với `r_ndcg + 0.02·margin_logit` |
+| Tín hiệu tinh có thật | 296/1490 cặp within-user phân biệt được, biên độ TB 0.3413 |
+
+## Phát hiện CHẶN ĐƯỜNG
+
+**Trần trùng reward là thuộc tính của bài toán, không của người chấm.**
+
+| Người chấm | Hoà within-user |
+|---|---:|
+| gpt-4o-mini | 80.1% |
+| gpt-5.6-luna (mạnh hơn hẳn) | 79.1% |
+| Qwen3.5-4B | 84.1% |
+
+Đã thử và loại **năm** hướng phá trần này: ranker 1.5B → 3B → pointwise → frontier API → 4B, rồi mở rộng candidate list của reward lên N=26. Hướng cuối là dứt điểm nhất:
+
+| Cấu hình reward | Phủ | Chính xác | **Tín hiệu ròng** |
+|---|---:|---:|---:|
+| N=10 `ndcg_at_5` | 102 | 70.6% | +42 |
+| **N=10 `ndcg + margin`** | 275 | 62.9% | **+71** |
+| N=26 `mrr` | 173 | 62.4% | +43 |
+| N=26 `mrr + margin` | 276 | 60.1% | +56 |
+
+Mọi cấu hình đổi độ chính xác lấy vùng phủ và về cùng một tín hiệu ròng. **Các cặp hoà không giấu tín hiệu dùng được** — khi NDCG@5 nói hai memory bằng nhau thì phần lớn chúng thật sự bằng nhau về tác động lên protocol N=10. Ép phân biệt chủ yếu là chế ra nhiễu.
+
+## Đóng góp phương pháp luận (giá trị còn lại)
+
+Hai thứ này đúng và có ích cho bất kỳ ai làm RL với reward proxy, độc lập với việc đồ án có kết quả accuracy hay không:
+
+**① ρ gộp (Spearman) là metric SAI để validate reward proxy trong GRPO.** Nó bị chi phối bởi phương sai *giữa* các user — thứ một GRPO group không bao giờ nhìn thấy, vì mọi rollout trong group thuộc cùng một user và chỉ khác nhau ở action. Minh hoạ cụ thể: ranker 3B đạt ρ = 0.5573 nghe như "gần đạt", nhưng within-user agreement 47.0% nghĩa là **hoàn toàn vô dụng**. Phải đo within-user, và phải đo với đủ cặp (bản đo 29 cặp cho CI [19%, 59%] — không kết luận được gì; phải nâng lên 296 cặp).
+
+**② Mọi phát biểu "reward phân biệt được X% số cặp" phải kèm nền nhiễu của chính đại lượng đó**, đo bằng cách chấm lại đúng dữ liệu đó dưới batch khác hoặc lời gọi khác. **Ba ứng viên đã bị loại CHỈ nhờ phép này, và cả ba đều trông như chiến thắng nếu thiếu nó:**
+
+| Ứng viên | Tách được | Nền nhiễu | Tín hiệu thật | Trông như |
+|---|---:|---:|---:|---|
+| `gpt-5.6-luna + margin` | 94.0% | 92.9% | 1.1 điểm | "0% group suy biến" |
+| `margin_prob` (Qwen3.5-4B) | 99.9% | 98.3% | 1.6 điểm | "0% group suy biến" |
+| `margin_logit` ✅ | 90.4% | 48.6% | **41.8 điểm** | thật |
+
+**Hệ quả tổng quát:** một đại lượng liên tục không bao giờ hoà, nên trên giấy nó luôn "chữa" được group suy biến — kể cả khi nó là nhiễu thuần tuý. Đây là cùng một cái bẫy mà `soft_weight * p_gold` đã sập vào (phá hoà ở 40.1%, **dưới** ngẫu nhiên).
+
+## Ba bug im lặng đáng ghi lại
+
+Cả ba đều tạo ra số trông hoàn toàn hợp lệ:
+
+1. **Chat template của reasoning model.** Qwen3.5 kết thúc generation prompt bên trong khối `<think>` đang mở → scorer đọc token đầu của chuỗi suy luận thay vì chữ cái đáp án. Letter mass **0.000020** (bình thường: 0.9998). NDCG@5 ra 0.34 trên mọi arm — đọc y hệt "model quá yếu". Đóng khối lại: ρ **0.1232 → 0.7726**.
+2. **Default trùng lặp, hai lần trong cùng một file.** `backfill_baselines.py` giữ bản sao riêng của `--ranker_model` (ghi đè cả 3 split bằng ranker chưa validate), rồi sau đó của `--dtype` (ép model 4B vào fp32 → OOM). Lần thứ nhất chỉ lộ ra vì hai đường code độc lập cho ra hai số khác nhau cho cùng một đại lượng.
+3. **`StageRReward` chưa bao giờ batch ranker.** §5.1 tính ngân sách reward dựa trên "batch 64 rollout mỗi forward pass", nhưng batching nằm ở `FrozenRanker.score_batch` và không tầng nào gọi nó với hơn 1 request — cả một GRPO step được chấm từng prompt một, tức ~3× chi phí reward so với dự toán §11.3.
+
+## Chi phí thực tế
+
+| | |
+|---|---|
+| API | **~$16** (M0 $1.1 · M1 $3.15 · M2 ~$6.5 · M3-A $2.88 · khác ~$2) |
+| GPU | **~13 giờ trên NVIDIA L4** (tầng T1 rẻ) |
+| H100 | **0 giờ** |
+| Ngân sách §11 | 50 H100-h + 15h GPU rẻ + $38 ≈ $190 |
+| **Đã tiêu** | **~11%** |
+| Thời gian | 2026-08-06 → 2026-08-11, **5 ngày** / 14 tuần |
+
+Toàn bộ kết luận chặn đường được mua bằng ~$16 và 13 giờ GPU rẻ, thay vì phát hiện đường reward phẳng sau vài phiên H100. Đây đúng là việc §2.5 (chế độ LEAN) và M2 được thiết kế để làm.
+
+## Hiện vật để lại
+
+| Hiện vật | Nội dung |
+|---|---|
+| `data/rl/graph_snapshot_books.json` | Memory graph đóng băng, 2350 user, 40 080 item memory (~$3.15 API để tái tạo) |
+| `data/rl/stager_books_{train,val,test}.jsonl` | 1185 / 149 / 993 user, đã lọc rò đáp án, baselines backfill bằng Qwen3.5-4B |
+| `data/rl/m2_val_reference_books.json` | 149 user × 8 arm chấm bằng `LLM_Rec` thật — nửa đắt tiền của mọi phép đo M2 |
+| `data/rl/m3_teacher_books.jsonl` | 1185 user × 8 mẫu `M_collab` từ gpt-4o-mini ($2.88) |
+| `data/rl/m3_sft_books.jsonl` | 457 cặp (prompt, memory tốt nhất) đã qua reward |
+| `checkpoints/rl/sft_books` | LoRA SFT, 116 step, train_loss 0.3902 — **chưa được eval** |
+| `src/rl/` | Harness đầy đủ: env đóng băng, lọc rò rỉ, reward + validation, teacher sampling, SFT, eval |
+| `tests/rl/` | 155 test, chạy 7s trên CPU không cần API/GPU |
+
+## Việc còn dang dở
+
+- **`checkpoints/rl/sft_books` chưa chạy eval.** Một lệnh, ~20 phút GPU, cho biết bậc 3 thang lùi (SFT-4B vs base) đứng ở đâu:
+  `python -m src.rl.eval_sft --checkpoint checkpoints/rl/sft_books`
+- **Validation C (throughput ≥ 20 reward/s)** chưa đo được — L4 24 GB OOM ở batch 64. Ngoại suy FLOPs cho H100: 20–40/s.
+- **Bug RNG của M0** chưa sửa: `_evaluate_single_user` sample negative bằng `RandomState(hash(thread.ident))`, nên bảng baseline không reproduce được và H@3/H@5/NDCG sai thứ tự. Phải sửa trước nếu ai dùng lại bảng M0.
+- **Bảng chính §8 và bảng chống hacking để trống** — không có kết quả M4 để điền.
+
+## Nếu ai đó tiếp tục đề tài này
+
+Ba điều đã đo được và nên tin:
+
+1. **Đừng nâng cấp scorer để phá trần trùng.** Đã thử 5 hướng, kể cả model frontier. Trần thuộc về protocol N=10, không thuộc về người chấm.
+2. **Nếu cần headroom lớn hơn, phải đổi khung, không phải đổi reward.** Ba khung chưa đo trần: (a) protocol khó hơn N≫10 — bài toán hiện gần bão hoà, MemRec đã đạt H@1 0.510 với ngẫu nhiên là 0.10; (b) học *chọn* neighbor thay vì *tóm tắt* neighbor (§2 loại khỏi scope, trần chưa biết); (c) train `LLM_Rec` (`docs/RL_LM_REC_EXTENSION.md` — literature cho thấy gain lớn hơn, nhưng đóng góp kém mới).
+3. **Đo trần oracle TRƯỚC khi xây reward.** Nếu làm phép đo "best-of-N vs mean, chấm bằng `LLM_Rec` thật" ngay từ M0 thì đã biết trần +0.07 từ tuần đầu, với chi phí dưới $2.
+
+---
+
 ## M0 Baselines
 
 Cấu hình: `instructrec-books`, 1000 user (`data/eval_user_samples/eval_user_sample_1k_instructrec-books.json`), seed 42, `LLM_Rec` = gpt-4o-mini, `n_eval_candidates=10`.
