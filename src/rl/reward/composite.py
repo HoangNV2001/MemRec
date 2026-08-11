@@ -279,6 +279,21 @@ class StageRReward:
             prepared.append((parsed, snippets))
             requests.append((len(prepared) - 1, request))
 
+        # One encoder call for the whole batch instead of one per rollout: the
+        # grounding scorer's cost is per call, not per text (see GroundingScorer.warm).
+        warm_texts: List[str] = []
+        for item in prepared:
+            if item is None:
+                continue
+            parsed, snippets = item
+            warm_texts.extend(str(f.get("facet", "")) for f in parsed.facets)
+            warm_texts.extend(snippets.values())
+        if warm_texts and hasattr(self.grounding, "warm"):
+            try:
+                self.grounding.warm(warm_texts)
+            except Exception:  # noqa: BLE001 - an optimisation must never break a step
+                pass
+
         outs: Dict[int, Any] = {}
         for start in range(0, len(requests), batch_size):
             chunk = requests[start:start + batch_size]

@@ -97,9 +97,15 @@ class GroundingScorer:
         # Snippet text -> vector. Neighbour snippets are a property of the *user*,
         # not of the rollout, so every generation for one prompt cites the same
         # handful of them: 8 teacher samples per user at M3, and G=8 rollouts per
-        # group at M4, re-encoding identical text 8 times. Measured while scoring
-        # 9480 M3 samples, grounding was the whole bottleneck -- 720% CPU with the
-        # GPU idle -- because bge-small ran on CPU once per rollout.
+        # group at M4, re-encoding identical text 8 times.
+        #
+        # Honest sizing: grounding is NOT the bottleneck today. Scoring the M3
+        # samples ran at 1.91/s where the ranker alone runs at 2.09/s on the same
+        # batch, so the whole CPU side is ~3% of wall clock -- an earlier reading
+        # of "720% CPU with the GPU idle" was sampled during a grounding burst and
+        # mistaken for the steady state. Caching takes it to 2.03/s. Kept because
+        # it is correct and free, and because the ratio shifts on an H100 where
+        # the ranker gets ~10x faster and this CPU work does not.
         #
         # Facet texts are cached too: they repeat far less, but a hit costs one
         # dict lookup and RL sampling does produce near-duplicates.
@@ -107,6 +113,19 @@ class GroundingScorer:
         self.cache_size = cache_size
         self.cache_hits = 0
         self.cache_misses = 0
+
+    def warm(self, texts: Sequence[str]):
+        """
+        Pre-encode a batch of texts so later per-example scoring is cache-only.
+
+        The cost is per *call* -- tokenisation plus a forward pass on a tiny
+        batch -- not per text, so the cache alone moved throughput only 1.91 ->
+        1.97 samples/s. Warming turns 128 encoder calls of ~17 texts into one call
+        of ~2000 and reaches 2.03/s. Small on this card, where the ranker is 97%
+        of the time; worth having on an H100, where the ranker is ~10x faster and
+        this work is not.
+        """
+        self._encode(list(texts))
 
     def _encode(self, texts: Sequence[str]):
         """Encode with a text-keyed cache; only misses reach the encoder."""

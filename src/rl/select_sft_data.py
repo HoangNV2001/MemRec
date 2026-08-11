@@ -160,17 +160,33 @@ def main():
         if not scored:
             continue
         totals = [s[0] for s in scored]
+        ndcgs = [s[2].r_ndcg for s in scored]
         r_null = by_id[uid].get("r_null")
         spread = max(totals) - min(totals)
         spreads.append(spread)
         stats[str(uid)] = {
-            "rewards": totals, "r_null": r_null,
+            "rewards": totals, "r_ndcg": ndcgs, "r_null": r_null,
             "std": statistics.pstdev(totals), "spread": spread,
+            # Recorded separately because "std(r) > 0" and "the group contains a
+            # real ranking difference" are different claims. NDCG@5 over ten
+            # candidates takes six values, so a group whose NDCG is flat gets its
+            # entire gradient direction from the continuous terms -- and
+            # margin_logit only agrees with the real LLM_Rec 58.4% of the time on
+            # exactly those cases. Pure noise also produces a non-zero spread;
+            # that is how gpt-5.6-luna + margin looked like a win.
+            "ndcg_spread": max(ndcgs) - min(ndcgs),
         }
-        best_total, best_i, best_b = max(scored, key=lambda s: s[0])
-        if r_null is not None and best_b.r_ndcg <= r_null:
+        # Filter on the acceptance rule FIRST, then take the best of what passed.
+        # Picking argmax(total) and only then testing its r_ndcg discards the whole
+        # user whenever the highest-reward sample is not the highest-NDCG one --
+        # a sample that would have qualified is never considered. The two
+        # quantities are also on different scales: r_null is a bare NDCG@5, while
+        # total carries grounding, the margin term and the penalties.
+        eligible = [s for s in scored if r_null is None or s[2].r_ndcg > r_null]
+        if not eligible:
             dropped += 1
             continue
+        best_total, best_i, best_b = max(eligible, key=lambda s: s[0])
         kept.append({
             "user_id": uid,
             "prompt": by_id[uid]["prompt"],
@@ -210,6 +226,15 @@ def _report(kept, dropped, per_user, spreads, wall, out):
     print(f"  group phẳng hoàn toàn: {flat}/{n} = {100*flat/n:.1f}%  (ngưỡng báo động §M4: 60%)")
     print(f"  spread reward: median {spreads_sorted[len(spreads_sorted)//2]:.4f}  "
           f"p90 {spreads_sorted[int(0.9*len(spreads_sorted))]:.4f}")
+    # "std(r) > 0" is not the same claim as "this group contains a real ranking
+    # difference". Reported apart so the headline cannot be read as more than it is.
+    nd_flat = sum(1 for u in per_user
+                  if max(s[2].r_ndcg for s in per_user[u]) - min(s[2].r_ndcg for s in per_user[u]) < 1e-9)
+    print(f"  trong đó group KHÔNG có khác biệt thứ hạng nào (NDCG@5 phẳng): "
+          f"{nd_flat}/{n} = {100*nd_flat/n:.1f}%")
+    print(f"    -> ở những group này toàn bộ hướng gradient do margin/grounding quyết định,")
+    print(f"       và margin chỉ đồng ý với LLM_Rec thật 58.4% [50.9, 65.5] trên đúng loại cặp đó")
+
     if kept:
         rw = sorted(k["reward"] for k in kept)
         print(f"\nreward của mẫu được chọn: median {rw[len(rw)//2]:.4f}  "
