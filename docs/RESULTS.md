@@ -1,750 +1,122 @@
-# RESULTS.md — Bảng kết quả đồ án GRPO cho LM_Mem
+# RESULTS.md — Selective Multi-Hop Collaborative Memory
 
-> Điền dần theo từng milestone. Xem `docs/RL_PLAN.md` §8 cho định nghĩa đầy đủ.
+> **Active protocol:** [MULTIHOP_PLAN.md](MULTIHOP_PLAN.md).
+>
+> Các số của hướng SFT/RL cũ nằm trong [RL_WORK_SUMMARY.md](RL_WORK_SUMMARY.md)
+> và không được dùng làm baseline trực tiếp ở đây: M0 cũ sample negative theo
+> thread, còn bảng này chỉ dùng candidate set deterministic đã materialize.
 
----
+## 1. Protocol registry
 
-# 🔚 TỔNG KẾT — DỰ ÁN ĐÓNG 2026-08-11
-
-**Trạng thái: dừng ở cuối M3, không thực hiện M4 (GRPO).**
-
-Lý do dừng là một tiêu chí do chủ đồ án đặt ra và một phép đo mâu thuẫn với nó:
-
-> **Điều kiện cứng:** đóng góp phải là accuracy **tốt hơn MemRec gốc ≥ +0.05 NDCG@5**.
-> **Đo được:** trần oracle của việc cải thiện Stage-R synthesis là **+0.06 → +0.08**, và reward tốt nhất dựng được chỉ đúng **62.9%** trên các so sánh within-user mà GRPO thực sự dùng. Ước lượng gain thực tế **+0.02 → +0.035**; xác suất chạm +0.05 khoảng **15–20%**.
-
-Không đủ để cam kết 25 GPU-hour còn lại của M4. Quyết định dừng được ra **trước** khi thuê H100 lần nào.
-
-## Những gì đã được CHỨNG MINH (dùng lại được)
-
-| Phát hiện | Số đo |
+| Field | Giá trị |
 |---|---|
-| Collaborative memory có tác dụng thật lên `LLM_Rec` | **+0.1112** NDCG@5, CI [+0.064, +0.159], n=149 |
-| Tác dụng đó **không** biến mất với reranker mạnh hơn | +0.1724 (gpt-5.6-luna) · +0.1371 (Qwen3.5-4B) |
-| Reward proxy nội bộ **đạt** validation | ρ = **0.7726** (`Qwen3.5-4B`), Validation B đạt cả thứ tự gốc |
-| Group suy biến §9.2 giải quyết được | **71.1% → 0.0%** với `r_ndcg + 0.02·margin_logit` |
-| Tín hiệu tinh có thật | 296/1490 cặp within-user phân biệt được, biên độ TB 0.3413 |
+| Dataset | InstructRec-Books |
+| Frozen memory source | data/rl/graph_snapshot_books.json (cần ghi hash ở MH0) |
+| Frozen topology source | data/multihop/mh0_topology_books.json, xây từ pre-target history (pending MH0) |
+| Split | train 1,185 / val 149 / test 993 |
+| Candidate protocol | 10 fixed candidates/user; cùng thứ tự trong mọi arm của user |
+| Primary metric | Paired NDCG@5, 10,000 bootstrap user resamples |
+| Context control | Per-user K_u node slots và T_u token cap từ 1-hop control |
+| Active result status | Chưa có run multi-hop |
 
-## Phát hiện CHẶN ĐƯỜNG
+## 2. MH0 control verification
 
-**Trần trùng reward là thuộc tính của bài toán, không của người chấm.**
+| Check | Status | Evidence / value |
+|---|---|---|
+| Snapshot/jsonl integrity | ⏳ | — |
+| Topology frozen from pre-target history | ⏳ | — |
+| Split disjoint | ⏳ | — |
+| Selector/context has no instruction/candidate/gold; ranker input is expected | ⏳ | — |
+| Candidate-order hash equal across arms | ⏳ | — |
+| one_hop re-materialized from snapshot | ⏳ | — |
+| Per-user K_u, T_u persisted | ⏳ | — |
 
-| Người chấm | Hoà within-user |
-|---|---:|
-| gpt-4o-mini | 80.1% |
-| gpt-5.6-luna (mạnh hơn hẳn) | 79.1% |
-| Qwen3.5-4B | 84.1% |
+## 3. MH2 validation — bounded oracle headroom
 
-Đã thử và loại **năm** hướng phá trần này: ranker 1.5B → 3B → pointwise → frontier API → 4B, rồi mở rộng candidate list của reward lên N=26. Hướng cuối là dứt điểm nhất:
+All rows must use the **independent report pass**, not the oracle selection pass.
+Delta is paired against one_hop on exactly the same users.
 
-| Cấu hình reward | Phủ | Chính xác | **Tín hiệu ròng** |
-|---|---:|---:|---:|
-| N=10 `ndcg_at_5` | 102 | 70.6% | +42 |
-| **N=10 `ndcg + margin`** | 275 | 62.9% | **+71** |
-| N=26 `mrr` | 173 | 62.4% | +43 |
-| N=26 `mrr + margin` | 276 | 60.1% | +56 |
+| Arm | N users | NDCG@5 | Delta vs 1-hop | 95% CI | H@1 | H@3 | H@5 | Nodes | Context tokens | Remote ratio | Status |
+|---|---:|---:|---:|---|---:|---:|---:|---:|---:|---:|---|
+| one_hop | — | — | — | — | — | — | — | — | — | 0 | pending |
+| naive_two_hop | — | — | — | — | — | — | — | — | — | — | pending |
+| oracle_two_hop | — | — | — | — | — | — | — | — | — | — | pending |
 
-Mọi cấu hình đổi độ chính xác lấy vùng phủ và về cùng một tín hiệu ròng. **Các cặp hoà không giấu tín hiệu dùng được** — khi NDCG@5 nói hai memory bằng nhau thì phần lớn chúng thật sự bằng nhau về tác động lên protocol N=10. Ép phân biệt chủ yếu là chế ra nhiễu.
+### Oracle audit
 
-## Đóng góp phương pháp luận (giá trị còn lại)
+| Field | Value |
+|---|---|
+| Bundles/user and quota distribution | — |
+| Selection-pass reranker calls | — |
+| Independent report-pass calls/arm | — |
+| Delta_oracle gate | — |
+| Pool coverage / remote shortfall | — |
+| Reranker variability estimate | — |
+| API/GPU cost and wall time | — |
 
-Hai thứ này đúng và có ích cho bất kỳ ai làm RL với reward proxy, độc lập với việc đồ án có kết quả accuracy hay không:
+### Gate decision
 
-**① ρ gộp (Spearman) là metric SAI để validate reward proxy trong GRPO.** Nó bị chi phối bởi phương sai *giữa* các user — thứ một GRPO group không bao giờ nhìn thấy, vì mọi rollout trong group thuộc cùng một user và chỉ khác nhau ở action. Minh hoạ cụ thể: ranker 3B đạt ρ = 0.5573 nghe như "gần đạt", nhưng within-user agreement 47.0% nghĩa là **hoàn toàn vô dụng**. Phải đo within-user, và phải đo với đủ cặp (bản đo 29 cặp cho CI [19%, 59%] — không kết luận được gì; phải nâng lên 296 cặp).
+| Criterion | Result |
+|---|---|
+| Stop: Delta_oracle <= +0.02 or CI upper <= +0.03 | — |
+| Borderline: CI crosses 0 or +0.02 < Delta_oracle < +0.05 | — |
+| Proceed MH3: Delta_oracle >= +0.05 and CI lower > +0.01 | — |
+| Decision and rationale | — |
 
-**② Mọi phát biểu "reward phân biệt được X% số cặp" phải kèm nền nhiễu của chính đại lượng đó**, đo bằng cách chấm lại đúng dữ liệu đó dưới batch khác hoặc lời gọi khác. **Ba ứng viên đã bị loại CHỈ nhờ phép này, và cả ba đều trông như chiến thắng nếu thiếu nó:**
+## 4. MH3 validation — selector after config lock
 
-| Ứng viên | Tách được | Nền nhiễu | Tín hiệu thật | Trông như |
+| Arm | Selector config hash | N users | NDCG@5 | Delta vs 1-hop | Delta vs naive | 95% CI vs 1-hop | Oracle capture | Budget pass | Status |
+|---|---|---:|---:|---:|---:|---|---:|---|---|
+| one_hop | control | — | — | — | — | — | — | — | pending |
+| naive_two_hop | fixed traversal | — | — | — | — | — | — | — | pending |
+| selective_two_hop | — | — | — | — | — | — | — | — | pending |
+
+### Selector diagnostics
+
+| Measure | Value |
+|---|---|
+| alpha, beta, gamma, q | — |
+| Semantic/path/redundancy score distributions | — |
+| Remote item/user mix | — |
+| Degree/hub distribution vs 1-hop | — |
+| Duplicate/redundant node rate | — |
+| 30-user qualitative audit | — |
+
+## 5. MH4 locked test
+
+> Fill only after validation config and manifest hash are frozen. No parameter may
+> be changed after looking at this table.
+
+| Arm | N users | H@1 | H@3 | NDCG@3 | H@5 | **NDCG@5** | Paired Delta vs 1-hop | 95% CI | Tokens/query | Latency/query | Status |
+|---|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---|
+| one_hop | — | — | — | — | — | — | — | — | — | — | pending |
+| naive_two_hop | — | — | — | — | — | — | — | — | — | — | pending |
+| selective_two_hop | — | — | — | — | — | — | — | — | — | — | pending |
+
+### Test robustness and breakdown
+
+| Slice / check | 1-hop | naive 2-hop | selective 2-hop | Finding |
 |---|---:|---:|---:|---|
-| `gpt-5.6-luna + margin` | 94.0% | 92.9% | 1.1 điểm | "0% group suy biến" |
-| `margin_prob` (Qwen3.5-4B) | 99.9% | 98.3% | 1.6 điểm | "0% group suy biến" |
-| `margin_logit` ✅ | 90.4% | 48.6% | **41.8 điểm** | thật |
-
-**Hệ quả tổng quát:** một đại lượng liên tục không bao giờ hoà, nên trên giấy nó luôn "chữa" được group suy biến — kể cả khi nó là nhiễu thuần tuý. Đây là cùng một cái bẫy mà `soft_weight * p_gold` đã sập vào (phá hoà ở 40.1%, **dưới** ngẫu nhiên).
-
-## Ba bug im lặng đáng ghi lại
-
-Cả ba đều tạo ra số trông hoàn toàn hợp lệ:
-
-1. **Chat template của reasoning model.** Qwen3.5 kết thúc generation prompt bên trong khối `<think>` đang mở → scorer đọc token đầu của chuỗi suy luận thay vì chữ cái đáp án. Letter mass **0.000020** (bình thường: 0.9998). NDCG@5 ra 0.34 trên mọi arm — đọc y hệt "model quá yếu". Đóng khối lại: ρ **0.1232 → 0.7726**.
-2. **Default trùng lặp, hai lần trong cùng một file.** `backfill_baselines.py` giữ bản sao riêng của `--ranker_model` (ghi đè cả 3 split bằng ranker chưa validate), rồi sau đó của `--dtype` (ép model 4B vào fp32 → OOM). Lần thứ nhất chỉ lộ ra vì hai đường code độc lập cho ra hai số khác nhau cho cùng một đại lượng.
-3. **`StageRReward` chưa bao giờ batch ranker.** §5.1 tính ngân sách reward dựa trên "batch 64 rollout mỗi forward pass", nhưng batching nằm ở `FrozenRanker.score_batch` và không tầng nào gọi nó với hơn 1 request — cả một GRPO step được chấm từng prompt một, tức ~3× chi phí reward so với dự toán §11.3.
-
-## Chi phí thực tế
-
-| | |
-|---|---|
-| API | **~$16** (M0 $1.1 · M1 $3.15 · M2 ~$6.5 · M3-A $2.88 · khác ~$2) |
-| GPU | **~13 giờ trên NVIDIA L4** (tầng T1 rẻ) |
-| H100 | **0 giờ** |
-| Ngân sách §11 | 50 H100-h + 15h GPU rẻ + $38 ≈ $190 |
-| **Đã tiêu** | **~11%** |
-| Thời gian | 2026-08-06 → 2026-08-11, **5 ngày** / 14 tuần |
-
-Toàn bộ kết luận chặn đường được mua bằng ~$16 và 13 giờ GPU rẻ, thay vì phát hiện đường reward phẳng sau vài phiên H100. Đây đúng là việc §2.5 (chế độ LEAN) và M2 được thiết kế để làm.
-
-## Hiện vật để lại
-
-| Hiện vật | Nội dung |
-|---|---|
-| `data/rl/graph_snapshot_books.json` | Memory graph đóng băng, 2350 user, 40 080 item memory (~$3.15 API để tái tạo) |
-| `data/rl/stager_books_{train,val,test}.jsonl` | 1185 / 149 / 993 user, đã lọc rò đáp án, baselines backfill bằng Qwen3.5-4B |
-| `data/rl/m2_val_reference_books.json` | 149 user × 8 arm chấm bằng `LLM_Rec` thật — nửa đắt tiền của mọi phép đo M2 |
-| `data/rl/m3_teacher_books.jsonl` | 1185 user × 8 mẫu `M_collab` từ gpt-4o-mini ($2.88) |
-| `data/rl/m3_sft_books.jsonl` | 457 cặp (prompt, memory tốt nhất) đã qua reward |
-| `checkpoints/rl/sft_books` | LoRA SFT, 116 step, train_loss 0.3902 — **chưa được eval** |
-| `src/rl/` | Harness đầy đủ: env đóng băng, lọc rò rỉ, reward + validation, teacher sampling, SFT, eval |
-| `tests/rl/` | 155 test, chạy 7s trên CPU không cần API/GPU |
-
-## Việc còn dang dở
-
-- **`checkpoints/rl/sft_books` chưa chạy eval.** Một lệnh, ~20 phút GPU, cho biết bậc 3 thang lùi (SFT-4B vs base) đứng ở đâu:
-  `python -m src.rl.eval_sft --checkpoint checkpoints/rl/sft_books`
-- **Validation C (throughput ≥ 20 reward/s)** chưa đo được — L4 24 GB OOM ở batch 64. Ngoại suy FLOPs cho H100: 20–40/s.
-- **Bug RNG của M0** chưa sửa: `_evaluate_single_user` sample negative bằng `RandomState(hash(thread.ident))`, nên bảng baseline không reproduce được và H@3/H@5/NDCG sai thứ tự. Phải sửa trước nếu ai dùng lại bảng M0.
-- **Bảng chính §8 và bảng chống hacking để trống** — không có kết quả M4 để điền.
-
-## Nếu ai đó tiếp tục đề tài này
-
-Ba điều đã đo được và nên tin:
-
-1. **Đừng nâng cấp scorer để phá trần trùng.** Đã thử 5 hướng, kể cả model frontier. Trần thuộc về protocol N=10, không thuộc về người chấm.
-2. **Nếu cần headroom lớn hơn, phải đổi khung, không phải đổi reward.** Ba khung chưa đo trần: (a) protocol khó hơn N≫10 — bài toán hiện gần bão hoà, MemRec đã đạt H@1 0.510 với ngẫu nhiên là 0.10; (b) học *chọn* neighbor thay vì *tóm tắt* neighbor (§2 loại khỏi scope, trần chưa biết); (c) train `LLM_Rec` (`docs/RL_LM_REC_EXTENSION.md` — literature cho thấy gain lớn hơn, nhưng đóng góp kém mới).
-3. **Đo trần oracle TRƯỚC khi xây reward.** Nếu làm phép đo "best-of-N vs mean, chấm bằng `LLM_Rec` thật" ngay từ M0 thì đã biết trần +0.07 từ tuần đầu, với chi phí dưới $2.
-
----
-
-## M0 Baselines
-
-Cấu hình: `instructrec-books`, 1000 user (`data/eval_user_samples/eval_user_sample_1k_instructrec-books.json`), seed 42, `LLM_Rec` = gpt-4o-mini, `n_eval_candidates=10`.
-
-| Config | H@1 | H@3 | N@3 | H@5 | N@5 |
-|---|---|---|---|---|---|
-| Vanilla LLM (đã fix vanilla_mode prompt) | 0.425 | 0.614 | 0.534 | 0.731 | 0.582 |
-| MemRec w/o Collab. Read (đã fix prompt + eval-time write) | 0.436 | 0.579 | 0.518 | 0.705 | 0.570 |
-| MemRec (full, prompted) | 0.510 | 0.709 | 0.625 | 0.808 | 0.666 |
-
-**Trạng thái DoD (§7 RL_PLAN.md):** đạt một phần. H@1 đúng thứ tự (MemRec > w/o Collab. Read > Vanilla). H@3/N@3/H@5/N@5 **chưa** đúng thứ tự (w/o Collab. Read < Vanilla) — nghi do candidate negatives được sample với RNG seed theo thread ID (không theo user_id), nên 3 config không được đánh giá trên cùng bộ đề và kết quả không reproduce được giữa các lần chạy. Quyết định có chủ đích: chấp nhận, không sửa RNG ngay, xem chi tiết trong `docs/RL_PLAN.md` mục M0 và `docs/PROGRESS.md`.
-
-Warmup cost extrapolation (100 user, quan sát thực tế trong `results/m0_warmup_100users.log`): 930,926 token tổng (main LLM + reranker) cho 100 user → ngoại suy ~9.3M token cho 1000 user. Chi phí $ thực tế: xem OpenAI usage dashboard của tài khoản đã dùng (không ước tính lại giá ở đây vì giá gpt-4o-mini có thể đã thay đổi).
-
-### Các bug đã tìm thấy và sửa trong quá trình chạy M0
-
-1. `src/train/trainer_memrec.py`: Stage-ReRank LLM client hardcode `provider_name='azure_openai'` bất kể config — sửa để dùng chung provider với Stage-R/W (cần thiết vì dự án dùng key OpenAI thường, không phải Azure).
-2. `src/models/reranker_llm.py` + `src/models/memrec_agent.py`: tham số `vanilla_mode` tồn tại nhưng là dead code (không bao giờ được truyền `True`). Đã wire: `vanilla_mode = not warmup_enabled and not enable_stage_r`, chỉ áp dụng cho baseline Vanilla LLM thật sự.
-3. `src/models/reranker_llm.py`: prompt "MemRec mode" luôn khẳng định "we have identified the following preference patterns" ngay cả khi Stage-R bị tắt và facets rỗng — gây prompt tự mâu thuẫn, đo được ảnh hưởng xấu tới điểm reranker qua `llm_conversations.jsonl`. Sửa: chỉ render đoạn này khi facets không rỗng.
-4. `configs/memrec_instructrec-books_1k_no_collab_read.yaml`: thiếu `enable_stage_w: false` cho eval loop → ground-truth feedback bị ghi vào item memory dùng chung giữa các user ngay trong lúc eval (cùng loại bug đã bắt được ở bản vanilla đầu tiên, xem `results/m0_vanilla_1k_leaky_writes_DO_NOT_USE`). Đã thêm; warmup vẫn chạy bình thường (code path riêng, không bị gate bởi cờ này).
-5. **[Chưa sửa, đã ghi nhận]** `_evaluate_single_user` sample negatives bằng `RandomState(seed=hash(thread.ident))` thay vì seed theo `user_id` — không reproducible, 3 config không dùng chung candidate set. Xem quyết định ở trên.
-6. Gotcha (không phải bug, nhưng dễ nhầm): khi config có `eval_user_list`, nó **luôn** override `--n_eval_users` (`trainer_memrec.py:411`, "Priority: eval_user_list > n_eval_users > all users"). Muốn test nhanh trên vài user với các config 1k này phải tạo `eval_user_list` riêng, không dùng `--n_eval_users`.
-
----
-
-## M1 Frozen Environment
-
-Snapshot: `data/rl/graph_snapshot_books.json` (17.4 MB) — 2350 user, 40 080 item memory, k=16, seed 42, candidate-blind.
-Build: `bash scripts/rl/00_build_snapshot.sh` → `bash scripts/rl/01_build_dataset.sh`.
-
-| Split | Users | Prompt (~token, median) | `M_u` có nội dung | Neighbor/user (median) | \|H_u\| (median) |
-|---|---|---|---|---|---|
-| train | 1 185 | 1 019 | 1 184 | 16 | 14 |
-| val | 149 | 1 031 | 149 | 16 | 14 |
-| test | 993 | 1 021 | 992 | 16 | 14 |
-
-**Chi phí warmup (thực đo, không ước tính):** 2350 user, 24 worker, **26.6 phút** wall-clock trên CPU.
-Stage-R/W 6 907 837 in + 1 804 548 out (4697 request) · Stage-ReRank 2 634 326 in + 1 063 022 out (2350 request).
-Tổng **9.54M input + 2.87M output** → ≈ **$3.15** với đơn giá gpt-4o-mini $0.15/$0.60 per 1M. **0 GPU-hour.**
-
-Warmup thành công 2347/2350 user; 3 user hỏng vì reranker trả về danh sách thiếu target item (`target dropped by reranker`) → không có `M_u`, vẫn giữ trong split (prompt hiển thị "No personal memory recorded yet"), phản ánh đúng ca user lạnh.
-
-### Kiểm tra DoD
-
-`pytest tests/rl/` → **78 pass** (26 s, CPU, không API).
-
-| Kiểm tra | Kết quả |
-|---|---|
-| Split user-disjoint (assert bằng code) | pass |
-| `Item-<gold_id>` xuất hiện trong `prompt` | **0** / 2327 (khớp biên từ, `Item-2125` không khớp `Item-21254`) |
-| Tên gold item xuất hiện trong `prompt` | **0** / 2327 sau khi lọc |
-| `Item-<candidate_id>` bất kỳ trong `prompt` (candidate-blind §5.3) | **0** / 2327 |
-| Instruction InstructRec rò vào `prompt` | **0** / 2327 |
-| Parser chịu được output méo | 20/20 ca viết tay |
-| Candidate tái tạo được từ dataset (chống bug RNG theo thread của M0) | pass, 100 user |
-
-### Rò rỉ đã phát hiện và xử lý
-
-**Trùng tên sách trong catalogue Books.** Gold item không thể là neighbor của chính user đó — graph chỉ dựng từ `train_data`, còn gold là test item. Nhưng catalogue có **nhiều `item_id` cho cùng một quyển sách** (khác edition/format). Nếu user có bản sao kia trong lịch sử thì tên sách đáp án bị in trong neighbor table.
-
-| Kênh rò | Số user |
-|---|---|
-| Qua neighbor table | 23 |
-| Qua `M_u` | 0 |
-| **Tổng** | **23 / 2350 (0.98%)** |
-
-Ví dụ: `Mockingjay: The Hunger Games`, `Stranger in a Strange Land`, `Lies My Teacher Told Me`.
-Đã loại khỏi cả 3 split (`src/rl/leakage.py`); danh sách đầy đủ ở `data/rl/stager_books_dropped_users.json`. Vì thế split thực tế là 1185/149/993 thay vì 1200/150/1000 — không bù thêm user vì phải trả thêm tiền warmup cho ~1%.
-
-### Hai confound đã chặn trước khi train
-
-1. **Ngân sách neighbor của packer.** `SnippetPacker.pack()` trừ 300 token cho khối candidate. Bỏ candidate mà không bù thì state RL được 1000 token neighbor còn baseline prompted chỉ 700 → chênh lệch kết quả sẽ lẫn với chênh lệch context. Đã ghim `CANDIDATE_BLOCK_RESERVE = 300` trong `src/rl/env.py`, có unit test.
-2. **Negative của warmup trùng negative của eval.** `sample_candidates` dùng cùng RNG stream cho cả hai nên rút đúng 9 distractor giống nhau, mà Stage-R lúc warmup *có* nhìn khối candidate → distractor của bài thi đã góp phần nặn ra `M_u`. Đã tách bằng salt; sửa miễn phí vì candidate eval sinh offline.
-
-### Ghi chú về cấu trúc pipeline (ảnh hưởng thiết kế reward ở M2)
-
-- `LLMRulePruner.prune()` **bỏ qua tham số `candidates`** → `N'_k(u)` vốn đã candidate-blind và chỉ phụ thuộc graph đóng băng. Cache nó không làm đổi hành vi pipeline.
-- `SnippetPacker.build_neighbor_snippet()` dựng bảng neighbor từ **metadata tĩnh của item**, không phải từ `M_v` đang tiến hoá. Nghĩa là input duy nhất phụ thuộc memory của Stage-R là `M_u` của chính user đó. Memory của neighbor chỉ đi vào pipeline qua `item_mems` của Stage-ReRank — nên snapshot vẫn phải giữ item memory cho reward ranker.
-- State **không** chứa instruction InstructRec: instruction diễn giải lại quyển sách đáp án, và pipeline gốc cũng chỉ đưa nó cho Stage-ReRank. Nó nằm ở trường `instruction` riêng trong jsonl, dành cho frozen ranker.
-
----
-
-## M2 Reward Validation
-
-### Phần A — CPU + API (đã xong, 0 GPU-hour)
-
-Reference gpt-4o-mini đã cache: `data/rl/m2_val_reference_books.json` (0.4 MB, 149 val user, 5.7 phút, ~$0.5).
-Sinh bằng `bash scripts/rl/02_validate_reward.sh reference`. Đây là nửa đắt tiền của Validation A/B; §11.6 yêu cầu có sẵn **trước** khi thuê H100, để lúc lên GPU chỉ còn chấm lại đúng các cặp đã cache bằng ranker 1.5B.
-
-**Năm arm, chấm bằng chính `LLMReranker` của repo (tức `LLM_Rec` thật), NDCG@5, n=149:**
-
-| Arm | `M_collab` | NDCG@5 | H@1 |
-|---|---|---:|---:|
-| `sample1` | gpt-4o-mini, temp 1.0 | **0.7204** | 0.5906 |
-| `sample2` | gpt-4o-mini, temp 1.0 (mẫu 2) | 0.7155 | 0.5638 |
-| `shuffled` | `M_collab` của user khác | 0.6090 | 0.4295 |
-| `lorem` | lorem ipsum | 0.6079 | 0.4430 |
-| `empty` | không có memory (= `r_null`) | 0.6092 | 0.4362 |
-
-**Paired delta so với arm `empty`** (cùng user, nên nhiễu nhỏ hơn nhiều):
-
-| Arm | Δ NDCG@5 | 95% CI | tốt hơn / bằng / tệ hơn |
-|---|---:|---|---|
-| `sample1` (memory thật) | **+0.1112** | [+0.0640, +0.1585] | 45 / 91 / 13 |
-| `shuffled` | −0.0002 | [−0.0374, +0.0371] | 21 / 104 / 24 |
-| `lorem` | −0.0013 | [−0.0253, +0.0228] | 12 / 123 / 14 |
-
-**Đọc kết quả này:**
-1. **Collaborative memory có tác dụng thật** trên `LLM_Rec` thật: +0.111 NDCG@5, khoảng tin cậy không chứa 0. Reward có tín hiệu để tối ưu — đây là điều kiện cần của cả đồ án và giờ đã có bằng chứng trước khi tiêu GPU-hour nào.
-2. **Memory sai bị bỏ qua chứ không gây nhiễu.** `shuffled` và `lorem` đều ≈ `empty` (CI chứa 0). gpt-4o-mini đơn giản là phớt lờ memory không liên quan. Đây là tính chất tốt, nhưng nó **bác bỏ thứ tự mà DoD giả định** — xem mục hiệu chỉnh dưới.
-3. **Instruction KHÔNG làm phẳng tín hiệu memory.** Toàn bộ số trên đo *khi đã có* instruction trong prompt (đúng như pipeline gốc). Memory vẫn thêm +0.111 → trả lời câu hỏi mở của §5.1: giữ `include_instruction=True` là an toàn và trung thành với `LLM_Rec`. Vẫn sẽ đo cả hai chế độ ở Phần B.
-
-### ⚠️ Phát hiện chặn đường: reward theo rank bị trùng giá trị quá nhiều
-
-Hai `M_collab` lấy mẫu độc lập cho **cùng một user** cho **cùng vị trí gold** ở **111/149 user (74%)**.
-
-| Dạng reward | Tỉ lệ trùng giữa 2 mẫu | Số giá trị phân biệt |
-|---|---:|---:|
-| **NDCG@5** (mặc định của §5.1) | **80.5%** | 6 |
-| NDCG@10 | 74.5% | 11 |
-| MRR = 1/(rank+1) | 74.5% | 11 |
-
-74% là **trần cứng** cho mọi reward chỉ phụ thuộc rank: khi hai memory đặt gold vào cùng vị trí thì mọi hàm của rank đều bằng nhau.
-
-Hệ quả nếu để nguyên: trong một group GRPO (cùng prompt, G=8 rollout), reward trùng nhau ⇒ `std(r) = 0` ⇒ advantage = 0 ⇒ **không có gradient**. Đây đúng là chế độ hỏng §9.2, và dynamic sampling §6.4 sẽ lọc vượt xa ngưỡng báo động 60% của kill criteria §M4. Nói cách khác: chạy GRPO với reward hiện tại nhiều khả năng cho đường reward phẳng, và ta sẽ mất vài phiên H100 để phát hiện điều mà phép đo $0.5 này đã nói trước.
-
-**Cách xử lý đã implement:** thêm số hạng liên tục `soft_weight * p_gold`, với `p_gold` là xác suất softmax mà ranker đặt lên candidate gold. Liên tục nên gần như không bao giờ trùng, trong khi NDCG vẫn là số hạng chi phối và metric báo cáo vẫn nguyên nghĩa. **Mặc định `soft_weight = 0.0`, tức đúng công thức §5** — bật hay không sẽ do Phần B quyết định bằng tỉ lệ trùng đo trên ranker 1.5B thật.
-
-Lập luận này không mới: §5.1 đã loại Hit@1 để chọn NDCG@5 **vì đúng lý do đó** ("Hit@1 nhị phân → rất nhiều group có std(r)=0"). Số liệu trên chỉ cho thấy NDCG@5 vẫn chưa đủ mịn.
-
-### Hiệu chỉnh tiêu chí Validation B
-
-DoD §7 M2 viết `r(thật) > r(user khác) > r(lorem) ≈ r(rỗng)`. Bất đẳng thức **ở giữa không đúng trên chính `LLM_Rec` thật** (bảng trên: 0.6090 vs 0.6079, cả hai CI đều chứa 0 so với `empty`). Yêu cầu proxy tái hiện `shuffled > lorem` là đòi proxy phải **dễ bị đánh lừa hơn** mô hình mà nó thay thế.
-
-Tiêu chí đã đổi thành, kèm biên an toàn:
-
-```
-r(thật) ≥ max(r(user khác), r(lorem), r(rỗng)) + 0.02
-```
-
-Việc ba arm hỏng túm tụm lại với nhau vẫn được báo cáo (là tính chất tốt), nhưng không dùng để gate.
-
-### Phần A — trạng thái DoD
-
-| Hạng mục | Trạng thái |
-|---|---|
-| `metrics.py` + unit test tính tay | ✅ khớp `src/train/metrics.py` |
-| `grounding.py` (source_ids + cosine, encoder tiêm được) | ✅ |
-| `composite.py` khớp chữ ký reward của TRL | ✅ |
-| `ranker.py` có stub mode | ✅ |
-| `tests/rl/test_reward_logic.py` pass trên CPU với stub | ✅ **140 test pass**, 26s, không API/GPU |
-| Harness validation chạy end-to-end trên CPU | ✅ 745 cặp, throughput 24 516 reward/s (stub) |
-
-> Chạy `02_validate_reward.sh stub` cho ρ = 0.058 và Validation B FAIL. **Đó là đúng** — stub chấm bằng hash, không có ngữ nghĩa. Chỉ Validation C và "harness chạy được" là có nghĩa ở chế độ stub; A/B do run `hf` trên GPU quyết định. Script in cảnh báo này ra màn hình.
-
-### Phần B — GPU (chạy 2026-08-07, NVIDIA L4 24 GB, ~1.5 GPU-hour)
-
-Không gọi API: chấm lại đúng 745 cặp `(user, arm)` đã cache ở Phần A.
-
-**Kết luận ngắn: ranker `Qwen2.5-1.5B-Instruct` của kế hoạch KHÔNG dùng được. Đã đổi sang `Qwen2.5-3B-Instruct` (đúng phương án dự phòng §M2). Với 3B + `soft_weight = 0.3`, Validation A và B đạt — nhưng đạt sát nút. Validation C chưa đo được trên L4.**
-
-#### Ranker 1.5B — hỏng, không phải sát nút
-
-| | 1.5B (instr. on) | 1.5B (instr. off) | ngưỡng |
-|---|---:|---:|---|
-| Spearman ρ | **0.3071** | 0.1411 | ≥ 0.6 |
-| NDCG@5 `sample1` | 0.4091 | 0.3310 | |
-| NDCG@5 `lorem` | **0.4174** | 0.3144 | phải < `sample1` |
-| NDCG@5 `empty` | 0.4031 | 0.3111 | |
-| Tỉ lệ trùng NDCG@5 | 94.6% | 90.6% | |
-
-`lorem` **thắng** memory thật. Khoảng cách `sample1 − empty` = +0.006, trong khi trên `LLM_Rec` thật là +0.111 — nhỏ hơn ~18 lần, tức 1.5B gần như không đọc memory. Random NDCG@5 với 10 candidate ≈ 0.295, nên 0.41 chỉ hơn ngẫu nhiên một chút.
-
-`include_instruction=True` tốt hơn hẳn (0.307 vs 0.141) → **giữ `True`**, đúng như Phần A dự đoán. Câu hỏi bỏ ngỏ ở §5.1 đã đóng.
-
-#### Ngưỡng ρ ≥ 0.6 là hợp lý, không phải do trần tie
-
-Đo tự-tương quan của chính gpt-4o-mini (`sample1` vs `sample2`, 149 user): **ρ = 0.899**. Trần cao, nên 0.6 không phải yêu cầu bất khả thi — 1.5B fail thật.
-
-#### Ranker 3B (đã chọn) — số chính thức, fp32, batch 32, instruction on
-
-> **Bảng dưới là số CUỐI CÙNG, đo trên 5 mẫu `M_collab`/user (8 arm, 1192 cặp).** Bản đo đầu chỉ có 2 mẫu/user và cho Validation A "đạt sát nút 0.6051" — con số đó **đã bị bác bỏ**, xem mục dưới.
-
-| Validation | Số đo | Ngưỡng | Kết quả |
-|---|---:|---|---|
-| **A** ρ, reward = NDCG@5 (§5 nguyên bản) | 0.5573 | ≥ 0.6 | ✗ **FAIL** |
-| **A** ρ, mọi `w > 0` của `soft_weight` | ≤ 0.5833 | ≥ 0.6 | ✗ **FAIL** |
-| **B** `sample1` ≥ max(arm hỏng) + 0.02 | margin +0.0007 | ≥ 0 | ✓ *(cực sát)* |
-| **B** trung bình 5 arm thật vs arm hỏng | margin +0.0120 | ≥ 0 | ✓ |
-| **C** throughput | 1.38 reward/s @ batch 16 | ≥ 20 @ batch 64 | ⏸ chưa đo được trên L4 |
-
-NDCG@5 theo arm (3B/fp32): `sample1` 0.5526 · `sample2` 0.5616 · `sample3` 0.5623 · `sample4` 0.5622 · `sample5` 0.5809 · `shuffled` 0.4594 · `lorem` 0.5320 · `empty` 0.5123.
-
-**Validation A FAIL ở mọi cấu hình.** Con số 0.6051 báo cáo lúc đầu chỉ đạt được khi (a) bật `soft_weight` và (b) chỉ có 2 arm mẫu thật trong 5 arm. Thêm 3 arm mẫu thật → ρ tụt còn 0.5573–0.5833. ρ gộp nhạy với tỉ lệ arm thật/arm hỏng, và bản 5 mẫu là bản đáng tin hơn.
-
-#### `soft_weight` — đã BẬT rồi lại TẮT. Kết luận cuối: **0.0**
-
-Quy tắc §M2 ("trùng > 50% thì bật, khởi điểm 0.3") kích hoạt vì ranker 3B trùng 70.8%. Em đã bật. **Rồi đo lại đàng hoàng với 5 mẫu/user và phải tắt đi** — quy tắc đó nhìn sai số.
-
-Phân rã trên 296 cặp trong-user mà gpt-4o-mini phân biệt được:
-
-| Ai quyết định | Số cặp | Đồng ý | 95% CI | |
-|---|---:|---:|---|---|
-| NDCG@5 tự quyết được | 99 | **60.6%** | [50.8, 69.7] | trên ngẫu nhiên |
-| NDCG@5 hoà, `p_gold` phá hoà | 197 | **40.1%** | [33.5, 47.1] | **DƯỚI ngẫu nhiên** |
-| Gộp lại | 296 | 47.0% | [41.3, 52.6] | = ngẫu nhiên |
-
-`p_gold` được giao đúng những cặp mà NDCG@5 không phán được, và trên đúng những cặp đó nó **phản tín hiệu** — cả khoảng tin cậy nằm dưới 50%. Nó không cứu được group suy biến, nó **đổ nhiễu ngược hướng** vào đó, và kéo tín hiệu 60.6% (yếu nhưng thật) xuống mức ngẫu nhiên.
-
-Hiệu ứng **không tinh chỉnh được bằng `w`**: mọi `w > 0` đều phá sạch 197 cặp hoà, nên kết quả y hệt nhau từ `w = 0.005` tới `w = 0.3`. Đã quét và xác nhận.
-
-> **Hệ quả: bài toán trùng reward (70.8%) vẫn CHƯA có lời giải.** Đây là blocker thật của M4, không phải chi tiết kỹ thuật. Đừng bật lại `soft_weight` để "chữa" nó.
-
-#### ⚠️ Phát hiện quan trọng nhất: reward phân biệt thô được, tinh thì gần như không
-
-Đây là số mà một group GRPO thực sự nhìn thấy, và nó **không** nằm trong DoD gốc. ρ gộp bị chi phối bởi khác biệt *giữa các user* ("user này dễ với mọi model") — thứ GRPO không bao giờ thấy, vì mọi rollout trong một group thuộc **cùng một** user và chỉ khác nhau ở `M_collab`.
-
-Bản đo đầu chỉ có **29 cặp**, CI ~[19%, 59%] — không kết luận được gì. Đã sinh thêm 3 mẫu/user (`src/rl/extend_val_reference.py`, ~$0.33, 3.5 phút) → mỗi user tối đa C(5,2) = 10 cặp.
-
-**Nửa API — tín hiệu tinh CÓ tồn tại, thưa nhưng mạnh:**
-
-| | |
-|---|---:|
-| Tổng số cặp trong-user | 1490 |
-| gpt-4o-mini chấm hoà | 1194 (80.1%) |
-| **Cặp phân biệt được** | **296** |
-| Biên độ TB của cặp phân biệt được | **0.3413** |
-| Hiệu ứng thô (real − empty) để đối chiếu | +0.1112 |
-| User có bất kỳ spread nào | 54/149 (36.2%), swing TB 0.3949 |
-
-→ Tín hiệu tinh **tồn tại và lớn** — gấp ~3 lần hiệu ứng thô — chỉ là **tập trung ở ~36% user**. Đây đúng là thứ curriculum §6.4 sinh ra để chọn. **Kết cục xấu nhất ("không có gì để học") đã bị loại trừ.**
-
-**Nửa GPU — proxy chỉ bám được một phần, và chỉ ở nhánh NDCG:**
-
-| Ai quyết định | Số cặp | Đồng ý với gpt-4o-mini | 95% CI |
-|---|---:|---:|---|
-| NDCG@5 tự quyết được | 99 | **60.6%** | [50.8, 69.7] — trên ngẫu nhiên |
-| NDCG@5 hoà → `p_gold` phá hoà | 197 | **40.1%** | [33.5, 47.1] — **dưới ngẫu nhiên** |
-| **Reward tổng khi bật `soft_weight`** | **296** | **47.0%** | [41.3, 52.6] — **ngẫu nhiên** |
-
-Hiệu chuẩn: stub ranker (chấm bằng hash, vô nghĩa) cho 50.2% [43.6, 56.9] — metric đúng. Đối chiếu thô: `sample1` vs `empty` đồng ý 72.4%.
-
-**Đọc thẳng:** reward chỉ có tín hiệu trong-user ở **1/3 số cặp** mà NDCG@5 phán được, và ngay cả ở đó cũng chỉ 60.6% với cận dưới CI sát 50%. Hai phần ba còn lại hoà, và cách phá hoà duy nhất đã thử làm mọi thứ tệ hơn.
-
-#### Reward không tất định trong bf16 → chuyển sang fp32
-
-§5.1 chọn thiết kế một-forward-pass **vì nó tất định** ("GRPO không có critic nên nhiễu reward đi thẳng vào variance của advantage"). Trong bf16 lời hứa đó **sai**: padding đổi thứ tự cộng dồn số thực, nên cùng một `(prompt, completion)` cho điểm khác nhau tuỳ rollout nào tình cờ nằm chung batch.
-
-Đo trên 48 val user, batch 24 vs batch 1: **bf16 lệch 2/48 user, fp32 lệch 0/48**. Nguyên nhân: model cực kỳ nhọn — ~99% xác suất dồn vào một chữ cái (đo được: letter mass 0.9998) — nên chênh lệch logit *dưới* hạng 1 rất nhỏ, và NDCG@5 đọc đúng cái đuôi đó.
-
-→ Mặc định `FrozenRanker.dtype = "float32"`. Giá phải trả: VRAM gấp đôi và throughput bằng ~½ bf16.
-
-#### Prompt ranker đã đúng — đã loại trừ, không cần sửa
-
-Nghi ngờ hợp lý là vị trí đọc logit (ngay đầu lượt assistant) khiến model muốn viết "Based"/"The" thay vì một chữ cái, làm softmax hạn chế đọc phần đuôi phân phối. **Không phải:** letter mass trung bình = **0.9998**. Thêm prefix "Answer: " vào lượt assistant còn **phá** nó (mass → 0.0000). Giữ nguyên.
-
-#### Backfill `r_null` / `baseline_h1` / `baseline_p_gold`
-
-`src/rl/backfill_baselines.py`, một job batch, ranker 3B fp32, instruction on.
-
-| split | n | `r_null` (NDCG@5, không memory) | `baseline_h1` | `baseline_p_gold` trong dải [0.2, 0.8] |
-|---|---:|---:|---:|---:|
-| train | 1185 | 0.5068 | 0.3409 | 141 (11.9%) |
-| val | 149 | 0.5123 | 0.3557 | 20 (13.4%) |
-| test | 993 | 0.5267 | 0.3545 | 111 (11.2%) |
-
-`r_null` của val = 0.5123 **trùng khít** arm `empty` của Validation B — hai đường code độc lập cho cùng một số, đây là cách bug dưới đây bị bắt.
-
-> **Dải curriculum §6.4 chỉ giữ ~12% user.** Với `baseline_p_gold`, dải `[0.2, 0.8]` giữ 141/1185 user train. Không phải lỗi — ranker rất nhọn nên `p_gold` phân cực — nhưng M4 cần biết trước: 1185 → ~141 prompt là ít hơn nhiều so với giả định của §6.4. Nới dải hoặc bỏ curriculum là quyết định của M4, không phải của M2.
-
-Ghi kèm `data/rl/baselines_provenance.json` (model + dtype + số bản ghi + thời điểm cho từng split) vì ba trường này là thuộc tính của **một** ranker cụ thể, mà nhìn vào jsonl thì không phân biệt được số của ranker nào.
-
-**`baseline_h1` nhị phân không dùng được cho curriculum §6.4.** Với ranker đóng băng tất định, Hit@1 của một user chỉ có thể là 0.0 hoặc 1.0, nên dải `[0.2, 0.8]` của `filter_by_difficulty` sẽ khớp **0 user** và làm rỗng tập train — lỗi chỉ lộ ra sau khi đã trả tiền thuê máy. Đã thêm trường thứ ba `baseline_p_gold` (xác suất softmax ranker đặt lên gold, liên tục trong [0,1]) diễn đạt đúng ý định của §6.4. Cả ba trường đều được ghi; chọn trường nào lái curriculum vẫn là việc của `filter_by_difficulty` ở M4.
-
-> **Hai bug đã bắt được trong lúc backfill (đáng ghi lại — cả hai đều im lặng):**
->
-> 1. **Sai model.** Bản đầu của `backfill_baselines.py` tự giữ một default `--ranker_model` = 1.5B, nên lần chạy đầu ghi đè cả 3 file jsonl bằng số của **ranker chưa validate**. Lộ ra vì `r_null` (0.4109) không khớp arm `empty` của Validation (0.5123) — hai đường code lẽ ra phải cho cùng một số. Đã bỏ hẳn default trùng lặp (giờ thừa kế từ `FrozenRanker`) và in cấu hình ranker mỗi lần chạy.
-> 2. **OOM giữa chừng.** Lần chạy lại (batch 32) ghi xong `train` + `val` rồi **OOM ở `test`** — L4 24 GB không đủ cho 3B fp32 ở batch 32 với prompt dài nhất. Kết quả: 2 split mới, 1 split còn số cũ của 1.5B, và **nhìn vào dữ liệu thì không thấy được**. Đã chạy lại `test` riêng ở batch 8.
->
-> Cả hai lần đều là "số trông hợp lệ nhưng sai nguồn". Vì vậy thêm `data/rl/baselines_provenance.json`. Sổ hash trong `verify_transfer.py` cũng đã cập nhật (nội dung jsonl đổi thật, số dòng không đổi).
-
-#### Trạng thái DoD Phần B
-
-| Hạng mục | Trạng thái |
-|---|---|
-| Bật chế độ thật của `ranker.py` | ✅ (đổi 1.5B → 3B, fp32) |
-| **Validation A — ρ ≥ 0.6** | ❌ **FAIL — 0.5573** (§5 nguyên bản); ≤ 0.5833 với mọi `soft_weight` |
-| Validation B — `r(thật) ≥ max(arm hỏng) + 0.02` | ✅ margin +0.0007 (`sample1`) / +0.0120 (TB 5 arm thật) — cực sát |
-| Validation C — ≥ 20 reward/s @ batch 64 | ⏸ **chưa đo được**: 3B fp32 không vừa batch 64 trên L4 24 GB. Đạt 1.38/s @ batch 16 |
-| Đo tỉ lệ trùng → quyết định `soft_weight` | ✅ 70.8% → bật 0.3 → **đo lại → TẮT về 0.0** |
-| Chạy `--no_instruction` đối chứng | ✅ kém hơn hẳn → giữ `include_instruction=True` |
-| Backfill 3 file jsonl | ✅ 1185 / 149 / 993 |
-| **[thêm] Within-user agreement** | ✅ đã đo — và đây là lý do A fail có ý nghĩa |
-
-### ❌ Verdict: M2 KHÔNG ĐẠT. Không được bắt đầu M4.
-
-§M2 viết rõ: *"Không được đi tiếp M4 với reward chưa validate — 400 step trên reward sai là mất cả phiên thuê máy và cả tuần."* Điều kiện đó đang không thoả:
-
-1. **Validation A fail** ở mọi cấu hình (tốt nhất 0.5833 < 0.6).
-2. **Reward không xếp hạng được hai memory tốt** cho cùng một user: 60.6% trên 1/3 số cặp, ngẫu nhiên trên phần còn lại.
-3. **Bài toán trùng reward 70.8% chưa có lời giải.** `soft_weight` — phương án duy nhất đã thử — làm tệ hơn. Với `soft_weight = 0`, ~2/3 group GRPO sẽ có `std(r) = 0` → không gradient (§9.2), và dynamic sampling §6.4 sẽ lọc vượt xa ngưỡng báo động 60% của kill criteria M4.
-
-**Điều đã cứu được:** toàn bộ kết luận này mua bằng **~$0.35 API + ~1.5 GPU-hour trên L4 rẻ**, thay vì phát hiện đường reward phẳng sau vài phiên H100. Đây đúng là việc M2 sinh ra để làm.
-
-**Điều KHÔNG kết luận:** rằng ý tưởng đồ án sai. Tín hiệu tinh có thật và lớn (0.34 NDCG@5 trên 296 cặp, gấp 3 lần hiệu ứng thô) — chỉ là **proxy 3B hiện tại không đọc được nó**. Đây là vấn đề của proxy, không phải của bài toán.
-
-### Pointwise scoring (§M2 phương án 2) — đã thử, KHÔNG cứu được
-
-Chấm từng candidate một câu hỏi Yes/No độc lập, xếp hạng theo **hiệu logit** `Yes−No`. 1192 cặp, 3B fp32, L4, ~73 phút.
-
-> **Bug đã bắt trước khi nó làm hỏng số:** bản đầu xếp hạng theo `softmax(P("Yes"))`. Model trả lời "No" cho gần như mọi candidate → `P(Yes) ≈ 1e-30` → **underflow về đúng 0.0** trong float32, làm 8/10 candidate sập về một giá trị và **tái tạo lại chính bài toán trùng mà pointwise sinh ra để diệt**. Hiệu logit là biến đổi đơn điệu tương đương nhưng ổn định số học; sau khi đổi, cả 10 candidate đều phân biệt.
-
-| | listwise | pointwise | gpt-4o-mini |
-|---|---:|---:|---:|
-| **Validation A** — ρ gộp | **0.5573** | **0.4010** | — |
-| **Validation B** — margin | +0.0120 | **+0.0661** | — |
-| Độ nhạy thô `real − empty` | +0.0516 | **+0.0861** | +0.0994 |
-| Trong-user, cặp NDCG phán được | 60.6% [50.8, 69.7] | 56.3% [46.7, 65.5] | — |
-| Trong-user, cặp NDCG hoà (tiebreaker) | 40.1% [33.5, 47.1] | 44.6% [37.7, 51.6] | — |
-| **Trong-user, gộp** | **47.0%** | **48.6%** | — |
-| Tỉ lệ trùng NDCG@5 | 70.8% | 66.0% | 80.5% |
-| Throughput (L4, fp32) | 1.38/s | **0.30/s** | — |
-
-**Đọc kỹ, có hai chiều ngược nhau:**
-
-- **Pointwise TỐT HƠN ở vùng thô.** Độ nhạy `real − empty` là +0.0861, sát `LLM_Rec` thật (+0.0994) hơn hẳn listwise (+0.0516); margin Validation B gấp 5.5 lần. Nó phân biệt "memory thật vs memory rác" tốt hơn thật sự.
-- **Pointwise TỆ HƠN ở ρ gộp** (0.40 vs 0.56) — nó chấm "user có thích item này không" theo giá trị tuyệt đối, một bài toán khác với xếp hạng, nên đồng thuận với gpt-4o-mini về *user nào dễ* kém đi.
-- **Trong-user thì cả hai đều là ngẫu nhiên** (47.0% và 48.6%, CI của cả hai đều chứa 50%).
-
-#### ⛔ Kết luận: nút thắt KHÔNG nằm ở scoring mode
-
-Hai thiết kế scorer khác nhau về bản chất — một softmax 10 chiều có ràng buộc tổng bằng 1, và mười điểm Yes/No hoàn toàn độc lập — cho **cùng một kết quả trong-user: ngẫu nhiên**. Đổi cách hỏi không giải quyết được. Nút thắt nằm ở tầng trên:
-
-1. **Model 3B đơn giản là yếu hơn hẳn ở chính bài toán này.** NDCG@5 tuyệt đối: gpt-4o-mini 0.709 vs 3B 0.564–0.577 (ngẫu nhiên = 0.295). Một model kém hơn nhiều ở việc xếp hạng thì không thể tái hiện được phán đoán tinh của model giỏi hơn. Đây là giả thuyết mạnh nhất còn lại.
-2. **Hoặc trần nằm ở *dạng* reward** — `f(thứ hạng gold)` chỉ có 6 giá trị. Pilot đã xác nhận: pointwise vẫn trùng 66%, vì hai memory đặt gold vào cùng vị trí thì NDCG y hệt nhau bất kể scorer liên tục đến đâu. **Em đã sai khi nói pointwise "thoát trần 6 giá trị"** — trần đó nội tại trong dạng reward, không phải ở scorer.
-
-#### 🔧 Căng thẳng kiến trúc mới lộ ra (quan trọng cho M4)
-
-§4.3 muốn ranker **colocate** cùng policy 4B + vLLM trên một H100 → trần ranker ~3B. Nhưng đo được rằng **3B quá yếu để làm proxy trung thực**. Hai ràng buộc này mâu thuẫn nhau. Ba cách thoát:
-
-| Cách | Đánh đổi |
-|---|---|
-| Ranker chạy GPU riêng (2 GPU) | $/h cao hơn nhưng có thể ít giờ hơn; cho phép 7B+ |
-| Thu nhỏ policy (1.5B thay vì 4B) để nhường VRAM cho ranker 7B | Policy nhỏ hơn → đóng góp "LM_Mem nhỏ" vẫn giữ được, thậm chí mạnh hơn |
-| Reward gọi API gpt-4o-mini | 0 VRAM, tương quan hoàn hảo theo định nghĩa; ~$17–30 + latency |
-
-### Đổi `LLM_Rec` sang model mạnh hơn (gpt-5.6-luna) — đã đo, và nó ĐÓNG một họ giải pháp
-
-Chấm lại **đúng 1192 cặp `(user, arm)` đã cache** bằng `gpt-5.6-luna` thay cho gpt-4o-mini. Không sinh memory mới, không GPU. Kèm 298 lời gọi đối chứng nhiễu. **$1.40, 5.5 phút.**
-
-> **Ràng buộc kỹ thuật phải biết trước:** họ gpt-5 **từ chối `temperature=0`** (kiểm chứng trực tiếp với API: `400 Only the default (1) value is supported`), và từ chối `max_tokens` (phải dùng `max_completion_tokens`). Reranker của repo chấm ở `temperature=0.0` để tất định — nên **judge thuộc họ gpt-5 là ngẫu nhiên**. Đã nới điều kiện chọn tham số trong `llm_client.py` (trước đó chỉ khớp chuỗi `nano`); đường gpt-4o-mini không đổi một byte.
-
-| arm | gpt-5.6-luna | gpt-4o-mini |
-|---|---:|---:|
-| sample1–5 (memory thật, TB) | **0.8214** | 0.7126 |
-| shuffled | 0.6411 | 0.6090 |
-| lorem | 0.6469 | 0.6079 |
-| empty | 0.6455 | 0.6092 |
-| **headroom `real − empty`** | **+0.1759** | +0.1112 |
-| **Validation B margin** | **+0.1545** | — |
-
-#### ✅ Hai tin tốt
-
-1. **Tiền đề đồ án không chỉ sống sót mà mạnh hơn.** Lo ngại "reranker mạnh hơn thì tự suy ra sở thích, memory thành thừa" đã bị **bác bỏ**: headroom tăng từ +0.1112 lên **+0.1759**. Luna cũng là recommender giỏi hơn hẳn (0.82 vs 0.71 NDCG@5 trên arm thật).
-2. **ρ(Luna, gpt-4o-mini) = 0.6635 — vượt ngưỡng Validation A 0.6.** Đây là **thứ đầu tiên trong cả M2 đạt Validation A**. Và nó là **cận dưới**, vì Luna tự nhiễu còn reference thì tất định. Tức là nếu giữ `LLM_Rec` = gpt-4o-mini thì Luna *về mặt tương quan gộp* đủ tư cách làm reward.
-
-#### ⛔ Phép đối chứng nhiễu, và vì sao nó đóng cả một họ giải pháp
-
-Chấm **cùng một memory** (`sample1`) 3 lần cho mỗi user, rồi so với việc chấm **hai memory khác nhau**:
-
-| So cái gì | Cặp | Phân biệt được | Biên độ TB |
-|---|---:|---:|---:|
-| Hai memory **khác nhau** (Luna) | 1490 | **20.9%** | 0.3312 |
-| **Cùng một memory**, chấm 2 lần (Luna) | 447 | **18.3%** | 0.3096 |
-| | | **chênh 2.6 điểm** | |
-
-**Gần như toàn bộ khả năng "phân biệt hai memory" của Luna là nhiễu lấy mẫu của chính nó.** Nó phân biệt một memory với *chính nó* gần bằng phân biệt nó với một memory khác.
-
-Đây cũng là một cảnh báo phương pháp luận: hình dạng thống kê "~20% cặp tách được, biên độ ~0.33" **là thứ nhiễu thuần tuý cũng tạo ra**, vì NDCG@5 rất thô — mọi xáo trộn đẩy gold đi một bậc đều tạo bước nhảy ~0.3. Con số 296 cặp / 0.3413 của gpt-4o-mini vẫn đứng vững (nó chấm ở temperature 0, tất định, nên khác biệt bắt buộc đến từ memory), nhưng **biên độ giống nhau không hàm ý nguyên nhân giống nhau**.
-
-#### 🔒 Kết luận cứng: trần 80% là của BÀI TOÁN, không phải của người chấm
-
-| Người chấm | Tỉ lệ hoà trong-user |
-|---|---:|
-| gpt-4o-mini (temp 0) | **80.1%** |
-| gpt-5.6-luna (temp 1) | **79.1%** |
-
-Một model mạnh hơn hẳn cho **cùng một tỉ lệ hoà**. Nguyên nhân là cấu trúc: 10 candidate + NDCG@5 chỉ có 6 giá trị + hai memory tốt thường đặt gold vào cùng một vị trí.
-
-→ **Toàn bộ họ giải pháp "nâng cấp người chấm" đã đóng.** 1.5B → 3B → pointwise → gpt-5.6-luna: không nhánh nào vượt được trần này, vì trần không nằm ở người chấm. Mua kết luận này bằng **$1.40 và 5.5 phút**.
-
-#### Hệ quả cho từng phương án
-
-| Phương án | Trạng thái sau phép đo |
-|---|---|
-| Luna làm **reward trong vòng lặp M4** | ❌ **Loại.** Không phải vì tiền ($12.1/run, chấp nhận được) mà vì ~88% khả năng phân biệt của nó là nhiễu, và nhiễu reward đi thẳng vào advantage của GRPO (§5.1 chọn one-forward-pass *vì* tính tất định). Muốn khử phải chấm lặp k lần → chi phí và độ trễ ×k, để đổi lấy 2.6 điểm tín hiệu thật |
-| Luna làm **`LLM_Rec` cho bảng kết quả** | ⭕ **Hấp dẫn ở trục thô.** Validation B margin +0.1545 (so với +0.0120 của proxy 3B), headroom +0.1759. Nhiễu triệt tiêu khi lấy TB trên 993 test user. Giá chạy lại M0 chỉ ~$2.45. Nhưng **không** giải quyết được trần hoà |
-| Nâng cấp người chấm để cứu tín hiệu tinh | ❌ **Đóng vĩnh viễn** — xem bảng tỉ lệ hoà |
-
-### ✅ Đổi *dạng* reward: `gold_margin` — hướng duy nhất còn lại, và nó CHẠY
-
-Mọi reward đã thử đều là `f(thứ hạng gold)`, nên nhận tối đa `k+1` giá trị. `LLMReranker` vốn trả **điểm 0–1 cho từng candidate**, nhưng `_score` chỉ lưu `ranking`/`ndcg_at_5`/`hit_at_1` rồi **vứt điểm thô đi**. Đã lưu lại và định nghĩa:
-
-```
-gold_margin = điểm(gold) − max(điểm của 9 candidate còn lại)
-```
-
-Chấm lại 1192 cặp đã cache bằng gpt-4o-mini @ `temperature=0`, cộng một lần chấm lặp 745 cặp để lấy nền nhiễu. **$0.85, 12 phút, 0 GPU.**
-
-> **gpt-4o-mini @ temp 0 KHÔNG tất định.** Hai lần chạy độc lập trên cùng `(user, arm)` cho khác điểm ở **8.6%** số ca (Luna @ temp 1: 18.3%). Sạch hơn nhiều nhưng không phải 0 — nên mọi tỉ lệ "tách được" dưới đây đều báo cáo kèm nền nhiễu của chính đại lượng đó.
-
-| Đại lượng | Tách 2 memory **khác nhau** | **Nền nhiễu** (cùng memory, 2 lần chạy) | **Tín hiệu THẬT** |
-|---|---:|---:|---:|
-| `ndcg_at_5` (dạng hiện tại) | 19.3% | 8.6% | **10.7 điểm** |
-| `gold_score` | 21.6% | 8.1% | 13.5 điểm |
-| **`gold_margin`** | **34.1%** | 13.4% | **20.7 điểm** |
-
-Margin **nhiễu hơn** (13.4% vs 8.6%) đúng như dự đoán cho một đại lượng liên tục — nhưng nó tách nhiều hơn *nhanh hơn* mức nhiễu tăng, nên **tín hiệu thật gần gấp đôi**.
-
-#### Nó là cùng một phán đoán đo mịn hơn, không phải tín hiệu cãi nhau
-
-Đây đúng chỗ `soft_weight`'s `p_gold` đã chết, nên phải đối chiếu trực tiếp:
-
-| Số hạng liên tục | Đồng ý với NDCG@5 ở những cặp NDCG phán được |
-|---|---|
-| `p_gold` (đã loại) | **40.1%** [33.5, 47.1] — **dưới ngẫu nhiên**, phản tín hiệu |
-| `gold_margin`, cùng lần chạy | **88.5%** [83.2, 92.3] |
-| `gold_margin`, **tái lập chéo hai lần chạy độc lập** | **76.2%** [69.1, 82.2] |
-
-ρ(NDCG@5, margin) gộp = **0.8670**. Con số tái lập chéo 76.2% là bằng chứng mạnh hơn 88.5% vì nó gánh nhiễu của **cả hai** lần chạy.
-
-#### Con số quyết định cho M4 — chế độ hỏng §9.2
-
-```
-User có CẢ 5 mẫu cùng điểm  →  std(r) = 0  →  không gradient
-                      lần 1     lần 2
-  NDCG@5              67.8%     62.4%    ← TRÊN/sát ngưỡng báo động 60%
-  gold_margin         42.6%     43.6%    ← DƯỚI ngưỡng, ổn định giữa 2 lần chạy
-```
-
-Đây chính là blocker đã chặn M4 từ đầu. Margin đưa nó từ "báo động" xuống "chấp nhận được", và con số tái lập ổn định giữa hai lần chạy độc lập.
-
-Margin cũng mang tín hiệu chất lượng memory thật: `real` +0.1674 vs arm hỏng tệ nhất +0.1091 → headroom **+0.0583, tức 35% tương đối** (NDCG@5 chỉ 12% tương đối).
-
-#### Điều này thay đổi gì, và điều gì vẫn CHƯA giải quyết
-
-✅ **Dạng reward đã có lời giải.** Trần hoà — thứ mà nâng cấp người chấm không chạm tới được (80.1% → 79.1%) — bị đổi dạng reward hạ xuống 65.9%, và tỉ lệ group suy biến từ ~65% xuống ~43%.
-
-⚠️ **Nhưng phép đo này dùng gpt-4o-mini làm người chấm, tức reward là một lời gọi API trong vòng lặp.** Chi phí: ~$5.6/run (cùng số lời gọi, dạng reward không đổi giá). Đổi lại được tương quan hoàn hảo theo định nghĩa và 0 VRAM.
-
-❓ **Chưa biết proxy 3B local có bám được `margin` không.** Toàn bộ Validation A/within-user trước đây đo với NDCG@5 ở **cả hai** phía; mục tiêu vừa đổi, nên kết luận cũ không tự động áp dụng. `FrozenRanker` đã trả về softmax trên candidate nên margin tính được ngay, nhưng `m2_pairs*.json` chỉ lưu `proxy_p_gold` chứ không lưu max của phần còn lại → phải chạy lại trên GPU (~1.4 GPU-h trên L4) mới trả lời được.
-
-#### ⚠️ Luna + `gold_margin`: 0% group suy biến, và đó là một cái BẪY
-
-Đo đầy đủ cả hai judge × cả hai dạng reward, mỗi ô kèm nền nhiễu riêng (2 lần chạy độc lập trên cùng memory). **$2.2 API.**
-
-| Judge | Dạng reward | Tách 2 memory khác | Nền nhiễu | **Tín hiệu THẬT** | Group suy biến |
-|---|---|---:|---:|---:|---:|
-| gpt-4o-mini | `ndcg_at_5` | 19.3% | 8.6% | 10.7 điểm | 67.8% |
-| **gpt-4o-mini** | **`gold_margin`** | 34.1% | 13.4% | **20.7 điểm** | **42.6%** |
-| gpt-5.6-luna | `ndcg_at_5` | 20.9% | 18.0% | 3.0 điểm | 65.8% |
-| gpt-5.6-luna | `gold_margin` | **94.0%** | **92.9%** | **1.1 điểm** | **0.0%** |
-
-Nhìn cột cuối, Luna + margin trông như đã **giải xong hoàn toàn** blocker §9.2: không còn một group suy biến nào. Nhìn cột nền nhiễu thì thấy vì sao: nó tách được 94.0% số cặp trong khi **nhiễu thuần tuý đã tách 92.9%**. Nó phân biệt mọi thứ vì nó **ngẫu nhiên**, không phải vì nó biết gì.
-
-Đây **chính xác là chế độ hỏng của `soft_weight`'s `p_gold`**, chỉ ở dạng quyến rũ hơn: một đại lượng liên tục không bao giờ hoà, nên trên giấy nó "chữa" được group suy biến, còn thực tế nó bơm nhiễu vào đúng chỗ cần tín hiệu. Lần trước phát hiện bằng agreement dưới 50%; lần này chỉ phát hiện được nhờ nền nhiễu — **agreement không bắt được nó** (Luna margin vs Luna NDCG đồng hướng 86.9%, nhưng cả hai đến từ *cùng một* lời gọi nên tương quan theo cấu trúc).
-
-**Luna là evaluator giỏi, reward tồi.** Số gộp của nó rất tốt (headroom NDCG +0.1724, margin +0.0951 vs gpt-4o-mini +0.0583) vì nhiễu triệt tiêu khi lấy trung bình trên 149 user. Nhưng GRPO tiêu thụ reward **từng rollout một**, và ở mức đó nó gần như toàn nhiễu. Nguyên nhân gốc: API từ chối `temperature=0` cho họ gpt-5.
-
-→ **Reward được chọn: `gpt-4o-mini` + `gold_margin`** — 20.7 điểm tín hiệu thật, ~$5.6/run, nhiễu 8.6%. Luna vẫn dùng được cho bảng eval cuối nếu muốn.
-
-### ✅✅ `Qwen3.5-4B` làm frozen ranker — Validation A và B ĐẠT, lần đầu tiên
-
-> **Bug đã suýt cho kết luận ngược, và nó im lặng.** Lần chạy đầu cho ρ = 0.1232, NDCG@5 ≈ **0.34 trên mọi arm kể cả `empty`** (ngẫu nhiên = 0.295) — đọc thô thì kết luận "Qwen3.5-4B quá yếu". Nguyên nhân thật: **Qwen3.5 là reasoning model**, chat template kết thúc generation prompt **bên trong khối `<think>` đang mở**, nên token kế tiếp là chữ đầu của chuỗi suy luận chứ không phải chữ cái đáp án.
->
-> ```
-> LETTER MASS trên A–J = 0.000020      (Qwen2.5-3B: 0.9998)
-> token model muốn sinh: 'The' p=0.82 · 'Thinking' p=0.18
-> ```
->
-> Sau khi vá (`enable_thinking=False`, và đóng `<think>` tường minh nếu template vẫn mở): **0.997475**. Cùng một model, cùng một lệnh, ρ đi từ **0.1232 → 0.7726**. Đã thêm `FrozenRanker.letter_mass()` làm phép kiểm bắt buộc trước khi tin bất kỳ ranker nào trên checkpoint lạ.
-
-| Hạng mục | Qwen2.5-3B (fp32) | **Qwen3.5-4B (bf16)** | Ngưỡng |
-|---|---:|---:|---|
-| **A** Spearman ρ | 0.5573 ✗ | **0.7726** ✅ | ≥ 0.6 |
-| **B** thứ tự arm | margin +0.0120, sát | ✅ **đạt cả thứ tự gốc** `real > shuffled > lorem ≈ empty` | |
-| **C** throughput | 1.38/s | 2.0/s @ batch 16 ✗ | ≥ 20/s @ batch 64 |
-| headroom `real − empty` | +0.0516 | **+0.1371** | (gpt-4o-mini +0.1112) |
-| NDCG@5 tuyệt đối, arm thật | 0.564–0.577 | **0.736–0.756** | (gpt-4o-mini 0.703–0.722) |
-| Tỉ lệ trùng NDCG@5 | 70.8% | 84.1% | |
-
-**Qwen3.5-4B xếp hạng giỏi hơn cả gpt-4o-mini** (0.75 vs 0.71) — nó không còn là "proxy rẻ tiền xấp xỉ model xịn" nữa. Điều này cũng giải thích vì sao ρ dừng ở 0.77 chứ không cao hơn: nó bất đồng với gpt-4o-mini ở những chỗ nó **đúng hơn**.
-
-#### Within-user — chỗ đã giết mọi ranker trước đó
-
-| Ai quyết định | Qwen2.5-3B | **Qwen3.5-4B** |
-|---|---|---|
-| NDCG@5 tự quyết | 60.6% [50.8, 69.7] | **67.3%** [57.8, 75.6] ✅ |
-| NDCG hoà → `p_gold` phá hoà | 40.1% [33.5, 47.1] **dưới ngẫu nhiên** | **61.5%** [54.4, 68.1] ✅ |
-| **GỘP 296 cặp** | **47.0% = ngẫu nhiên** | **63.5%** [57.9, 68.8] ✅ |
-
-Cả ba dòng có CI **nằm trọn trên 50%**. Đây là lần đầu tiên trong toàn bộ M2.
-
-> ⚠️ **`soft_weight` có thể phải BẬT LẠI — nhưng chưa được bật vội.** Lý do tắt nó là `p_gold` phản tín hiệu **trên ranker 3B** (40.1%). Trên Qwen3.5-4B nó **thuận** tín hiệu (61.5%, CI trên 50%). Kết luận cũ là thuộc tính của model cũ, không phải của số hạng. Nhưng đây sẽ là lần đảo chiều thứ ba của cùng một tham số, nên **phải đo kèm nền nhiễu** (theo bài học từ Luna + margin) trước khi đổi mặc định.
-
-#### Còn lại đúng một hạng mục fail: Validation C
-
-| batch | reward/s | VRAM peak |
-|---:|---:|---:|
-| 16 | 0.95 | 11.8 GB |
-| 32 | 1.53 | 15.4 GB |
-| 64 | — | **OOM trên L4 24 GB** |
-
-Cần ≥ 20/s @ batch 64. Ngoại suy batch 64 ≈ 2.3/s → **thiếu ~10×**.
-
-**✅ bf16 tất định cho model này: lệch 0/48 user** giữa batch 1 và batch 24 (Qwen2.5-3B: bf16 lệch 2/48, phải dùng fp32). Nghĩa là **không cần fp32** — giữ được 8.4 GB weights thay vì ~17 GB và giữ nguyên tốc độ. Đây là tin tốt cho ngân sách VRAM §4.3 khi reward quay về chạy local.
-
-**Fast path vẫn CHƯA bật.** Đã cài `flash-linear-attention 0.5.2` nhưng transformers vẫn in dòng fallback — nó còn đòi `causal-conv1d`, và gói này **không có wheel dựng sẵn** (chỉ có source tarball, phải biên dịch CUDA extension). Mọi số throughput ở trên vì thế là **cận dưới**, đo trên torch fallback của hybrid linear-attention.
-
-Hệ quả ngân sách nếu giữ nguyên 2/s: 32 rollout tốn 16s thay vì 1.5s như §11.3 dự toán → step ~32s thay vì ~18s → một run M4 ~6h thay vì 3.5h → M4 cần ~43h thay vì 25h, **vượt ngân sách Phase 1 (50h)**.
-
-> **Ghi chú về chính ngưỡng 20/s:** nó được đặt ở §5.1 cho ranker **1.5B** — model đã được chứng minh là không dùng được. Ngưỡng đúng phải suy ra từ ngân sách step-time thực tế, không phải giữ nguyên con số viết cho một cấu hình đã bị loại. Đây là thay đổi kế hoạch, cần người dùng quyết theo §10.8.
-
-#### Bật fast path: nhanh 2×, nhưng MẤT tính tất định
-
-Đã build `causal-conv1d 1.6.2.post1` từ source (`--no-build-isolation`, `MAX_JOBS=4`, ~20 phút; không có wheel dựng sẵn). Cảnh báo fallback của transformers biến mất → fast path thật sự bật.
-
-| batch | torch fallback | **fast path** | VRAM peak |
-|---:|---:|---:|---:|
-| 16 | 0.95/s | **2.09/s** | 11.8 GB |
-| 32 | 1.53/s | **2.82/s** | 15.4 GB |
-| 48 | — | 2.07/s ↓ | 18.8 GB |
-| 64 | OOM | OOM | — |
-
-Batch 48 **tụt** so với 32 — L4 đã bão hoà, không phải chỗ để đo Validation C.
-
-| | torch fallback | fast path |
-|---|---|---|
-| Tất định bf16 (batch 1 vs 24) | **0/48** | **3/48 = 6.3%** |
-| `letter_mass` | 0.997475 | 0.997472 ✅ không đổi |
-
-`letter_mass` không đổi → **ρ = 0.7726 vẫn đứng vững**, kernel mới không làm lệch phép chấm.
-
-Nhưng kernel mới **không bất biến theo batch**. §5.1 chọn one-forward-pass *vì* tính tất định, nên đây là đánh đổi thật. Đặt cạnh chuẩn đã đo trong phiên này: nền nhiễu của chính gpt-4o-mini @ temp 0 là **8.6%**, của Luna là **18.0%**. Tức 6.3% **thấp hơn nhiễu của chính model đang được xấp xỉ** — nhưng nó là nhiễu *cộng thêm*, không phải nhiễu của đích.
-
-#### Validation C: không đo được ở tầng T1, không phải "fail"
-
-L4 24 GB không chứa nổi batch 64, và bão hoà từ batch 32. Ngoại suy thô theo FLOPs: prefill 32 × ~1200 token ở 4.2B mất 11.3 s trên L4 ≈ **28 TFLOPS hiệu dụng**; H100 cho prefill thực tế ~400 TFLOPS → **~14×** → ước **20–40 reward/s @ batch 64**, và batch 64 thì vừa thoải mái. Nghĩa là ngưỡng 20/s **nhiều khả năng đạt trên đúng tầng T2 mà M4 vốn chạy**.
-
-§11.5 đã lên lịch đo lại Validation C ở đầu phiên M3/M4 trên H100. Trạng thái đúng của C là **⏸ chưa đo được ở T1**, không phải ❌.
-
-### ✅ `margin_logit` — group suy biến 71.1% → 0.0%, M2 có lời giải trọn vẹn
-
-Qwen3.5-4B đạt Validation A nhưng vẫn **hoà 84% cặp trong-user**, nên phần lớn group GRPO vẫn `std(r) = 0`. `src/rl/measure_margin.py` chấm cả 1192 cặp đã cache, rồi **chấm lại 5 arm mẫu ở batch khác** để mọi tỉ lệ đều có nền nhiễu riêng. 8.7 phút GPU.
-
-| Đại lượng | Tách | Nền nhiễu | **THẬT** | Group suy biến |
-|---|---:|---:|---:|---:|
-| `ndcg_at_5` | 16.4% | 3.6% | 12.8 đ | **71.1%** |
-| `margin_prob` | 99.9% | 98.3% | **1.6 đ** | 0.0% |
-| **`margin_logit`** | 90.4% | 48.6% | **41.8 đ** | **0.0%** |
-
-**`margin_prob` là bẫy** — cùng hình dạng với Luna+margin (94.0% trên nền 92.9%). Ranker dồn ~99% letter mass vào một token nên margin xác suất bão hoà quanh ±1, phần còn nhúc nhích là **kernel chứ không phải memory**. Nó đáng đo đúng vì nó là dạng *giống thang 0–1 của gpt-4o-mini nhất*, và nếu không có pass đối chứng thì "0.0% group suy biến" đã trông như chiến thắng.
-
-#### `margin_logit` khác `p_gold` ở đúng chỗ quyết định
-
-| Ai quyết định | `margin_logit` / Qwen3.5-4B | `p_gold` / Qwen2.5-3B |
-|---|---|---|
-| NDCG@5 tự quyết | **70.6%** [61.1, 78.6] | 60.6% |
-| NDCG hoà → phá hoà | **58.4%** [50.9, 65.5] ✅ | **40.1%** ❌ dưới ngẫu nhiên |
-| **GỘP** | **62.9%** [57.1, 68.4] | 47.0% = ngẫu nhiên |
-
-Cùng một nhiệm vụ, kết quả ngược nhau: `p_gold` phản tín hiệu ở đúng những cặp NDCG không phán được; `margin_logit` trên ngẫu nhiên ở đó, và nhân gần **3× vùng phủ** (102 → 275 cặp).
-
-#### Trọng số: hàm bậc thang, không phải đường đánh đổi
-
-| w | Đồng ý within-user | Cặp phủ | Group suy biến |
-|---:|---:|---:|---:|
-| 0.0 | 70.6% | 102 | 71.1% |
-| 0.005 – 0.05 | **62.9%** | **275** | **0.0%** |
-| 0.1 | 62.2% | 275 | 0.0% |
-| 1.0 | 59.6% | 275 | 0.0% |
-
-Mọi `w > 0` phá sạch mọi hoà; độ chính xác **phẳng** trong `[0.005, 0.05]` và chỉ xói từ `w ≥ 0.1` khi margin bắt đầu **lấn át** NDCG thay vì phá hoà nó.
-
-**Chốt `w = 0.02`.** Kiểm thang đo: headroom NDCG +0.131 vs margin +1.09 → đóng góp ~0.022, nhỏ hơn NDCG cả về đo lường lẫn độ lớn.
-
-> **Đánh đổi phải nói rõ:** nền nhiễu của `margin_logit` là **48.6%** dưới kernel fast path (NDCG@5: 3.6%). Một nửa độ tán trong group là kernel chứ không phải memory. Đó là **variance chứ không phải bias**, và 62.9% đã tính cả nó — nhưng đây là lý do **torch fallback** (bất biến batch, chậm 2×) vẫn là lựa chọn sống cho M4.
-
-### 🎯 Trạng thái M2 cuối cùng
-
-| Hạng mục | Kết quả |
-|---|---|
-| **A** Spearman ρ ≥ 0.6 | ✅ **0.7726** (`Qwen3.5-4B`) |
-| **B** `r(thật) ≥ max(arm hỏng) + 0.02` | ✅ đạt, kể cả thứ tự gốc `real > shuffled > lorem ≈ empty` |
-| **C** ≥ 20 reward/s @ batch 64 | ⏸ **không đo được ở T1** — L4 24 GB OOM ở batch 64, bão hoà từ batch 32. Ước 20–40/s trên H100; §11.5 đã lên lịch đo ở đầu phiên M3-B/M4 |
-| Chế độ hỏng §9.2 (group suy biến) | ✅ **71.1% → 0.0%** với `margin_logit` |
-| Within-user agreement | ✅ **62.9%** [57.1, 68.4] |
-| Tất định | ✅ bf16 bất biến batch **0/48** với torch fallback (3/48 với fast path) |
-
-**M2 ĐẠT.** Hạng mục duy nhất chưa xác nhận là throughput, và nó không đo được ở tầng máy này chứ không phải trượt.
-
-### Hướng đi tiếp — sau khi đã loại pointwise
-
-Đã thử và loại: **ranker 3B** (ρ 0.5573), **`soft_weight`** (làm tệ hơn), **pointwise** (ρ 0.4010, trong-user vẫn ngẫu nhiên). Phương án dự phòng §M2 ghi sẵn đã dùng hết.
-
-| Hướng | Chi phí | Lý lẽ |
-|---|---|---|
-| **Ranker 7B/8B, chẩn đoán** ⭐ | ~1–2 GPU-h trên L40 48 GB | Kiểm tra trực tiếp giả thuyết mạnh nhất còn lại: "3B quá yếu". Nếu 7B đưa trong-user lên rõ trên 50% → biết chắc là vấn đề dung lượng, và bài toán chuyển thành bố trí VRAM (3 cách ở trên). Nếu 7B **cũng** ngẫu nhiên → proxy nội bộ là ngõ cụt, phải đổi sang reward API hoặc thu hẹp phát biểu. **Rẻ và loại trừ được nhiều nhất** |
-| Reward = gpt-4o-mini trực tiếp | ~$17–30 + latency mỗi step | Bỏ hẳn proxy. Tương quan hoàn hảo theo định nghĩa. Làm M4 chậm đi đáng kể nhưng không tốn VRAM |
-| Đổi *dạng* reward | ~1 GPU-h | Bỏ NDCG@5 (6 giá trị) sang đại lượng liên tục theo thứ hạng — ví dụ log-rank, hoặc điểm gold chuẩn hoá theo phân phối trong chính user. Tấn công trần trùng ở đúng chỗ nó thật sự nằm |
-| Thu hẹp phát biểu đồ án | 0 | Nhắm trục **cost** của Figure 4 ("ngang accuracy, memory ngắn/rẻ hơn"). Reward hiện tại **đủ dùng cho việc này** — Validation B đạt, và pointwise đạt tốt (margin +0.0661). Chỉ bỏ tham vọng vượt accuracy |
-
-> Nếu chọn hướng "thu hẹp phát biểu": **dùng pointwise, không dùng listwise.** Nó nhạy với chất lượng memory gần bằng `LLM_Rec` thật (+0.0861 vs +0.0994) — tức là dạy được đúng bài học thô mà phát biểu đó cần. Đổi lại phải chịu 0.3 reward/s, nên phải giải bài throughput trước.
-
----
-
-## Bảng chính — instructrec-books, test set, `LLM_Rec` = gpt-4o-mini
-
-| Config | H@1 | H@3 | N@3 | H@5 | N@5 | Tokens/query | Δ vs prompted |
-|---|---|---|---|---|---|---|---|
-| Vanilla LLM | | | | | | | |
-| MemRec w/o Collab. Read | | | | | | | |
-| MemRec prompted (7B `LM_Mem`) | | | | | | | — |
-| MemRec + SFT-4B `LM_Mem` (M3) | | | | | | | |
-| **MemRec + GRPO-4B `LM_Mem` (M4)** | | | | | | | |
-
-## Bảng chống hacking
-
-| Test | Gain giữ được | Kết luận |
-|---|---|---|
-| Reward ranker (1.5B) → gpt-4o-mini | | |
-| → vector reranker | | |
-| Books → MovieTV (zero-shot) | | |
-| Candidate-blind → candidate-visible | | |
+| Short vs long history | — | — | — | — |
+| Low vs high graph degree | — | — | — | — |
+| Remote quota | — | — | — | — |
+| Remote path type | — | — | — | — |
+| Budget equality / shortfall | — | — | — | — |
+| Candidate/gold leakage audit | — | — | — | — |
+
+## 6. MH5 selective propagation (conditional)
+
+| Arm | Endpoint cap | Coverage | Duplicate/stale rate | NDCG@5 Delta | Tokens/latency delta | Temporal leakage | Status |
+|---|---:|---:|---:|---:|---:|---|---|
+| one_hop_write | — | — | — | — | — | — | pending |
+| naive_two_hop_write | — | — | — | — | — | — | pending |
+| selective_two_hop_write | — | — | — | — | — | — | pending |
+
+## 7. Final conclusion
+
+**Pending.** State one of the following only after the relevant gate/run exists:
+
+- No meaningful multi-hop headroom under equal budget; stop after MH2.
+- Oracle headroom exists but current selector cannot capture it; report selection gap.
+- Selective multi-hop improves ranking under equal budget; report locked-test effect
+  size, confidence interval, cost and limits.

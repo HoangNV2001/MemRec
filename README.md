@@ -29,6 +29,13 @@ memrec/
     └── data/            # Dataset loaders & Samplers
 ```
 
+## Research documentation
+
+- Current direction and experimental gates: [Selective Multi-Hop Plan](docs/MULTIHOP_PLAN.md)
+- Progress log: [PROGRESS.md](docs/PROGRESS.md)
+- Result tables: [RESULTS.md](docs/RESULTS.md)
+- Completed SFT/RL investigation: [RL_WORK_SUMMARY.md](docs/RL_WORK_SUMMARY.md)
+
 ## 🚀 Quick Start
 
 ### 1. Environment Setup
