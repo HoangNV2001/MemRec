@@ -120,18 +120,23 @@ class MemRecTrainer:
             conversation_log_path=self.conversation_file
         )
         
-        # If reranker_mode is 'llm', create separate LLMClient for Stage-ReRank
-        # Use config.llm_model (gpt-4o-mini) instead of provider.model
+        # If reranker_mode is 'llm', create a separate client with the same
+        # provider credentials by default. This matters for Azure: passing only
+        # the root-level endpoint/key would otherwise make Stage-ReRank fall back
+        # to a different environment configuration than Stage-R/Stage-W.
         if self.reranker_mode == "llm":
-            reranker_llm_model = config.get('llm_model', 'gpt-4o-mini')
-            reranker_provider_name = provider_name  # Stage-ReRank uses the same provider as Stage-R/W
-            reranker_endpoint = config.get('api_endpoint')
-            reranker_api_key = config.get('api_key')
+            reranker_llm_model = provider_config.get(
+                'reranker_model', config.get('llm_model', self.llm_model)
+            )
+            reranker_provider_name = provider_config.get('reranker_name', provider_name)
+            reranker_endpoint = provider_config.get('reranker_endpoint', self.api_endpoint)
+            reranker_api_key = provider_config.get('reranker_api_key', self.api_key)
+            reranker_api_version = provider_config.get('reranker_api_version', self.api_version)
             
             self.reranker_llm_client = LLMClient(
                 api_endpoint=reranker_endpoint,
                 api_key=reranker_api_key,
-                api_version=self.api_version,
+                api_version=reranker_api_version,
                 model=reranker_llm_model,
                 provider_name=reranker_provider_name,
                 save_conversations=self.save_conversations,

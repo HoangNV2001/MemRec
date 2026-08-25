@@ -1,0 +1,70 @@
+# MH0 configuration for the active selective multi-hop direction.
+# This does not mutate the frozen graph. It points all future Stage-R/ReRank
+# calls at the Azure deployment configured in .env.
+
+model: memrec_agent
+dataset: instructrec-books
+seed: 42
+
+n_eval_candidates: 10
+topk: [1, 3, 5, 10]
+metrics: ['Hit', 'NDCG']
+eval_feedback: none
+
+warmup:
+  enabled: false
+
+llm_model: ${ENV:LLM__MODEL_NAME}
+api_version: ${ENV:LLM__API_VERSION}
+
+provider:
+  name: azure_openai
+  model: ${ENV:LLM__MODEL_NAME}
+  endpoint: ${ENV:LLM__BASE_URL}
+  api_key: ${ENV:LLM__API_KEY}
+  api_version: ${ENV:LLM__API_VERSION}
+
+memrec:
+  k: 16
+  tau_tokens: 1800
+  mix_min_users: 4
+  mix_min_items: 6
+  n_facets: 7
+  temperature: 0.0
+  max_tokens: 4000
+  enable_stage_r: true
+  enable_stage_w: false
+  pruner:
+    mode: llm_rules
+    checkpoint: null
+  reranker_mode: llm
+  write:
+    fanout_cap: 8
+    max_tokens: 4000
+
+multihop:
+  snapshot_file: data/rl/graph_snapshot_books.json
+  records_prefix: data/rl/stager_books
+  interaction_file: data/processed/instructrec-books/instructrec-books.inter
+  metadata_file: data/processed/instructrec-books/instructrec-books.meta
+  output_dir: data/multihop
+  mh1:
+    # The structural pool is bounded before oracle sampling. These caps are
+    # candidate-blind and intentionally much larger than the 2/4/6 remote-node
+    # quotas, so the experiment does not open the full 2-hop graph by accident.
+    max_remote_items: 128
+    max_remote_users: 64
+    max_remote_users_per_item: 8
+    remote_quotas: [2, 4, 6]
+    oracle_bundles_per_quota: 4
+  mh2:
+    run_id: mh2_val_books_gpt54mini
+    workers: 8
+    naive_report_quota: 4
+    report_repeats: 2
+    stage_r_max_tokens: 1024
+    rerank_max_tokens: 2048
+    bootstrap_samples: 10000
+
+parallel_workers: 16
+debug: false

@@ -14,6 +14,10 @@ data/processed/*
 # parent directory is itself excluded)
 data/rl/*
 !data/rl/user_splits_books.json
+# Multi-hop artifacts are materialized inputs/outputs, not source. Keep only
+# the empty directory marker in git.
+data/multihop/*
+!data/multihop/.gitkeep
 
 # Results & checkpoints
 results/

@@ -14,10 +14,20 @@ from openai import AzureOpenAI, OpenAI
 # gpt-4o / gpt-4o-mini and every OpenAI-compatible third-party model keep the
 # classic parameter set.
 _RESTRICTED_SAMPLING_PREFIXES = ("gpt-5", "o1", "o3", "o4")
+_DEFAULT_AZURE_API_VERSION = "2024-02-15-preview"
+_DEFAULT_MODEL = "gpt-4o-mini"
+
+
+def _strip_provider_prefix(model: str) -> str:
+    """Return the Azure deployment name from a provider-qualified model name."""
+    name = (model or "").strip()
+    if name.lower().startswith("azure/"):
+        return name.split("/", 1)[1]
+    return name
 
 
 def _restricted_sampling_params(model: str) -> bool:
-    name = (model or "").lower()
+    name = _strip_provider_prefix(model).lower()
     return name.startswith(_RESTRICTED_SAMPLING_PREFIXES)
 
 
@@ -28,8 +38,8 @@ class LLMClient:
         self,
         api_endpoint: Optional[str] = None,
         api_key: Optional[str] = None,
-        api_version: str = "2024-02-15-preview",
-        model: str = "gpt-4o-mini",
+        api_version: Optional[str] = None,
+        model: Optional[str] = None,
         provider_name: str = "azure_openai",  # "azure_openai" or "openai"
         save_conversations: bool = False,
         conversation_log_path: Optional[str] = None
@@ -46,29 +56,55 @@ class LLMClient:
             save_conversations: Whether to save conversation history
             conversation_log_path: Path to save conversation logs (JSONL format)
         """
+        self.provider_name = provider_name
         self.api_endpoint = api_endpoint
         self.api_key = api_key
         self.api_version = api_version
         self.model = model
-        self.provider_name = provider_name
         
         # Get from env if not provided
         if not self.api_endpoint:
             if provider_name == "azure_openai":
-                self.api_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
+                self.api_endpoint = (
+                    os.getenv('LLM__BASE_URL')
+                    or os.getenv('AZURE_OPENAI_ENDPOINT')
+                )
             else:
                 self.api_endpoint = os.getenv('OPENAI_API_BASE') or os.getenv('OPENAI_BASE_URL')
         
         if not self.api_key:
             if provider_name == "azure_openai":
-                self.api_key = os.getenv('AZURE_OPENAI_API_KEY')
+                self.api_key = (
+                    os.getenv('LLM__API_KEY')
+                    or os.getenv('AZURE_OPENAI_API_KEY')
+                )
             else:
                 self.api_key = os.getenv('OPENAI_API_KEY') or os.getenv('TOGETHER_API_KEY') or os.getenv('ANYSCALE_API_KEY')
+
+        if not self.api_version:
+            self.api_version = (
+                os.getenv('LLM__API_VERSION')
+                or os.getenv('AZURE_OPENAI_API_VERSION')
+                or _DEFAULT_AZURE_API_VERSION
+            )
+
+        if not self.model:
+            self.model = os.getenv('LLM__MODEL_NAME') or _DEFAULT_MODEL
+
+        # Azure's API expects the deployment name in the `model` field. The
+        # organization-provided `azure/gpt-5.4-mini` identifier is accepted in
+        # configuration but must be converted to `gpt-5.4-mini` for this SDK.
+        self.request_model = (
+            _strip_provider_prefix(self.model)
+            if provider_name == "azure_openai"
+            else self.model
+        )
         
         if not self.api_endpoint or not self.api_key:
             raise ValueError(
                 f"API credentials not provided for {provider_name}. "
-                f"Please set endpoint and api_key, or use environment variables."
+                "Please set endpoint and api_key, or use environment variables "
+                "LLM__BASE_URL and LLM__API_KEY."
             )
         
         # Initialize client based on provider
@@ -150,7 +186,7 @@ class LLMClient:
         import time
         
         kwargs = {
-            'model': self.model,
+            'model': self.request_model,
             'messages': messages
         }
         

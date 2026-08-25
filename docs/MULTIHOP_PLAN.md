@@ -1,6 +1,8 @@
 # MULTIHOP_PLAN.md — Selective Multi-Hop Collaborative Memory
 
-> **Trạng thái:** planned — bắt đầu từ oracle/headroom trên validation.
+> **Trạng thái:** hoàn tất ở MH2 — hard stop. Bounded oracle trên validation
+> không có headroom thực dụng; xem [RESULTS.md](RESULTS.md) và
+> [PROGRESS.md](PROGRESS.md).
 >
 > **Tài liệu nền:** [RL_WORK_SUMMARY.md](RL_WORK_SUMMARY.md) ghi lại nghiên cứu
 > SFT/RL đã đóng. Kế hoạch này không tiếp tục GRPO.
@@ -94,6 +96,19 @@ static snippet, không được gọi thêm LLM để làm giàu context.
 
 Mọi candidate trong C2(u) được tạo từ frozen graph trước khi ranker thấy candidate
 list. Độ sâu, path, source node và loại node phải được lưu để audit.
+
+Vì construction không được đọc gold/candidate để xóa node có điều kiện, guard
+thực hiện theo hai pha: (1) build toàn bộ C2 candidate-blind; (2) screen C2 và
+mọi bundle đã materialize. Nếu phát hiện candidate/gold/title, **loại user khỏi
+mọi arm** của comparison; tuyệt đối không target-aware filter một node rồi giữ
+user đó.
+
+**MH1 structural cap đã khóa.** Để pool không biến thành full 2-hop expansion,
+MH1 chỉ giữ tối đa 128 remote item và 64 remote user cho mỗi target user; mỗi remote item
+đóng góp tối đa 8 remote user. Cap dùng duy nhất topology + N1 candidate-blind,
+trước khi đọc candidate/instruction/gold, và lớn hơn rất nhiều quota oracle
+{2, 4, 6}. Giá trị exact nằm trong `configs/multihop/mh0_books.yaml` và manifest
+MH1. Pool thiếu node hoặc không đủ token luôn fill one-hop và ghi shortfall.
 
 ### 3.3 Budget controller
 
@@ -189,7 +204,9 @@ còn test claim chỉ được quyết ở MH4.
 
 ### MH3 — Selective 2-hop selector
 
-**Chỉ bắt đầu nếu MH2 qua gate.**
+**Không được admission trong run hiện tại:** MH2 cho Δ_oracle NDCG@5 = −0.0094
+(95% CI [−0.0362, +0.0176]), kích hoạt hard-stop. Phần dưới là design record,
+không phải công việc được phép tiếp tục sau run này.
 
 Với remote node z, dùng frozen encoder và score đã chuẩn hóa trong từng user:
 
@@ -215,7 +232,7 @@ path/relevance hợp lý thay vì hub/duplicate spam.
 
 ### MH4 — Locked test và phân tích
 
-**Chỉ bắt đầu khi MH3 config đã khóa.** Chạy đúng một materialized test run với
+**Không được admission trong run hiện tại.** Chỉ bắt đầu khi MH3 config đã khóa. Chạy đúng một materialized test run với
 one_hop, naive_two_hop và selective_two_hop; reranker/retry policy bằng nhau và
 không chỉnh parameter sau khi thấy số.
 
@@ -231,7 +248,7 @@ không chỉnh parameter sau khi thấy số.
 
 ### MH5 — Selective propagation/routing (nhánh sau cùng)
 
-**Chỉ làm nếu MH3–MH4 chứng minh read-side signal xa có ích.** Mục tiêu là đưa
+**Không được admission trong run hiện tại.** Chỉ làm nếu MH3–MH4 chứng minh read-side signal xa có ích. Mục tiêu là đưa
 update Stage-W Delta M tới tối đa q_prop endpoint trong C2(u) theo score §MH3,
 thay cho fanout mở toàn bộ.
 
@@ -267,6 +284,7 @@ data/multihop/
   mh0_topology_books.json
   mh1_pools_{train,val,test}.jsonl
   mh1_bundles_val.jsonl
+  mh1_manifest.json
   mh2_headroom_val.json
   mh3_selector_config.json
   mh4_locked_test.json
@@ -283,12 +301,9 @@ results/multihop/
 - [RL_WORK_SUMMARY.md](RL_WORK_SUMMARY.md): không cập nhật bằng kết quả multi-hop;
   đây là record đã đóng của hướng SFT/RL.
 
-## 8. Thứ tự thực hiện ngay bây giờ
+## 8. Quyết định sau gate
 
-1. MH0: kiểm tra artifact, hash, split/candidate/leakage và materialize 1-hop
-   control trên snapshot.
-2. MH1: implement extended pool + budget controller + tests; chạy smoke trên ít
-   user, chưa gọi ranker hàng loạt.
-3. MH2: materialize và chạy oracle/headroom **trên validation**; điền gate vào
-   PROGRESS/RESULTS.
-4. Chỉ theo nhánh MH3/MH4/MH5 nếu gate MH2 cho phép.
+MH0–MH2 đã hoàn tất. MH2 có Δ_oracle NDCG@5 = −0.0094 với bootstrap 95% CI
+[−0.0362, +0.0176], do đó thỏa hard-stop (`Δ_oracle ≤ +0.02`). Không tiếp tục
+MH3/MH4/MH5 trong protocol này và không mở locked test để tìm một kết quả thuận
+lợi hơn. Artifact, command và cost caveat của run được lưu ở PROGRESS/RESULTS.
