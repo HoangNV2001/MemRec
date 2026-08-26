@@ -1,0 +1,75 @@
+# Offline-first temporal pilot for the Kaggle Amazon Books Reviews repackage.
+# P0/P1 make zero LLM requests.  P2 is conditional on their gates and has a
+# hard 1,000-request ceiling stated below.
+dataset:
+  reviews_file: data/Books_rating.csv
+  metadata_file: data/books_data.csv
+  output_dir: data/temporal_amazon_books_2014
+  p0_audit: data/temporal_amazon_books_2014/p0_temporal_audit.json
+  p1_ledger: data/temporal_amazon_books_2014/p1_item_route_ledger.jsonl
+  p1_packet_sources: data/temporal_amazon_books_2014/p1_packet_sources.jsonl
+  p1_eval_events: data/temporal_amazon_books_2014/p1_eval_events.jsonl
+  p1_manifest: data/temporal_amazon_books_2014/p1_manifest.json
+
+# Cut events by global timestamp, not by a per-user leave-last-out split.
+# P0 calculates the exact timestamps from the complete event histogram.
+temporal_split:
+  train_quantile: 0.80
+  validation_quantile: 0.90
+  same_timestamp_policy: strict_past_batch
+
+# P1 builds a deterministic, user-hash sampled temporal subgraph.  Selection,
+# source packets and routes see training events only.  The validation targets
+# below are read only after the ledger is finished.
+p1:
+  pilot_user_hash_modulus: 48
+  pilot_user_hash_remainder: 0
+  min_train_events_per_user: 5
+  semantic_packet_sources: 560
+  max_anchor_items_per_packet: 3
+  max_peer_users_per_anchor: 16
+  max_remote_items_per_peer: 16
+  max_witness_paths_per_item: 8
+  fixed_evaluation_events: 100
+  packet_history_reviews: 6
+  packet_summary_char_cap: 240
+  packet_text_char_cap: 480
+  support_thresholds: [1, 2, 3]
+  admission:
+    min_packet_sources: 560
+    min_support1_gold_coverage: 0.20
+    min_support2_gold_coverage: 0.10
+
+# Exact P2 allowance if, and only if, P1 passes.  Item-only propagation keeps
+# Stage-R fixed and reuses its one result per event across all arms; only the
+# candidate item-memory overlay changes in the three rerank calls.
+llm_budget:
+  max_total_requests: 1000
+  semantic_packet_requests: 560
+  evaluation_events: 100
+  shared_stage_r_requests_per_event: 1
+  rerank_arms: 3
+  retry_reserve_requests: 40
+
+p2:
+  run_id: p2_amazon_books_2014_temporal_gpt54mini
+  # The v1 rerank output contract was invalid after 768 journalled attempts.
+  # Keep this path sealed: a corrected experiment must use a new run ID and
+  # new journal paths, with an explicitly approved fresh request budget.
+  block_existing_journal_reason: >-
+    P2 v1 is sealed after a truncated-rerank incident; do not resume this
+    journal. Create a new run ID and journal paths only with a new budget.
+  prepared: data/temporal_amazon_books_2014/p2_prepared.json
+  attempts: data/temporal_amazon_books_2014/p2_attempts.jsonl
+  calls: data/temporal_amazon_books_2014/p2_calls.jsonl
+  metrics: data/temporal_amazon_books_2014/p2_metrics.json
+  manifest: data/temporal_amazon_books_2014/p2_manifest.json
+  workers: 8
+  n_candidates: 10
+  user_history_reviews: 6
+  candidate_memory_char_cap: 420
+  overlay_packet_cap: 2
+  two_hop_support_threshold: 2
+  packet_max_tokens: 220
+  stage_r_max_tokens: 300
+  rerank_max_tokens: 180

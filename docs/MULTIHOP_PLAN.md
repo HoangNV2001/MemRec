@@ -6,6 +6,15 @@
 >
 > **Tài liệu nền:** [RL_WORK_SUMMARY.md](RL_WORK_SUMMARY.md) ghi lại nghiên cứu
 > SFT/RL đã đóng. Kế hoạch này không tiếp tục GRPO.
+>
+> **Hướng đã thử sau MH2:** [CANDIDATE_EVIDENCE_PLAN.md](CANDIDATE_EVIDENCE_PLAN.md)
+> đã dừng ở CE1 vì lexical candidate-conditioned evidence không qua gate; đây
+> không phải continuation của multi-hop expansion.
+>
+> **Pivot write-side đã audit:** [BUFFERED_PROPAGATION_PLAN.md](BUFFERED_PROPAGATION_PLAN.md)
+> tách rõ Stage-W propagation khỏi read-side expansion. P0 cho thấy dataset
+> không có global cross-user clock và P1 static source-only không đủ endpoint
+> coverage; không có write-side LLM experiment được admission.
 
 ## 1. Mục tiêu và câu hỏi nghiên cứu
 

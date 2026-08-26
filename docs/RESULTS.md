@@ -1,6 +1,12 @@
 # RESULTS.md — Selective Multi-Hop Collaborative Memory
 
-> **Active protocol:** [MULTIHOP_PLAN.md](MULTIHOP_PLAN.md).
+> **Protocol registry:** [MULTIHOP_PLAN.md](MULTIHOP_PLAN.md),
+> [CANDIDATE_EVIDENCE_PLAN.md](CANDIDATE_EVIDENCE_PLAN.md), và
+> [BUFFERED_PROPAGATION_PLAN.md](BUFFERED_PROPAGATION_PLAN.md), và
+> [AMAZON_BOOKS_2014_TEMPORAL_PLAN.md](AMAZON_BOOKS_2014_TEMPORAL_PLAN.md).
+> Amazon Books 2014 P2-v1 was stopped for a reranker output-contract error.
+> Its separate P2-v2 smoke-first rerun completed and failed the oracle headroom
+> gate; no candidate-blind implementation is admitted.
 >
 > Các số của hướng SFT/RL cũ nằm trong [RL_WORK_SUMMARY.md](RL_WORK_SUMMARY.md)
 > và không được dùng làm baseline trực tiếp ở đây: M0 cũ sample negative theo
@@ -17,7 +23,12 @@
 | Candidate protocol | 10 fixed candidates/user; cùng thứ tự trong mọi arm của user |
 | Primary metric | Paired NDCG@5, 10,000 bootstrap user resamples |
 | Context control | Per-user K_u node slots và T_u token cap từ 1-hop control |
-| Active result status | MH2 validation complete: bounded oracle không có headroom thực dụng; protocol dừng sau MH2 |
+| Active result status | InstructRec MH2/CE1 và write-side feasibility đều closed. Amazon Books 2014 P2-v2 completed but its non-deployable oracle gain (+0.0324) missed the +0.05 admission gate. |
+
+MH2 kết luận riêng cho graph expansion. Candidate-conditioned 1-hop evidence là
+một protocol ranking-time mới, được preregister tại
+[CANDIDATE_EVIDENCE_PLAN.md](CANDIDATE_EVIDENCE_PLAN.md); không được gộp số với
+bảng multi-hop bên dưới.
 
 ## 2. MH0 control verification
 
@@ -138,7 +149,108 @@ bằng node 1-hop thay vì tăng context.
 
 ## 8. Final conclusion
 
-**Không có multi-hop headroom có ý nghĩa dưới equal budget; dừng sau MH2.**
-Independent report pass đặt oracle two-hop ở −0.0094 NDCG@5 so với one-hop
-(95% CI [−0.0362, +0.0176]), nên protocol này không bảo đảm để làm selector,
-locked test hoặc propagation claim.
+**Read-side multi-hop không có headroom có ý nghĩa dưới equal budget; dừng sau
+MH2.** Independent report pass đặt oracle two-hop ở −0.0094 NDCG@5 so với
+one-hop (95% CI [−0.0362, +0.0176]), nên protocol này không bảo đảm để làm
+selector hoặc locked test. Kết luận đó không được diễn giải tự động thành
+write-side propagation failure; feasibility của write-side được audit tách ở
+section 10.
+
+## 9. Candidate-conditioned 1-hop evidence (CE)
+
+| Arm | Pilot users | NDCG@5 | Delta vs baseline | 95% CI | Evidence slots / cap | Status |
+|---|---:|---:|---:|---|---|---|
+| baseline_one_hop | 100 | 0.7847 | reference | — | 0 / 384 | complete |
+| request_one_hop | 100 | 0.7877 | +0.0030 | [−0.0329, +0.0370] | 10 total / 384 | complete |
+| candidate_one_hop | 100 | 0.7767 | **−0.0080** | **[−0.0434, +0.0281]** | 1 per candidate / 384 | complete — stop |
+
+CE uses only frozen 1-hop snippets and exact MH2 one-hop Stage-R facets. It is
+not evidence that multi-hop expansion works or fails beyond the MH2 conclusion.
+CE0 artifact SHA256 is `b7b296df71769da578f8191f4274c44c53dc4b073e0dd64a0b9c7bfc8504a266`.
+
+| CE1 gate / audit | Result |
+|---|---|
+| Candidate vs request | −0.0110 NDCG@5, 95% CI [−0.0464, +0.0245] |
+| Admission requirement | Candidate − request ≥ +0.03 with CI lower > 0, and candidate − baseline ≥ +0.02 |
+| Decision | **Fail; CE2 not admitted.** No post-hoc lexical score/budget/selector tuning. |
+| Integrity | 600 canonical unique successful reranks; 100/100 analysed. Two model format errors were archived then retried by identical key/prompt; retry ledger retained. |
+
+## 10. Buffered item-side propagation feasibility
+
+Protocol chi tiết: [BUFFERED_PROPAGATION_PLAN.md](BUFFERED_PROPAGATION_PLAN.md).
+Đây là pivot Stage-W khác MH2: Stage-R/ranker 1-hop không đổi; chỉ một
+candidate-blind, source-only item overlay mới có thể được xét sau feasibility.
+Không có LLM call hoặc item-memory write nào đã chạy.
+
+| Probe | Result | Gate / decision |
+|---|---|---|
+| P0 temporal audit | 207,759 events / 7,377 users; 1,479 timestamp values shared across users; 207,012 events cross-user ambiguous; 7,376 file-order inversions; all per-user histories monotonic | **Dynamic hard stop.** Không có strict global cross-user event clock, nên không replay/claim asynchronous propagation. |
+| P1 static source-only ledger | 1,185 source vs 149 val users; route cap 8 anchor × 16 peer × 16 remote item; 10,455 endpoint items | Candidate/gold only read posthoc; ledger candidate-blind, no LLM. |
+| P1 support >=2 coverage | 60/1,490 candidate slots (4.03%); 9/149 gold (6.04%); 46/149 users with any candidate endpoint (30.87%) | **Static hard stop.** Gold coverage misses 30% feasibility gate by a large margin; no P2 oracle/implementation. |
+
+P1 is an offline reconnaissance run, not a preregistered positive/negative
+ranking test. The decision gate was recorded before any P2 LLM request. Further
+progress requires a dataset/protocol with a reliable global event order, then a
+new P0 and candidate-blind item-side oracle; raising hop/path caps after this
+audit is not an admitted continuation.
+
+## 11. Amazon Books 2014 temporal P0/P1
+
+Protocol: [AMAZON_BOOKS_2014_TEMPORAL_PLAN.md](AMAZON_BOOKS_2014_TEMPORAL_PLAN.md).
+This is a new global-time, item-only write-side pilot; it does not revise the
+negative InstructRec findings above. It uses strict-past *timestamp batches*,
+because the source only identifies the review date and has tied events.
+
+| P0 check | Result |
+|---|---|
+| Raw / usable events | 3,000,000 / 2,438,194 (81.27%) |
+| Dropped rows | 561,787 missing `User_id`; 19 invalid timestamp; no imputation |
+| Time range / resolution | 1996-08-17 to 2013-03-04; 5,736 timestamps, 2,438,160 tied events |
+| Frozen absolute splits | train `<2011-10-30`: 1,950,481; val: 242,896; test: 244,817 |
+| Metadata guard | 212,403 exact-unique nonempty titles; exact title coverage 99.992%; 195 usable review rows titleless |
+| Decision | **Pass only for strict-past daily-batch causal replay; no within-day event ordering claim.** |
+
+| P1 candidate-blind source ledger | Result |
+|---|---|
+| Pilot / source cohort | 21,182 hash-sampled users; 17,037 train-history; 1,282 with >=5 train events; 560 selected sources |
+| Route / output | source -> <=3 anchors -> <=16 peers -> <=16 remote items; 4,357 endpoint items |
+| Fixed future evaluation cohort | 100 deterministic novel validation events; selected after ledger materialization |
+| Gold coverage support >=1 / >=2 / >=3 | 24% / 17% / 12% |
+| P1 decision | **Pass:** source count 560, support>=1 >=20%, support>=2 >=10% |
+| LLM/API use | **0 calls** |
+
+P2 preparation locks 100 ten-item candidate lists and strict-past user histories
+without using an LLM. All lists are unique and contain gold exactly once; no
+history is at/after target time and no gold is in that history. It also shows a
+material coverage constraint: direct-anchor 1-hop packets alter 13 candidate
+slots across 12 events (3 gold), while support>=2 routes reach 17 gold
+endpoints. The two-hop arm may enrich only those gold endpoints after labels are
+read, so it is a non-deployable oracle headroom test rather than a selector.
+
+The P2 execution journal was stopped at 768 attempts: 560 semantic packet and
+100 Stage-R calls succeeded, but 90 rerank outputs were truncated while the
+old strict schema required both ranking and free-text rationale under a
+180-token cap. Only 10 reranks parsed, which is not a complete arm/event matrix
+and is deliberately excluded from every metric and gate. The remaining original
+allocation must not be repurposed to tune or resume the run.
+
+P2-v2 uses that corrected ranking-only contract, with a 20-event smoke cohort
+executed before its full request run. It is a new run ID/journal and does not
+reuse v1 ranking outputs.
+
+| P2-v2 arm (100 fixed events) | NDCG@5 | Δ vs local | 95% paired bootstrap CI | H@5 |
+|---|---:|---:|---:|---:|
+| local | 0.6474 | reference | — | 0.84 |
+| direct 1-hop | 0.6353 | −0.0121 | [−0.0432, +0.0179] | 0.84 |
+| target-aware oracle 2-hop | 0.6799 | **+0.0324** | **[+0.0073, +0.0592]** | 0.87 |
+
+P2-v2 used 960 primary and one identical retry (961/1,000 attempts); all 300
+final rankings were valid. The retry corrected a duplicate/missing label for a
+single rerank key. The paired bootstrap uses 10,000 resamples with seed
+`20260826`; its artifact is `p2_v2_analysis.json`, SHA256
+`2808d5e491105637d005810f73576f1917a3c932680059e99601af1450991d30`.
+
+**Decision: hard stop.** The target-aware oracle is statistically positive but
+is only +0.0324, below the pre-recorded +0.05 gate, and reaches only the 17
+support>=2 gold endpoints. It is not a candidate-blind method. No router,
+write-buffer implementation, selector tuning, or locked test is admitted.

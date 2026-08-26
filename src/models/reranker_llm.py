@@ -3,7 +3,7 @@ LLM-based Reranker for Stage-ReRank
 Scores candidate items based on facets/vector_profile output from Stage-R
 """
 import json
-from typing import Dict, List
+from typing import Dict, List, Mapping, Optional, Sequence
 
 
 class LLMReranker:
@@ -25,7 +25,9 @@ class LLMReranker:
         candidates: List[Dict],  # [{'id': int, 'title': str, 'tags': [...]}]
         item_mems: Dict[int, Dict] = None,  # {item_id: ItemMem}
         instruction: str = None,  # User instruction (like iAgent)
-        vanilla_mode: bool = False  # Vanilla mode: no memory, only item descriptions
+        vanilla_mode: bool = False,  # Vanilla mode: no memory, only item descriptions
+        shared_evidence: Optional[Sequence[Mapping[str, str]]] = None,
+        candidate_evidence: Optional[Mapping[int, Sequence[Mapping[str, str]]]] = None,
     ) -> List[Dict[str, str]]:
         """
         Build reranking prompt
@@ -126,6 +128,35 @@ Your response should be a JSON object with a single field:
                 else:
                     memory = "(No memory recorded)"
                 prompt_parts.append(f"  • Item {cid} ({title}): {memory}")
+
+            # Optional evidence is deliberately a ranking-time feature.  It is
+            # never passed back to Stage-R or graph construction.  Callers must
+            # give every candidate the same evidence-slot/token budget; this
+            # method only serializes the already-selected evidence.
+            if shared_evidence:
+                prompt_parts.append("\n**Shared Collaborative Evidence:**")
+                for evidence in shared_evidence:
+                    node_id = evidence.get("node_id", "Unknown")
+                    text = evidence.get("text", "")
+                    prompt_parts.append(f"  • [{node_id}] {text}")
+
+            if candidate_evidence:
+                prompt_parts.append("\n**Candidate-Specific Collaborative Evidence:**")
+                prompt_parts.append(
+                    "Use the evidence listed for each candidate only as supporting context; "
+                    "score every candidate independently and do not infer relevance from evidence length."
+                )
+                for c in candidates:
+                    candidate_id = int(c["id"])
+                    evidence_rows = candidate_evidence.get(candidate_id, [])
+                    prompt_parts.append(f"  • Evidence for Item {candidate_id}:")
+                    if evidence_rows:
+                        for evidence in evidence_rows:
+                            node_id = evidence.get("node_id", "Unknown")
+                            text = evidence.get("text", "")
+                            prompt_parts.append(f"    - [{node_id}] {text}")
+                    else:
+                        prompt_parts.append("    - (No additional evidence.)")
             
             # Task description for MemRec mode
             prompt_parts.append("""
@@ -241,4 +272,3 @@ Your response should be a JSON object with a single field:
             print(f"Error in LLM Reranker for user {user_id}: {e}")
             # Return default scores
             return [{'item_id': c['id'], 'score': 0.5, 'rationale': 'Error'} for c in candidates]
-

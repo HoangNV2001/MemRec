@@ -5,8 +5,14 @@
 
 # Data (large, not tracked)
 data/iagent/
+data/Books_rating.csv
+data/books_data.csv
 data/processed/*
 !data/processed/.gitkeep
+# Raw Amazon Reviews'23 archives are downloaded outside Git.  The downloader
+# writes resumable ``.part`` files here before atomically publishing ``.gz``.
+data/raw/amazon-reviews-2023/*
+!data/raw/amazon-reviews-2023/.gitkeep
 # RL artefacts are large and derived (snapshot ~15MB, jsonl ~30MB) — rebuild with
 # scripts/rl/. The split definition is small and *defines* the experiment, so it
 # is tracked: without it the train/val/test partition is not reproducible.
@@ -18,6 +24,13 @@ data/rl/*
 # the empty directory marker in git.
 data/multihop/*
 !data/multihop/.gitkeep
+# Propagation artifacts are similarly derived and potentially large.
+data/propagation/*
+!data/propagation/.gitkeep
+# Temporal Amazon Books pilot artifacts are fully derived.  Keep a directory
+# marker only; source CSVs above remain at data/ for compatibility with Kaggle.
+data/temporal_amazon_books_2014/*
+!data/temporal_amazon_books_2014/.gitkeep
 
 # Results & checkpoints
 results/

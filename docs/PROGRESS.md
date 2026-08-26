@@ -1,10 +1,18 @@
 # PROGRESS.md — Nhật ký Selective Multi-Hop
 
-> **Kế hoạch active:** [MULTIHOP_PLAN.md](MULTIHOP_PLAN.md). Tổng kết hướng đã
-> đóng: [RL_WORK_SUMMARY.md](RL_WORK_SUMMARY.md).
+> **Các protocol đã audit:** [MULTIHOP_PLAN.md](MULTIHOP_PLAN.md),
+> [CANDIDATE_EVIDENCE_PLAN.md](CANDIDATE_EVIDENCE_PLAN.md), và
+> [BUFFERED_PROPAGATION_PLAN.md](BUFFERED_PROPAGATION_PLAN.md). Pilot temporal
+> mới: [AMAZON_BOOKS_2014_TEMPORAL_PLAN.md](AMAZON_BOOKS_2014_TEMPORAL_PLAN.md).
+> Tổng kết hướng SFT/RL đã đóng: [RL_WORK_SUMMARY.md](RL_WORK_SUMMARY.md).
 >
 > Quy tắc: ghi entry ngay sau mỗi milestone/run; không diễn giải kết quả chưa có
 > artifact. Mọi command, commit, hash và cost phải đủ để tái lập run.
+
+> MH2 và CE1 là hard-stop cho hai giả thuyết read-side/ranking-time trên
+> InstructRec. Buffered propagation trên InstructRec dừng ở P0/P1. Amazon Books
+> 2014 temporal P2-v1 bị dừng vì output contract; P2-v2 smoke-first đã hoàn tất
+> 100 event nhưng không qua oracle headroom gate.
 
 ## Trạng thái hiện tại
 
@@ -16,6 +24,93 @@
 | MH3 — Selective selector | ⛔ not admitted | MH2 không qua headroom gate; không tune selector sau khi đã thấy kết quả. |
 | MH4 — Locked test | ⛔ not admitted | Không có config MH3 được admission trên validation. |
 | MH5 — Selective propagation | ⛔ not admitted | Read-side 2-hop không có headroom thực dụng dưới budget cố định. |
+| CE0 — 1-hop evidence materialization | ✅ complete (offline) | 100 deterministic row, 384-token cap, artifact hash/materialization checks pass; 0 API call. |
+| CE1 — Evidence reranking pilot | ✅ complete — hard stop | Candidate evidence không vượt baseline/request; 100/100 user, report độc lập. |
+| CE2 — Full validation | ⛔ not admitted | CE1 không qua gate đã khóa; không tune selector/budget rồi rerun. |
+| P0 — Temporal propagation audit | ✅ complete — dynamic hard stop | Timestamp chỉ có thứ tự theo user: 207,012/207,759 event cross-user ambiguous; không causal replay Stage-W. |
+| P1 — Source-only item route coverage | ✅ complete — static hard stop | Với 8 anchor, 16 peer, 16 endpoint: gold support>=2 chỉ 9/149 (6.04%), không admission P2. |
+| P2–P4 — Buffered item propagation | ⛔ not admitted | Không gọi LLM, không ghi memory, không tuning path cap/score sau P1. Đổi dataset/protocol có global event time nếu tiếp tục. |
+| AB14 P0 — Temporal data audit | ✅ complete — pass batched replay | 2,438,194 usable events; global Unix day timeline. Rows userless bị loại; same-day events dùng strict-past batch semantics. |
+| AB14 P1 — Packet/route feasibility | ✅ complete — P2 admitted | 560 source packet, 100 fixed val targets; coverage gold support>=1/2 = 24%/17%; 0 LLM call. |
+| AB14 P2-v1 — 1k-request item-only oracle | ⛔ invalid execution — sealed | Journal 768 attempts: rerank schema bị truncate 90 response. Không metric/gate; không resume hay trộn partial output. |
+| AB14 P2-v2 — smoke-first oracle rerun | ✅ complete — hard stop | 100 event/300 final rerank; oracle ΔNDCG@5 = +0.0324, 95% CI [+0.0073, +0.0592], dưới gate +0.05. |
+
+## AB14 — Amazon Books 2014 temporal P0/P1 — 2026-08-26
+
+- New raw input is `data/Books_rating.csv` and `data/books_data.csv`, not
+  InstructRec. P0 streams and hashes both file inputs; derived artifacts remain
+  gitignored in `data/temporal_amazon_books_2014/`.
+- P0 finds a valid global **daily** timeline, 1996-08-17 to 2013-03-04. It
+  drops exactly 561,787 rows missing `User_id` and 19 invalid-time rows, then
+  locks absolute 80/10/10 cutoffs: train 1,950,481, val 242,896, test 244,817.
+  Tied timestamps never receive an invented file-order tiebreak.
+- Exact review-title to metadata-title matching covers 99.992% of usable rows;
+  the 195 titleless rows cannot consume metadata. P2 must preserve this guard.
+- P1 uses a deterministic `blake2b % 48 == 0` user sample. It selects 560
+  source users (>=5 train events), creates a strict-past source-to-item ledger
+  with 4,357 endpoints, then separately measures 100 fixed future targets.
+- Final coverage is support>=1 24/100 and support>=2 17/100, both above frozen
+  20%/10% feasibility gates. P1 manifest SHA256 is
+  `c02426ec5f07f01cef8652f93a610bfb37afc7668fcf3fa5b019f52e3de804ec`.
+  API requests and memory writes: **0**.
+- P2 preparation freezes 100 ten-item candidate lists and their strict-past
+  histories (`p2_prepared.json` SHA256
+  `e138e9ba9df56a0ae1b97974a35008442c669e71729dca22722b9813cf745653`).
+  It passes duplicate/gold/history-time checks. The direct-anchor 1-hop overlay
+  changes 13 candidate slots in 12 events (3 gold); the support>=2 pool reaches
+  17 gold endpoints. The latter remains explicitly target-aware oracle-only.
+
+## AB14 — P2 execution incident — 2026-08-26
+
+- Lệnh chạy `python -m src.temporal_books.p2_oracle --config
+  configs/temporal_amazon_books_2014/pilot.yaml --request` ghi 768 attempt vào
+  `p2_attempts.jsonl` trước khi được dừng an toàn: 560 semantic packet và 100
+  Stage-R đều thành công; rerank có 10 JSON hợp lệ, 90 JSON bị cắt và 8 attempt
+  đã được journal nhưng chưa có response khi tiến trình bị dừng.
+- Lỗi là `JSONDecodeError: Unterminated string`: schema rerank cũ bắt buộc cả
+  ranking lẫn rationale tự do, vượt output cap 180 token. 10 ranking lẻ không
+  được tính metric hoặc dùng chọn cohort.
+- Runner được sửa thành schema chỉ có `ranking` và submit theo từng worker
+  batch; nếu lỗi lặp lại thì dừng ngay sau batch + identical retry thay vì queue
+  cả phase. Vì output contract đã đổi, journal P2 cũ bị đóng, không resume.
+- Cần người dùng cấp **budget mới/run id mới** nếu muốn chạy clean rerun; không
+  được vượt allocation 1,000 request của P2 cũ.
+
+## AB14 — P2-v2 smoke-first contract — 2026-08-26
+
+- Config riêng `configs/temporal_amazon_books_2014/p2_v2_smoke.yaml` dùng run
+  ID/journal/artifact mới; không thể chạm journal P2 v1 bị sealed.
+- `--request` bị block cho đến khi `--smoke-only` thành công. Smoke được khóa
+  theo stable hash với 20 event; phải materialize thêm mọi source packet mà
+  rerank prompt của 20 event này thực sự đọc, thành 46 packet + 20 Stage-R + 60
+  rerank = 126 request. Các key đó được reuse ở full run nên quota P2-v2 vẫn là
+  960 primary + 40 retry, không cộng thêm smoke quota.
+- Reranker v2 trả strict JSON `ranking` duy nhất (không rationale tự do); runner
+  submit theo worker batch và fail-fast sau identical retry nếu format lỗi.
+- Smoke đã pass **126/126** request (46 packet, 20 Stage-R, 60 rerank), zero
+  retry. Manifest khóa config/prepared hash và cache key; full P2-v2 chỉ còn
+  514 packet + 80 Stage-R + 240 rerank = 834 primary request.
+
+## AB14 — P2-v2 result — 2026-08-26
+
+- Full run hoàn tất 960 primary + 1 identical retry = **961/1,000** attempts.
+  Một rerank trả duplicate/missing label bị validator bắt, retry cùng key/prompt
+  thành công; 300 final rerank đều hợp lệ. Artifact: `p2_v2_manifest.json`
+  SHA256 `9c51700095c26d99d9adb244c8a40d78682e1f2af4766451ee74155289a977a4`.
+- Local NDCG@5 = 0.6474. Direct 1-hop = 0.6353, Δ = −0.0121, paired bootstrap
+  95% CI [−0.0432, +0.0179]. Oracle 2-hop = 0.6799, Δ = **+0.0324**, CI
+  **[+0.0073, +0.0592]**, H@5 0.87 vs 0.84 local.
+- Bootstrap deterministic 10,000 paired resample (seed `20260826`), analysis
+  SHA256 `2808d5e491105637d005810f73576f1917a3c932680059e99601af1450991d30`.
+  Oracle improves 19, worsens 6, and leaves 75/100 event unchanged; it only
+  touches the 17 support>=2 gold endpoints and is target-aware/non-deployable.
+- **Gate decision: stop.** Although oracle CI lower > 0, Δ=+0.0324 < frozen
+  +0.05 threshold. Không admission candidate-blind router, buffer write,
+  selector tuning, hoặc locked test cho cơ chế này.
+- A first 1/128 sample was below the already-stated 10K–30K pilot cohort target
+  (7,915 users; 476 sources; 43 targets), so it was discarded before admission
+  and replaced with 1/48. This sizing correction did not alter route caps,
+  coverage thresholds or spend any LLM call.
 
 ## MH0 — Freeze protocol — 2026-08-25
 
@@ -119,6 +214,44 @@ write-side routing.
 | Budget/coverage audit | Mọi arm giữ exact K_u (mean 15.66) và T_actual ≤ T_u. Naive q=4: mean remote 3.39, shortfall 42 user / 86 slot; oracle chọn: mean remote 1.90, shortfall 41 / 68. Shortfall luôn fill one-hop. |
 | Cost / wall time | Canonical cache: 4,512 successful calls, SHA256 `b019ba…39f0`; Azure price không được cung cấp nên USD = unknown. Resume cuối mất 1,188.3 s và ghi 3,306,725 reranker token; số này **không gồm** calls của invocation trước. 75 selection response trùng do một resume chồng đã bị loại khỏi cache trước phân tích. |
 | **Gate decision** | **Hard stop:** Δ_oracle ≤ +0.02. Không thực hiện MH3–MH5. |
+
+## CE0/CE1 — Candidate-conditioned 1-hop evidence — active
+
+Chi tiết protocol và gate ở [CANDIDATE_EVIDENCE_PLAN.md](CANDIDATE_EVIDENCE_PLAN.md).
+CE không mở C2/n-hop và không đảo kết luận MH2; nó chỉ kiểm tra liệu 1-hop đã
+frozen có thể được căn chỉnh tốt hơn với request/candidate ở ranking-time hay
+không.
+
+| Field | CE0 / CE1 |
+|---|---|
+| Cohort | 100 user đầu tiên theo user_id từ locked cohort 141 user MH2 |
+| Source | MH0 1-hop snippets và exact one-hop Stage-R cached ở MH2 |
+| Arms | baseline, request-evidence, candidate-evidence |
+| Budget | Tối đa 384 estimated evidence tokens; 10 total slot hoặc 1/candidate |
+| Selector input | Request; với candidate arm thêm title/memory của đúng candidate; không gold/outcome |
+| Rerank/report | 2 rerank độc lập/arm/user; không oracle/selection pass |
+| CE0 artifact/hash | 100 row; SHA256 `b7b296…a266`; rerun deterministic; request estimate 210–359, candidate 226–383 token |
+| CE1 result/gate | 600 canonical success record, 100/100 user. Candidate vs baseline: −0.0080 [−0.0434, +0.0281]; candidate vs request: −0.0110 [−0.0464, +0.0245]. **Hard stop; CE2 not admitted.** |
+
+**CE1 execution/audit — 2026-08-25**
+
+- Run `ce1_val_books_gpt54mini_pilot100` dùng exact one-hop Stage-R cache từ
+  MH2; 100 user × 3 arm × 2 repeat = 600 canonical independent rerank record.
+  Raw cache SHA256: `632fb362f758a2063ecfba955f707c43d3885d66eabaf487863280eea3ccda72`.
+- Results (mean của hai repeat/user): baseline NDCG@5 0.7847; request evidence
+  0.7877 (Δ +0.0030, 95% CI [−0.0329, +0.0370]); candidate evidence 0.7767
+  (Δ baseline −0.0080, [−0.0434, +0.0281]; Δ request −0.0110,
+  [−0.0464, +0.0245]).
+- Two request-evidence responses cũng chấm source node IDs như candidate ID.
+  Chúng được archive vào `retry_errors.jsonl`, rồi retry đúng hai key bằng cùng
+  prompt/protocol; canonical cache cuối có 600 unique success, error = 0 và
+  100/100 user analysed. Đây có thể đã phát sinh 2 API request bổ sung ngoài
+  600 canonical record; Azure price không được cung cấp.
+- Variability (mean absolute difference hai repeat NDCG@5): baseline 0.0830,
+  request 0.1125, candidate 0.0931. Token stats trong `metrics.json` chỉ của
+  invocation retry (2 request), không được dùng làm total-cost claim.
+- **Gate:** fail. Candidate không vượt request +0.03 với CI lower > 0, cũng
+  không vượt baseline +0.02. Không thực hiện CE2 hoặc tune lexical mechanism.
 
 ## MH3 — Selective selector — not admitted
 

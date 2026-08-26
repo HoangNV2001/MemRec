@@ -287,7 +287,8 @@ class LLMClient:
         properties: Dict[str, Dict],
         temperature: Optional[float] = 0.7,
         max_tokens: int = 4000,
-        debug_logger = None
+        debug_logger = None,
+        max_retries: int = 5,
     ) -> Dict:
         """
         Generate JSON response from LLM
@@ -334,7 +335,8 @@ class LLMClient:
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
-            json_schema=json_schema
+            json_schema=json_schema,
+            max_retries=max_retries,
         )
         
         try:
