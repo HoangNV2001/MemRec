@@ -13,17 +13,17 @@ p1:
   pilot_user_hash_remainder: 0
 
 p3:
-  run_id: p3_oracle_selfhost_qwen3_4b_2507_v3_hnv
-  structural_smoke_manifest: data/temporal_amazon_books_2014/p3v3_structural_smoke-hnv.json
-  ledger: data/temporal_amazon_books_2014/p3v3_item_route_ledger-hnv.jsonl
-  preflight_manifest: data/temporal_amazon_books_2014/p3v3_preflight_manifest-hnv.json
+  run_id: p3_oracle_selfhost_qwen3_4b_2507_v4_hnv
+  structural_smoke_manifest: data/temporal_amazon_books_2014/p3v4_structural_smoke-hnv.json
+  ledger: data/temporal_amazon_books_2014/p3v4_item_route_ledger-hnv.jsonl
+  preflight_manifest: data/temporal_amazon_books_2014/p3v4_preflight_manifest-hnv.json
   base_prepared: data/temporal_amazon_books_2014/p2_v2_prepared.json
-  prepared: data/temporal_amazon_books_2014/p3v3_selfhost_prepared-hnv.json
-  attempts: data/temporal_amazon_books_2014/p3v3_selfhost_attempts-hnv.jsonl
-  calls: data/temporal_amazon_books_2014/p3v3_selfhost_calls-hnv.jsonl
-  llm_smoke_manifest: data/temporal_amazon_books_2014/p3v3_selfhost_smoke_manifest-hnv.json
-  metrics: data/temporal_amazon_books_2014/p3v3_selfhost_metrics-hnv.json
-  manifest: data/temporal_amazon_books_2014/p3v3_selfhost_manifest-hnv.json
+  prepared: data/temporal_amazon_books_2014/p3v4_selfhost_prepared-hnv.json
+  attempts: data/temporal_amazon_books_2014/p3v4_selfhost_attempts-hnv.jsonl
+  calls: data/temporal_amazon_books_2014/p3v4_selfhost_calls-hnv.jsonl
+  llm_smoke_manifest: data/temporal_amazon_books_2014/p3v4_selfhost_smoke_manifest-hnv.json
+  metrics: data/temporal_amazon_books_2014/p3v4_selfhost_metrics-hnv.json
+  manifest: data/temporal_amazon_books_2014/p3v4_selfhost_manifest-hnv.json
   peers1_per_anchor: 16
   bridge_items_per_peer1: 16
   peers2_per_bridge: 8
@@ -43,6 +43,7 @@ self_host:
   max_model_len: 4096
   seed: 20260921
   temperature: 0.0
+  structured_decoding: lm-format-enforcer-json-schema
   max_output_tokens:
     packet: 384
     stage_r: 384

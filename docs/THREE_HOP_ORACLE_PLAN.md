@@ -1,8 +1,8 @@
 # THREE_HOP_ORACLE_PLAN.md — Bounded 3-hop oracle, self-hosted
 
 > **Ngày khóa protocol:** 2026-09-21
-> **Trạng thái:** structural smoke/preflight pass. Self-host smoke v1/v2 dừng ở
-> packet đầu vì JSON syntax; v3 chưa chạy, full vẫn bị block.
+> **Trạng thái:** structural smoke/preflight pass. Self-host smoke v1–v3 đã dừng
+> fail-fast vì JSON/schema; v4 grammar-constrained chưa chạy, full vẫn bị block.
 > **Model:** `Qwen/Qwen3-4B-Instruct-2507` revision
 > `cdbee75f17c01a7cc42f958dc650907174af0554`, BF16, greedy, một H100.
 
@@ -123,6 +123,12 @@ rõ hơn và parser repair có audit, chỉ cho phép hai biến đổi syntax k
 dung: bỏ backslash trước apostrophe, và bỏ closing brace dư sau object. Mọi lỗi
 khác vẫn hard-fail. V3 dùng run ID/artifact path mới; không reuse v1/v2 output.
 
+V3 pass 5 packet rồi model trả JSON thiếu trường `memory`; deterministic retry
+fail giống nhau. Không mở rộng parser. V4 dùng `lm-format-enforcer` đã có sẵn
+trên cụm để constrain decoding theo exact JSON schema. Smoke v4 yêu cầu 0 parser
+repair; model/data/prompt semantics/graph/arms/seed/gate vẫn giữ nguyên và v4 có
+run ID/artifact path mới.
+
 ## 6. Metrics và gate khóa trước run
 
 - Primary metric: NDCG@5 trên cùng 100 event.
@@ -140,10 +146,10 @@ không post-hoc tăng cap, đổi origin score, đổi prompt/model hoặc chọ
 ## 7. Artifacts
 
 - Config: `configs/temporal_amazon_books_2014/p3_selfhost.yaml`
-- Structural v3: `p3v3_structural_smoke-hnv.json`,
-  `p3v3_item_route_ledger-hnv.jsonl`, `p3v3_preflight_manifest-hnv.json`
-- Prepared v3: `p3v3_selfhost_prepared-hnv.json`
-- LLM v3: `p3v3_selfhost_{attempts,calls,smoke_manifest,metrics,manifest}-hnv.*`
+- Structural v4: `p3v4_structural_smoke-hnv.json`,
+  `p3v4_item_route_ledger-hnv.jsonl`, `p3v4_preflight_manifest-hnv.json`
+- Prepared v4: `p3v4_selfhost_prepared-hnv.json`
+- LLM v4: `p3v4_selfhost_{attempts,calls,smoke_manifest,metrics,manifest}-hnv.*`
 
 Mọi artifact ở `data/temporal_amazon_books_2014/` là derived/gitignored; manifest
 ghi SHA256 và kết quả được kéo về local ngay sau run.

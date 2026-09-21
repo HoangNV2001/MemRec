@@ -227,7 +227,7 @@ def required_smoke_keys(packets: Sequence[Mapping[str, Any]], events: Sequence[M
 
 def model_contract(config: Mapping[str, Any]) -> Dict[str, Any]:
     self_host = config["self_host"]
-    return {key: self_host[key] for key in ("model", "revision", "dtype", "tensor_parallel_size", "hard_memory_fraction", "max_model_len", "seed", "temperature", "max_output_tokens")}
+    return {key: self_host[key] for key in ("model", "revision", "dtype", "tensor_parallel_size", "hard_memory_fraction", "max_model_len", "seed", "temperature", "structured_decoding", "max_output_tokens")}
 
 
 def summarize(prepared: Mapping[str, Any], rerank_outputs: Mapping[str, Sequence[str]], config: Mapping[str, Any], client: TransformersJSONClient, journal: Journal) -> Dict[str, Any]:
@@ -370,6 +370,8 @@ def main() -> None:
         stats = client.get_token_stats()
         if float(stats["peak_vram_gib"]) > 20.0:
             raise RuntimeError(f"smoke exceeded 20 GiB VRAM: {stats['peak_vram_gib']:.3f}")
+        if int(stats["repaired_responses"]) != 0:
+            raise RuntimeError("grammar-constrained smoke must produce strict JSON without parser repairs")
         missing = [key for key in required_smoke_keys(smoke_packets, smoke_events) if key not in (journal.completed or {})]
         if missing:
             raise RuntimeError(f"smoke incomplete: {len(missing)} key(s) missing")

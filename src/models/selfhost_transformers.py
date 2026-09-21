@@ -174,11 +174,19 @@ class TransformersJSONClient:
             raise ValueError(f"prompt plus output cap exceeds max_model_len: {input_tokens}+{max_tokens}>{self.max_model_len}")
         encoded = {key: value.to("cuda:0") for key, value in encoded.items()}
         with self.torch.inference_mode():
+            from lmformatenforcer import JsonSchemaParser
+            from lmformatenforcer.integrations.transformers import build_transformers_prefix_allowed_tokens_fn
+
+            prefix_allowed_tokens_fn = build_transformers_prefix_allowed_tokens_fn(
+                self.tokenizer,
+                JsonSchemaParser(schema),
+            )
             output = self.model.generate(
                 **encoded,
                 do_sample=False,
                 max_new_tokens=max_tokens,
                 pad_token_id=self.tokenizer.eos_token_id,
+                prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
             )
         generated = output[0, input_tokens:]
         output_tokens = int(generated.shape[-1])
