@@ -1,0 +1,60 @@
+# Candidate-blind filtered 3-hop audit, reusing the frozen P3 self-host outputs.
+dataset:
+  reviews_file: data/Books_rating.csv
+  p0_audit: data/temporal_amazon_books_2014/p0_temporal_audit.json
+  p1_packet_sources: data/temporal_amazon_books_2014/p1_packet_sources.jsonl
+  p1_eval_events: data/temporal_amazon_books_2014/p1_eval_events.jsonl
+
+p1:
+  pilot_user_hash_modulus: 48
+  pilot_user_hash_remainder: 0
+
+p4:
+  run_id: p4_filtered_three_hop_qwen3_4b_2507_hnv
+  structural_smoke_manifest: data/temporal_amazon_books_2014/p4_filtered_structural_smoke-hnv.json
+  ledger: data/temporal_amazon_books_2014/p4_filtered_item_route_ledger-hnv.jsonl
+  preflight_manifest: data/temporal_amazon_books_2014/p4_filtered_preflight_manifest-hnv.json
+  attempts: data/temporal_amazon_books_2014/p4_filtered_attempts-hnv.jsonl
+  calls: data/temporal_amazon_books_2014/p4_filtered_calls-hnv.jsonl
+  llm_smoke_manifest: data/temporal_amazon_books_2014/p4_filtered_llm_smoke_manifest-hnv.json
+  metrics: data/temporal_amazon_books_2014/p4_filtered_metrics-hnv.json
+  manifest: data/temporal_amazon_books_2014/p4_filtered_manifest-hnv.json
+  p3_config: configs/temporal_amazon_books_2014/p3_selfhost.yaml
+  p3_prepared: data/temporal_amazon_books_2014/p3v4_selfhost_prepared-hnv.json
+  p3_calls: data/temporal_amazon_books_2014/p3v4_selfhost_calls-hnv.jsonl
+  p3_manifest: data/temporal_amazon_books_2014/p3v4_selfhost_manifest-hnv.json
+  p3_prepared_sha256: b25d3a2c66f0c33a7e17b385862ea01e152dc07810aa3e67a779ef7db62ca5ef
+  p3_calls_sha256: 1bc217a28c87e9b1c554c0f19c079c2b2486a9d97dba2fd33897bf6a1dc6bb2a
+  p3_manifest_sha256: dee6ecc05cf7f97d2f2989f799911e0df5d96fac11aeb9353048f7d7b78e4edd
+  positive_rating_min: 4.0
+  recency_half_life_days: 730.0
+  diverse_paths_per_origin: 3
+  peers1_per_anchor: 16
+  bridge_items_per_peer1: 16
+  peers2_per_bridge: 8
+  endpoint_items_per_peer2: 8
+  max_witness_paths_per_item: 8
+  support_threshold: 2
+  overlay_packet_cap: 2
+  smoke_sources: 24
+  smoke_events: 20
+  bootstrap_resamples: 10000
+  bootstrap_seed: 20260921
+  minimum_support2_coverage_to_run: 0.12
+  filtered_vs_local_min_delta: 0.05
+  filtered_vs_raw_three_hop_min_delta: 0.02
+  retry_reserve: 20
+  hard_generation_cap: 120
+
+self_host:
+  model: Qwen/Qwen3-4B-Instruct-2507
+  revision: cdbee75f17c01a7cc42f958dc650907174af0554
+  dtype: bfloat16
+  tensor_parallel_size: 1
+  hard_memory_fraction: 0.25
+  max_model_len: 4096
+  seed: 20260921
+  temperature: 0.0
+  structured_decoding: lm-format-enforcer-json-schema
+  max_output_tokens:
+    rerank: 96

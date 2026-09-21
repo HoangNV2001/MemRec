@@ -35,6 +35,7 @@
 | AB14 P2-v1 — 1k-request item-only oracle | ⛔ invalid execution — sealed | Journal 768 attempts: rerank schema bị truncate 90 response. Không metric/gate; không resume hay trộn partial output. |
 | AB14 P2-v2 — smoke-first oracle rerun | ✅ complete — hard stop | 100 event/300 final rerank; oracle ΔNDCG@5 = +0.0324, 95% CI [+0.0073, +0.0592], dưới gate +0.05. |
 | AB14 P3 — bounded 3-hop self-host oracle | ✅ complete — hard stop | Coverage support>=2 tăng 17%→24%, nhưng 3-hop chỉ +0.0155 vs local và +0.0014 vs 2-hop; cả hai CI cắt 0. Không tăng tiếp n-hop bằng cùng item-overlay. |
+| AB14 P4 — filtered 3-hop | 🟡 structural pass; LLM not run | Rating≥4 + recency/hub/diversity filter giữ support>=2 ở 19%; top-2 origin overlap với raw chỉ 33%. Protocol/request gate khóa trong `FILTERED_THREE_HOP_PLAN.md`. |
 
 ## AB14 — Amazon Books 2014 temporal P0/P1 — 2026-08-26
 
