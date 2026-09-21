@@ -1,7 +1,8 @@
 # THREE_HOP_ORACLE_PLAN.md — Bounded 3-hop oracle, self-hosted
 
 > **Ngày khóa protocol:** 2026-09-21
-> **Trạng thái:** structural smoke/preflight pass; chưa chạy LLM smoke/full.
+> **Trạng thái:** structural smoke/preflight pass. Self-host smoke v1 dừng ở
+> packet đầu vì JSON malformed/truncated; v2 chưa chạy, full vẫn bị block.
 > **Model:** `Qwen/Qwen3-4B-Instruct-2507` revision
 > `cdbee75f17c01a7cc42f958dc650907174af0554`, BF16, greedy, một H100.
 
@@ -108,6 +109,14 @@ Full budget:
 | Identical retry reserve | 40 |
 | **Hard cap** | **1.000** |
 
+### Smoke v1 incident
+
+Run `p3_oracle_selfhost_qwen3_4b_2507_hnv` load đúng model/GPU nhưng packet đầu
+trả cùng `JSONDecodeError` ở hai identical attempts dưới output cap 220. Runner
+dừng ngay; không có Stage-R/rerank/full output. Journal v1 được giữ nguyên và
+không reuse. V2 chỉ tăng packet/Stage-R output cap lên 384, dùng run ID/artifact
+path mới; model, data, graph caps, prompts, arms, seed và gate không đổi.
+
 ## 6. Metrics và gate khóa trước run
 
 - Primary metric: NDCG@5 trên cùng 100 event.
@@ -125,10 +134,10 @@ không post-hoc tăng cap, đổi origin score, đổi prompt/model hoặc chọ
 ## 7. Artifacts
 
 - Config: `configs/temporal_amazon_books_2014/p3_selfhost.yaml`
-- Structural: `p3_structural_smoke-hnv.json`, `p3_item_route_ledger-hnv.jsonl`,
-  `p3_preflight_manifest-hnv.json`
-- Prepared: `p3_selfhost_prepared-hnv.json`
-- LLM: `p3_selfhost_{attempts,calls,smoke_manifest,metrics,manifest}-hnv.*`
+- Structural v2: `p3v2_structural_smoke-hnv.json`,
+  `p3v2_item_route_ledger-hnv.jsonl`, `p3v2_preflight_manifest-hnv.json`
+- Prepared v2: `p3v2_selfhost_prepared-hnv.json`
+- LLM v2: `p3v2_selfhost_{attempts,calls,smoke_manifest,metrics,manifest}-hnv.*`
 
 Mọi artifact ở `data/temporal_amazon_books_2014/` là derived/gitignored; manifest
 ghi SHA256 và kết quả được kéo về local ngay sau run.

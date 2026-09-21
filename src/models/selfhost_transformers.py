@@ -19,7 +19,11 @@ def extract_json_object(text: str) -> Dict[str, Any]:
     end = value.rfind("}")
     if start < 0 or end < start:
         raise ValueError("self-host model did not return a JSON object")
-    parsed = json.loads(value[start : end + 1])
+    candidate = value[start : end + 1]
+    try:
+        parsed = json.loads(candidate)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid self-host JSON: {candidate!r}") from exc
     if not isinstance(parsed, dict):
         raise ValueError("self-host JSON root must be an object")
     return parsed
