@@ -34,7 +34,7 @@
 | AB14 P1 — Packet/route feasibility | ✅ complete — P2 admitted | 560 source packet, 100 fixed val targets; coverage gold support>=1/2 = 24%/17%; 0 LLM call. |
 | AB14 P2-v1 — 1k-request item-only oracle | ⛔ invalid execution — sealed | Journal 768 attempts: rerank schema bị truncate 90 response. Không metric/gate; không resume hay trộn partial output. |
 | AB14 P2-v2 — smoke-first oracle rerun | ✅ complete — hard stop | 100 event/300 final rerank; oracle ΔNDCG@5 = +0.0324, 95% CI [+0.0073, +0.0592], dưới gate +0.05. |
-| AB14 P3 — bounded 3-hop self-host oracle | 🟡 structural pass; LLM not run | Support>=2 coverage tăng 17%→24%; protocol/model/resource/smoke gate đã khóa trong `THREE_HOP_ORACLE_PLAN.md`. |
+| AB14 P3 — bounded 3-hop self-host oracle | ✅ complete — hard stop | Coverage support>=2 tăng 17%→24%, nhưng 3-hop chỉ +0.0155 vs local và +0.0014 vs 2-hop; cả hai CI cắt 0. Không tăng tiếp n-hop bằng cùng item-overlay. |
 
 ## AB14 — Amazon Books 2014 temporal P0/P1 — 2026-08-26
 
@@ -112,6 +112,29 @@
   (7,915 users; 476 sources; 43 targets), so it was discarded before admission
   and replaced with 1/48. This sizing correction did not alter route caps,
   coverage thresholds or spend any LLM call.
+
+## AB14 — P3 bounded 3-hop self-host result — 2026-09-21
+
+- Structural ledger candidate-blind mở route
+  `source→anchor→peer1→bridge→peer2→endpoint`, mọi edge strict `< packet_time`.
+  Với cùng 560 source packet, support>=2 gold tăng từ 17/100 ở 2-hop lên
+  24/100 ở 3-hop; ledger được serialize trước khi mở validation label.
+- Self-host model là `Qwen/Qwen3-4B-Instruct-2507`, exact revision
+  `cdbee75f17c01a7cc42f958dc650907174af0554`, BF16/greedy và JSON-schema
+  constrained. Smoke v4 pass 116/116; full reuse cache và kết thúc 960/960
+  primary success, 0 retry, 0 repair.
+- Local / oracle 2-hop / oracle 3-hop NDCG@5 lần lượt là 0,5752 / 0,5893 /
+  0,5907. 3-hop vs local = **+0,0155**, CI [−0,0117; +0,0465]; 3-hop vs
+  2-hop = **+0,0014**, CI [−0,0188; +0,0208]. Gate +0,05 và +0,02 đều fail.
+- Bảy gold chỉ được 3-hop chạm có mean delta −0,0609; coverage thêm chủ yếu
+  đưa noise vào ranker. Ngay cả post-hoc best-of-local/2/3 diagnostic cũng chỉ
+  +0,0279, dưới gate +0,05; số này không phải preregistered result.
+- Một H100 được dùng, peak 7,85 GiB; model process thoát ngay sau task và GPU 0
+  về 1 MiB. Completion manifest SHA256:
+  `dee6ecc05cf7f97d2f2989f799911e0df5d96fac11aeb9353048f7d7b78e4edd`.
+- **Quyết định:** hard stop cho việc chỉ tăng 4-hop/n-hop trên cùng
+  source-packet/item-overlay. Hướng multi-hop tiếp theo, nếu có, phải là protocol
+  mới thay đổi representation/scoring thay vì tăng depth.
 
 ## MH0 — Freeze protocol — 2026-08-25
 

@@ -6,7 +6,8 @@
 > [AMAZON_BOOKS_2014_TEMPORAL_PLAN.md](AMAZON_BOOKS_2014_TEMPORAL_PLAN.md).
 > Amazon Books 2014 P2-v1 was stopped for a reranker output-contract error.
 > Its separate P2-v2 smoke-first rerun completed and failed the oracle headroom
-> gate; no candidate-blind implementation is admitted.
+> gate. P3 self-host 3-hop cũng đã complete và fail gate; no candidate-blind
+> implementation is admitted.
 >
 > Các số của hướng SFT/RL cũ nằm trong [RL_WORK_SUMMARY.md](RL_WORK_SUMMARY.md)
 > và không được dùng làm baseline trực tiếp ở đây: M0 cũ sample negative theo
@@ -23,7 +24,7 @@
 | Candidate protocol | 10 fixed candidates/user; cùng thứ tự trong mọi arm của user |
 | Primary metric | Paired NDCG@5, 10,000 bootstrap user resamples |
 | Context control | Per-user K_u node slots và T_u token cap từ 1-hop control |
-| Active result status | InstructRec MH2/CE1 và write-side feasibility đều closed. Amazon Books 2014 P2-v2 completed but its non-deployable oracle gain (+0.0324) missed the +0.05 admission gate. |
+| Active result status | InstructRec MH2/CE1 và write-side feasibility đều closed. Amazon Books 2014 P3 3-hop completed: +0.0155 vs local và +0.0014 vs 2-hop, cả hai không qua gate. |
 
 MH2 kết luận riêng cho graph expansion. Candidate-conditioned 1-hop evidence là
 một protocol ranking-time mới, được preregister tại
@@ -254,3 +255,32 @@ single rerank key. The paired bootstrap uses 10,000 resamples with seed
 is only +0.0324, below the pre-recorded +0.05 gate, and reaches only the 17
 support>=2 gold endpoints. It is not a candidate-blind method. No router,
 write-buffer implementation, selector tuning, or locked test is admitted.
+
+## 12. Amazon Books 2014 bounded 3-hop oracle
+
+Protocol và execution audit: [THREE_HOP_ORACLE_PLAN.md](THREE_HOP_ORACLE_PLAN.md).
+P3 rerun cả ba arm bằng cùng self-host checkpoint, candidate order và Stage-R;
+không so score tuyệt đối với Azure P2-v2.
+
+| Arm (100 fixed events) | NDCG@5 | Δ vs local | 95% paired bootstrap CI | H@5 |
+|---|---:|---:|---:|---:|
+| local | 0,5752 | reference | — | 0,76 |
+| target-aware oracle 2-hop | 0,5893 | +0,0140 | [−0,0007; +0,0338] | 0,79 |
+| target-aware oracle 3-hop | 0,5907 | **+0,0155** | **[−0,0117; +0,0465]** | 0,80 |
+
+Oracle 3-hop vs oracle 2-hop là **+0,0014**, CI [−0,0188; +0,0208]. Nó cải
+thiện 4, làm tệ 4 và giữ nguyên 92 event so với 2-hop. Structural support>=2
+tăng 17%→24%, nhưng bảy gold chỉ có ở 3-hop có mean delta −0,0609; coverage xa
+hơn tạo noise thay vì headroom. Diagnostic post-hoc chọn arm tốt nhất cho từng
+event chỉ đạt +0,0279 vs local, vẫn dưới +0,05 và không phải selector hợp lệ.
+
+Execution dùng `Qwen/Qwen3-4B-Instruct-2507` revision
+`cdbee75f17c01a7cc42f958dc650907174af0554`: smoke 116/116; full journal
+960 primary, 0 retry, 0 repair. Full invocation peak VRAM 7,85 GiB trên một
+H100; GPU được nhả về 1 MiB ngay khi process thoát. Metrics SHA256 là
+`3ab1d1a6f754473bb24d8190347bff9f023c4a49a16d3c908bc9c50a40fd2784`.
+
+**Decision: hard stop.** Không tăng tiếp 4-hop/n-hop bằng cùng
+source-packet/item-overlay. Một hướng multi-hop mới chỉ đáng xét nếu thay đổi
+candidate-level representation/scoring và có residual gate giữ local signal,
+không phải chỉ mở rộng depth.

@@ -86,6 +86,12 @@ def validate_json_schema(value: Any, schema: Mapping[str, Any], path: str = "$")
         raise ValueError(f"unsupported local schema type: {kind}")
 
 
+def validate_hard_memory_fraction(value: float) -> None:
+    """Keep a self-host process within its single visible GPU."""
+    if not 0 < value <= 1.0:
+        raise ValueError("hard_memory_fraction must be in (0, 1.0] for one visible GPU")
+
+
 class TransformersJSONClient:
     """Minimal interface compatible with the temporal pilot's call journal."""
 
@@ -107,8 +113,7 @@ class TransformersJSONClient:
             raise RuntimeError("self-host runner requires CUDA_VISIBLE_DEVICES to contain exactly one physical GPU")
         if torch.cuda.device_count() != 1:
             raise RuntimeError(f"self-host runner must see exactly one logical GPU, got {torch.cuda.device_count()}")
-        if not 0 < hard_memory_fraction <= 0.25:
-            raise ValueError("hard_memory_fraction must be in (0, 0.25] for the shared H100 allocation")
+        validate_hard_memory_fraction(hard_memory_fraction)
         dtype_map = {"bfloat16": torch.bfloat16, "float16": torch.float16}
         if dtype not in dtype_map:
             raise ValueError(f"unsupported self-host dtype: {dtype}")
