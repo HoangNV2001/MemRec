@@ -34,6 +34,7 @@
 | AB14 P1 — Packet/route feasibility | ✅ complete — P2 admitted | 560 source packet, 100 fixed val targets; coverage gold support>=1/2 = 24%/17%; 0 LLM call. |
 | AB14 P2-v1 — 1k-request item-only oracle | ⛔ invalid execution — sealed | Journal 768 attempts: rerank schema bị truncate 90 response. Không metric/gate; không resume hay trộn partial output. |
 | AB14 P2-v2 — smoke-first oracle rerun | ✅ complete — hard stop | 100 event/300 final rerank; oracle ΔNDCG@5 = +0.0324, 95% CI [+0.0073, +0.0592], dưới gate +0.05. |
+| AB14 P3 — bounded 3-hop self-host oracle | 🟡 structural pass; LLM not run | Support>=2 coverage tăng 17%→24%; protocol/model/resource/smoke gate đã khóa trong `THREE_HOP_ORACLE_PLAN.md`. |
 
 ## AB14 — Amazon Books 2014 temporal P0/P1 — 2026-08-26
 

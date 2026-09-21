@@ -1,5 +1,6 @@
 from src.temporal_books.p0_audit import timestamp_at_quantile
 from src.temporal_books.p1_preflight import build_endpoint_ledger, coverage, history_before, validate_llm_budget
+from src.temporal_books.p3_preflight import build_three_hop_ledger, serializable_three_hop_ledger
 
 
 def test_quantile_cutoff_and_strict_past_history():
@@ -43,3 +44,28 @@ def test_budget_is_capped_at_one_thousand_requests():
         }
     )
     assert budget["planned_total_requests"] == 1000
+
+
+def test_three_hop_ledger_is_strict_past_and_ranks_origins_by_path_support():
+    histories = {
+        "source": [(5, "old", "", ""), (100, "anchor", "", "")],
+        "peer1": [(10, "anchor", "", ""), (20, "bridge", "", "")],
+        "peer2": [(30, "bridge", "", ""), (40, "gold", "", "")],
+        "same_day_peer": [(50, "bridge", "", ""), (100, "leak", "", "")],
+    }
+    packets = [{"source_user_id": "source", "packet_timestamp": 100, "anchor_item_ids": ["anchor"]}]
+    ledger = build_three_hop_ledger(
+        histories,
+        packets,
+        peers1_per_anchor=4,
+        bridge_items_per_peer1=4,
+        peers2_per_bridge=4,
+        endpoint_items_per_peer2=4,
+        max_witnesses=4,
+    )
+    assert ledger["gold"]["origin_users"] == {"source"}
+    assert "leak" not in ledger
+    rows = serializable_three_hop_ledger(ledger)
+    gold = next(row for row in rows if row["endpoint_item_id"] == "gold")
+    assert gold["origin_users_by_path_support"] == ["source"]
+    assert gold["origin_path_counts"]["source"] >= 1

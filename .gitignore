@@ -2,6 +2,9 @@
 .env
 .env.*
 !.env.example
+# Cluster access/runbook contains internal host/account/job details. Keep it
+# local like the source project's internal_docs policy.
+internal_docs/
 
 # Data (large, not tracked)
 data/iagent/
