@@ -1,8 +1,9 @@
 # TEMPORAL_TRANSITION_GRAPH_PLAN.md — P7 directed transition PPR
 
 > **Protocol khóa trước result:** 2026-09-21.
-> **Trạng thái:** graph smoke + calibration complete; fresh-test admitted,
-> chưa chạy LLM/evaluation.
+> **Trạng thái:** graph smoke + calibration complete; fresh-test admitted.
+> P7-v1 LLM run đã bị niêm phong do output-contract failure; P7-v2 được khóa
+> trước khi chạy lại. Fresh-test labels chưa được mở/evaluate.
 
 ## Câu hỏi
 
@@ -42,6 +43,38 @@ grid khóa `[0, 0.05, 0.10, 0.20, 0.40, 0.80]`, tie chọn alpha nhỏ hơn.
 - Nếu admitted: LLM smoke 20 trước full 100, cùng Qwen revision/cap P6; primary
   pass khi fresh-test delta >=+0,02 và paired CI lower >0.
 
+### P7-v2 LLM output contract
+
+P7-v1 yêu cầu model sinh strict permutation A–J. Full run dừng ở event
+`APZAJ6LGXH02F:1359590400` vì structured decoder cho phép array đủ 10 phần tử
+nhưng không ép `uniqueItems`; model lặp một label và bỏ một label. Retry
+byte-identical cũng fail. Run v1 được niêm phong ở 130 physical attempts
+(127 successful keys, 2 error rows), không evaluate và không tái sử dụng
+journal trong v2.
+
+P7-v2 giữ nguyên model, prompt, graph, cohort, alpha và generation budget; chỉ
+khóa lại output contract:
+
+- JSON schema buộc đúng 10 phần tử, mỗi phần tử thuộc A–J.
+- Nếu label lặp, giữ lần xuất hiện đầu tiên rồi nối các label còn thiếu theo
+  thứ tự A–J. Đây là deterministic syntax completion, không dùng item ID,
+  gold label hay graph/test signal.
+- Event làm v1 fail bắt buộc được thêm vào LLM smoke; tổng smoke vẫn trong
+  20–30 event.
+- Tối đa 5 rerank response được phép cần permutation completion trong toàn run;
+  vượt cap thì run fail trước evaluation.
+- V2 dùng run ID và journal mới. Chỉ manifest smoke đúng config/prepared/
+  selection hash mới mở gate cho full run.
+
+Offline gate P7-v2 đã pass trước GPU: 21 unit/regression test pass; graph smoke
+deterministic và calibration tái lập đúng score P7-v1. Config SHA256 là
+`7fda73bb88281b2197a156e9dfec55fb0a9d96b510aba66cb597585d0db529fd`,
+graph-smoke SHA256 là
+`84dbc5531ccaf66244322502523c8cc329d1d90f56728df6612abc44438411ac`,
+locked-selection SHA256 là
+`1c40ea0966c3e528f9243547edd712076d1de056a757136cdeda9c3123bfc9fc`.
+Calibration manifest ghi nhận `fresh_test_labels_accessed=false`, `gpu_used=false`.
+
 P7 test label không được dùng trước khi graph/config/alpha và local LLM output
 đã khóa. Post-hoc oracle không thay đổi primary decision.
 
@@ -64,4 +97,4 @@ Protocol trên được khóa khi chưa có result. Sau đó:
   **+0,1191**; gate admit fresh test. Locked-selection SHA256:
   `61e108c92dedcf17d7552a290680d68de145724aee483727a1f6bbf5342e201e`.
 - Fresh-test labels chưa được mở. Bước kế tiếp: self-host smoke 20, full local
-  baseline rồi chạy đúng locked alpha một lần.
+  baseline P7-v2 rồi chạy đúng locked alpha một lần.

@@ -1,0 +1,63 @@
+# P7-v2: same transition-PPR protocol, sealed v2 LLM permutation contract.
+dataset:
+  reviews_file: data/Books_rating.csv
+  metadata_file: data/books_data.csv
+  p0_audit: data/temporal_amazon_books_2014/p0_temporal_audit.json
+
+p7:
+  run_id: p7v2_temporal_transition_ppr-hnv
+  p6_prepared: data/temporal_amazon_books_2014/p6_prepared-hnv.json
+  p6_calls: data/temporal_amazon_books_2014/p6_local_calls-hnv.jsonl
+  old_validation_prepared: data/temporal_amazon_books_2014/p3v4_selfhost_prepared-hnv.json
+  p6_prepared_sha256: bdda8d846376ae62d4d47e0747f7bdd2805a8c2d78d5f7e57dc98054ee6b8dd4
+  p6_calls_sha256: e0667f80066180665266bd9b52a25c596685f95039a581ededc2bcf49923ca9d
+  old_validation_prepared_sha256: b25d3a2c66f0c33a7e17b385862ea01e152dc07810aa3e67a779ef7db62ca5ef
+  prepared: data/temporal_amazon_books_2014/p7_prepared-hnv.json
+  graph_smoke: data/temporal_amazon_books_2014/p7v2_graph_smoke-hnv.json
+  calibration_scores: data/temporal_amazon_books_2014/p7v2_calibration_scores-hnv.jsonl
+  locked_selection: data/temporal_amazon_books_2014/p7v2_locked_selection-hnv.json
+  calibration_manifest: data/temporal_amazon_books_2014/p7v2_calibration_manifest-hnv.json
+  test_scores: data/temporal_amazon_books_2014/p7v2_test_scores-hnv.jsonl
+  metrics: data/temporal_amazon_books_2014/p7v2_metrics-hnv.json
+  manifest: data/temporal_amazon_books_2014/p7v2_manifest-hnv.json
+  positive_rating_min: 4.0
+  min_positive_history: 5
+  test_events: 100
+  candidates_per_event: 10
+  seed_items: 6
+  restart_probability: 0.15
+  monte_carlo_walks: 50000
+  max_walk_steps: 64
+  smoke_calibration_events: 20
+  smoke_test_events: 20
+  smoke_walks: 5000
+  fusion_alpha_grid: [0.0, 0.05, 0.10, 0.20, 0.40, 0.80]
+  calibration_min_delta_to_run_test: 0.01
+  bootstrap_resamples: 10000
+  bootstrap_seed: 20260921
+  admission_min_delta: 0.02
+
+self_host:
+  model: Qwen/Qwen3-4B-Instruct-2507
+  revision: cdbee75f17c01a7cc42f958dc650907174af0554
+  dtype: bfloat16
+  tensor_parallel_size: 1
+  hard_memory_fraction: 0.25
+  max_model_len: 4096
+  seed: 20260921
+  temperature: 0.0
+  structured_decoding: lm-format-enforcer-json-schema
+  workers: 1
+  stage_r_max_tokens: 384
+  rerank_max_tokens: 96
+  smoke_events: 20
+  regression_event_key: APZAJ6LGXH02F:1359590400
+  ranking_contract: permutation_completion_v2
+  max_permutation_repairs: 5
+  primary_generations: 200
+  retry_reserve: 20
+  hard_generation_cap: 220
+  attempts: data/temporal_amazon_books_2014/p7v2_local_attempts-hnv.jsonl
+  calls: data/temporal_amazon_books_2014/p7v2_local_calls-hnv.jsonl
+  smoke_manifest: data/temporal_amazon_books_2014/p7v2_local_smoke-hnv.json
+  manifest: data/temporal_amazon_books_2014/p7v2_local_manifest-hnv.json

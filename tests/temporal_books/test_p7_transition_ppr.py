@@ -1,3 +1,13 @@
+import json
+
+import pytest
+
+from src.temporal_books.p7_selfhost_local import (
+    complete_permutation,
+    configured_smoke_events,
+    permutation_repairs,
+)
+from src.temporal_books.p6_selfhost_local import smoke_events
 from src.temporal_books.p7_transition_ppr import (
     build_transition_graph,
     one_step_scores,
@@ -39,3 +49,66 @@ def test_ppr_reaches_multihop_candidate_deterministically():
 def test_residual_transition_score_can_promote_candidate():
     ranking = residual_ranking(["a", "b", "c"], ["a", "b", "c"], {"a": 0.0, "b": 1.0, "c": 0.0}, alpha=1.0)
     assert ranking[0] == "b"
+
+
+def test_p7v2_duplicate_label_is_completed_deterministically():
+    candidates = [f"item-{label}" for label in "ABCDEFGHIJ"]
+    ranking = complete_permutation(
+        {"ranking": ["A", "A", "B", "C", "D", "E", "F", "G", "H", "I"]},
+        candidates,
+    )
+    assert ranking == candidates
+    assert len(ranking) == len(set(ranking)) == 10
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {"ranking": list("ABCDEFGHI")},
+        {"ranking": list("ABCDEFGHIK")},
+        {"ranking": "ABCDEFGHIJ"},
+    ],
+)
+def test_p7v2_rejects_outputs_outside_locked_repair_scope(response):
+    with pytest.raises(ValueError, match="ten labels from A-J"):
+        complete_permutation(response, list("0123456789"))
+
+
+def test_p7v2_requires_ten_distinct_candidates():
+    with pytest.raises(ValueError, match="ten distinct candidates"):
+        complete_permutation({"ranking": list("ABCDEFGHIJ")}, list("0000000000"))
+
+
+def test_p7v2_smoke_includes_regression_event():
+    prepared = {
+        "test_events": [
+            {"user_id": f"user-{index:02d}", "timestamp": index}
+            for index in range(100)
+        ]
+    }
+    base_keys = {f"{event['user_id']}:{event['timestamp']}" for event in smoke_events(prepared, 20)}
+    regression_event = next(
+        event
+        for event in prepared["test_events"]
+        if f"{event['user_id']}:{event['timestamp']}" not in base_keys
+    )
+    regression_key = f"{regression_event['user_id']}:{regression_event['timestamp']}"
+    smoke = configured_smoke_events(
+        prepared,
+        {"smoke_events": 20, "regression_event_key": regression_key},
+    )
+    assert len(smoke) == 21
+    assert any(f"{event['user_id']}:{event['timestamp']}" == regression_key for event in smoke)
+
+
+def test_p7v2_permutation_repairs_counts_only_successful_reranks(tmp_path, monkeypatch):
+    calls = tmp_path / "calls.jsonl"
+    rows = [
+        {"key": "rerank:local:fixed", "kind": "rerank", "status": "success", "response": {"ranking": list("AABCDEFGHI")}},
+        {"key": "rerank:local:valid", "kind": "rerank", "status": "success", "response": {"ranking": list("ABCDEFGHIJ")}},
+        {"key": "stage_r:x", "kind": "stage_r", "status": "success", "response": {"ranking": list("AABCDEFGHI")}},
+        {"key": "rerank:local:error", "kind": "rerank", "status": "error", "response": {"ranking": list("AABCDEFGHI")}},
+    ]
+    calls.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    monkeypatch.setattr("src.temporal_books.p7_selfhost_local.project_path", lambda value: calls)
+    assert permutation_repairs("ignored.jsonl") == ["rerank:local:fixed"]
