@@ -7,7 +7,7 @@ import random
 from typing import Any, Dict, Mapping, Sequence
 
 
-def extract_json_object(text: str) -> Dict[str, Any]:
+def extract_json_object_with_repairs(text: str) -> tuple[Dict[str, Any], list[str]]:
     value = (text or "").strip()
     if value.startswith("```json"):
         value = value[len("```json") :]
@@ -20,12 +20,31 @@ def extract_json_object(text: str) -> Dict[str, Any]:
     if start < 0 or end < start:
         raise ValueError("self-host model did not return a JSON object")
     candidate = value[start : end + 1]
+    repairs: list[str] = []
     try:
         parsed = json.loads(candidate)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"invalid self-host JSON: {candidate!r}") from exc
+        repaired = candidate
+        if "\\'" in repaired:
+            repaired = repaired.replace("\\'", "'")
+            repairs.append("unescape_apostrophe")
+        try:
+            parsed, consumed = json.JSONDecoder().raw_decode(repaired)
+        except json.JSONDecodeError as repaired_exc:
+            raise ValueError(f"invalid self-host JSON: {candidate!r}") from repaired_exc
+        trailing = repaired[consumed:].strip()
+        if trailing:
+            if set(trailing) == {"}"}:
+                repairs.append(f"drop_extra_closing_brace:{len(trailing)}")
+            else:
+                raise ValueError(f"unexpected content after self-host JSON object: {trailing!r}") from exc
     if not isinstance(parsed, dict):
         raise ValueError("self-host JSON root must be an object")
+    return parsed, repairs
+
+
+def extract_json_object(text: str) -> Dict[str, Any]:
+    parsed, _ = extract_json_object_with_repairs(text)
     return parsed
 
 
@@ -116,6 +135,8 @@ class TransformersJSONClient:
         self.total_input_tokens = 0
         self.total_output_tokens = 0
         self.total_requests = 0
+        self.repaired_responses = 0
+        self.repair_counts: Dict[str, int] = {}
 
     def generate_json(
         self,
@@ -141,7 +162,10 @@ class TransformersJSONClient:
             raise ValueError("self-host JSON prompt must end with a user message")
         augmented[-1]["content"] += (
             "\n\nReturn only one compact JSON object matching this exact schema. "
-            "Do not use Markdown or add commentary:\n" + json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
+            "Do not use Markdown or add commentary. JSON strings use double quotes; "
+            "apostrophes are ordinary characters and MUST NOT be escaped with a backslash. "
+            "Emit exactly one opening and one closing brace:\n"
+            + json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
         )
         prompt = self.tokenizer.apply_chat_template(augmented, tokenize=False, add_generation_prompt=True)
         encoded = self.tokenizer(prompt, return_tensors="pt", add_special_tokens=False)
@@ -159,11 +183,15 @@ class TransformersJSONClient:
         generated = output[0, input_tokens:]
         output_tokens = int(generated.shape[-1])
         response_text = self.tokenizer.decode(generated, skip_special_tokens=True)
-        response = extract_json_object(response_text)
+        response, repairs = extract_json_object_with_repairs(response_text)
         validate_json_schema(response, schema)
         self.total_input_tokens += input_tokens
         self.total_output_tokens += output_tokens
         self.total_requests += 1
+        if repairs:
+            self.repaired_responses += 1
+            for repair in repairs:
+                self.repair_counts[repair] = self.repair_counts.get(repair, 0) + 1
         return response
 
     def get_token_stats(self) -> Dict[str, Any]:
@@ -178,4 +206,6 @@ class TransformersJSONClient:
             "model": self.model_name,
             "revision": self.revision,
             "seed": self.seed,
+            "repaired_responses": self.repaired_responses,
+            "repair_counts": dict(sorted(self.repair_counts.items())),
         }

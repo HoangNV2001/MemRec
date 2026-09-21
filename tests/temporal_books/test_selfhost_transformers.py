@@ -1,6 +1,6 @@
 import pytest
 
-from src.models.selfhost_transformers import extract_json_object, validate_json_schema
+from src.models.selfhost_transformers import extract_json_object, extract_json_object_with_repairs, validate_json_schema
 
 
 def test_extract_json_object_accepts_fenced_compact_output():
@@ -19,3 +19,11 @@ def test_local_schema_rejects_extra_or_wrong_typed_fields():
         validate_json_schema({"ranking": [1]}, schema)
     with pytest.raises(ValueError):
         validate_json_schema({"ranking": ["A"], "rationale": "extra"}, schema)
+
+
+def test_json_repair_is_limited_to_apostrophe_escape_and_extra_closing_brace():
+    value, repairs = extract_json_object_with_repairs(r'''{"memory":"reader\'s preference","facets":[]} }''')
+    assert value == {"memory": "reader's preference", "facets": []}
+    assert repairs == ["unescape_apostrophe", "drop_extra_closing_brace:1"]
+    with pytest.raises(ValueError):
+        extract_json_object('{"memory":"missing comma" "facets":[]}')
