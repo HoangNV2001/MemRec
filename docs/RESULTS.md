@@ -7,7 +7,7 @@
 > Amazon Books 2014 P2-v1 was stopped for a reranker output-contract error.
 > Its separate P2-v2 smoke-first rerun completed and failed the oracle headroom
 > gate. P3 self-host 3-hop cũng đã complete và fail gate; no candidate-blind
-> implementation is admitted.
+> implementation is admitted. P4 filtered 3-hop tăng rất nhẹ nhưng cũng fail.
 >
 > Các số của hướng SFT/RL cũ nằm trong [RL_WORK_SUMMARY.md](RL_WORK_SUMMARY.md)
 > và không được dùng làm baseline trực tiếp ở đây: M0 cũ sample negative theo
@@ -24,7 +24,7 @@
 | Candidate protocol | 10 fixed candidates/user; cùng thứ tự trong mọi arm của user |
 | Primary metric | Paired NDCG@5, 10,000 bootstrap user resamples |
 | Context control | Per-user K_u node slots và T_u token cap từ 1-hop control |
-| Active result status | InstructRec MH2/CE1 và write-side feasibility đều closed. Amazon Books 2014 P3 3-hop completed: +0.0155 vs local và +0.0014 vs 2-hop, cả hai không qua gate. |
+| Active result status | InstructRec MH2/CE1 và write-side feasibility đều closed. Amazon Books P4 filtered 3-hop chỉ +0.0186 vs local và +0.0031 vs raw 3-hop; hard stop. |
 
 MH2 kết luận riêng cho graph expansion. Candidate-conditioned 1-hop evidence là
 một protocol ranking-time mới, được preregister tại
@@ -284,3 +284,28 @@ H100; GPU được nhả về 1 MiB ngay khi process thoát. Metrics SHA256 là
 source-packet/item-overlay. Một hướng multi-hop mới chỉ đáng xét nếu thay đổi
 candidate-level representation/scoring và có residual gate giữ local signal,
 không phải chỉ mở rộng depth.
+
+## 13. Amazon Books 2014 filtered 3-hop
+
+Protocol: [FILTERED_THREE_HOP_PLAN.md](FILTERED_THREE_HOP_PLAN.md). Filter chỉ
+giữ edge rating>=4, thêm recency half-life 730 ngày, hub penalty và bridge-path
+diversity. Structural support>=2 giảm hợp lý từ raw 24% xuống 19%.
+
+| Arm | NDCG@5 | Δ vs local | 95% paired bootstrap CI | H@5 |
+|---|---:|---:|---:|---:|
+| local frozen P3 | 0,5752 | reference | — | 0,76 |
+| raw 3-hop frozen P3 | 0,5907 | +0,0155 | [−0,0117; +0,0465] | 0,80 |
+| filtered 3-hop | 0,5939 | **+0,0186** | **[−0,0021; +0,0425]** | 0,80 |
+
+Filtered vs raw chỉ +0,0031, CI [−0,0160; +0,0238]. Trên 19 supported event,
+filter tốt hơn raw +0,0165, nhưng vẫn cải thiện 5 và làm tệ 4 event. Ngay cả
+post-hoc best-of local/raw/filtered chỉ +0,0370 vs local, dưới point gate +0,05.
+
+P4 reuse frozen P3 output và chỉ tạo 100 filtered ranking: 100/100 primary
+success, zero retry/repair. Peak VRAM 7,85 GiB trên một H100; card được nhả về
+1 MiB ngay sau task. Metrics SHA256:
+`4ec4305354b186f94e0d92c74ba4e01407a33ac847ccb9ec691c2ea1ef79a910`.
+
+**Decision: hard stop.** Filter quality có tín hiệu nhỏ nhưng không đủ headroom
+và không ổn định. Không tune threshold post-hoc; packet overlay không được
+admit. Nếu tiếp tục graph, cần candidate-level scoring/retrieval protocol mới.

@@ -35,7 +35,7 @@
 | AB14 P2-v1 — 1k-request item-only oracle | ⛔ invalid execution — sealed | Journal 768 attempts: rerank schema bị truncate 90 response. Không metric/gate; không resume hay trộn partial output. |
 | AB14 P2-v2 — smoke-first oracle rerun | ✅ complete — hard stop | 100 event/300 final rerank; oracle ΔNDCG@5 = +0.0324, 95% CI [+0.0073, +0.0592], dưới gate +0.05. |
 | AB14 P3 — bounded 3-hop self-host oracle | ✅ complete — hard stop | Coverage support>=2 tăng 17%→24%, nhưng 3-hop chỉ +0.0155 vs local và +0.0014 vs 2-hop; cả hai CI cắt 0. Không tăng tiếp n-hop bằng cùng item-overlay. |
-| AB14 P4 — filtered 3-hop | 🟡 structural pass; LLM not run | Rating≥4 + recency/hub/diversity filter giữ support>=2 ở 19%; top-2 origin overlap với raw chỉ 33%. Protocol/request gate khóa trong `FILTERED_THREE_HOP_PLAN.md`. |
+| AB14 P4 — filtered 3-hop | ✅ complete — hard stop | Filter giữ support>=2 ở 19%; NDCG@5 0.5939, chỉ +0.0186 vs local và +0.0031 vs raw 3-hop, cả hai CI cắt 0. |
 
 ## AB14 — Amazon Books 2014 temporal P0/P1 — 2026-08-26
 
@@ -136,6 +136,25 @@
 - **Quyết định:** hard stop cho việc chỉ tăng 4-hop/n-hop trên cùng
   source-packet/item-overlay. Hướng multi-hop tiếp theo, nếu có, phải là protocol
   mới thay đổi representation/scoring thay vì tăng depth.
+
+## AB14 — P4 filtered 3-hop result — 2026-09-21
+
+- Candidate-blind filter chỉ giữ rating>=4 edge; xếp path bằng temporal decay
+  half-life 730 ngày, anchor/bridge hub penalty và tối đa ba distinct bridge
+  path/origin. Structural smoke 24 source pass; full support>=2 = 19/100.
+- P4 pin và reuse exact P3 packets/Stage-R/local/raw rankings. Nó chỉ sinh 100
+  filtered rerank: smoke 20 được reuse trong full, 100 primary success, 0 retry,
+  0 repair.
+- Filtered NDCG@5 = 0,5939, H@5 = 0,80. Delta vs local = +0,0186, CI
+  [−0,0021; +0,0425]; delta vs raw 3-hop = +0,0031, CI
+  [−0,0160; +0,0238]. Hai gate đều fail.
+- Trên 19 event có filtered support, gain vs raw là +0,0165; nhưng 5 event cải
+  thiện và 4 event tệ đi. Best-of-three post-hoc cũng chỉ +0,0370 vs local.
+- Peak 7,85 GiB trên một H100; process thoát và GPU về 1 MiB. Manifest SHA256:
+  `2321936b677ea46e729fa4b38336a8a359692b0d49d9868a37c8e0ed0993631d`.
+- **Quyết định:** hard stop cho path filter + packet overlay này. Không tune
+  rating/half-life/hub/diversity sau result; hướng tiếp theo phải đổi sang
+  candidate-level graph scoring/retrieval nếu tiếp tục.
 
 ## MH0 — Freeze protocol — 2026-08-25
 

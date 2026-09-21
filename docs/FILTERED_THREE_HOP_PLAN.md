@@ -1,7 +1,8 @@
 # FILTERED_THREE_HOP_PLAN.md — Positive, temporal, diversity-aware 3-hop
 
 > **Protocol khóa:** 2026-09-21, trước LLM smoke/result.
-> **Trạng thái:** structural smoke/full pass; LLM smoke/full chưa chạy.
+> **Trạng thái:** **complete — hard stop**. Structural và LLM smoke/full đều
+> hoàn tất; filtered 3-hop không qua hai ranking gate.
 
 ## Câu hỏi
 
@@ -72,3 +73,41 @@ Admission chỉ pass khi đồng thời:
 
 Fail một điều kiện là hard stop cho bộ lọc này; không đổi rating threshold,
 half-life, hub formula, diversity cap hoặc cohort sau khi thấy result.
+
+## Kết quả
+
+| Arm | NDCG@5 | Δ vs local | 95% paired CI | H@5 |
+|---|---:|---:|---:|---:|
+| local frozen P3 | 0,5752 | reference | — | 0,76 |
+| raw 3-hop frozen P3 | 0,5907 | +0,0155 | [−0,0117; +0,0465] | 0,80 |
+| filtered 3-hop | 0,5939 | **+0,0186** | **[−0,0021; +0,0425]** | 0,80 |
+
+Filtered vs raw 3-hop = **+0,0031**, CI [−0,0160; +0,0238]; cải thiện 5,
+làm tệ 4 và giữ nguyên 91 event. Vì vậy fail cả gate +0,05 vs local và +0,02
+vs raw.
+
+Breakdown offline:
+
+- trên 19 event có filtered support>=2: raw vs local +0,0814; filtered vs
+  local +0,0980; filtered vs raw +0,0165;
+- 5 event chỉ raw cover và 76 event không arm nào cover đều không đổi ranking;
+- post-hoc best-of local/raw/filtered đạt +0,0370 vs local, CI
+  [+0,0127; +0,0669], vẫn dưới point gate +0,05. Đây không phải selector hợp lệ.
+
+Execution: smoke 20/20, full journal 100/100 primary success, 0 retry, 0
+repair. Full invocation mới dùng 80 request, 81.964 token và peak 7,85 GiB trên
+một H100. Process thoát ngay sau task; GPU về 1 MiB.
+
+Integrity:
+
+- completion manifest SHA256:
+  `2321936b677ea46e729fa4b38336a8a359692b0d49d9868a37c8e0ed0993631d`;
+- metrics SHA256:
+  `4ec4305354b186f94e0d92c74ba4e01407a33ac847ccb9ec691c2ea1ef79a910`;
+- attempts/calls SHA256:
+  `dfbe0796430733b4b0cc31526aacd8b051eb748b42d872db31fab3f0b730e6c0` /
+  `e530f437ec6ca8fcdec91f633d0e2c8df585a4b55eae154491aefdeaa5fe2fe7`.
+
+**Quyết định:** bộ lọc path quality giúp đúng hướng nhưng magnitude quá nhỏ và
+không ổn định. Không tune threshold/half-life post-hoc. Nếu tiếp tục, cần đổi
+sang candidate-level graph scoring/retrieval thay vì tiếp tục overlay packet.
