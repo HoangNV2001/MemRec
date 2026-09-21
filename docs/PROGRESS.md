@@ -37,6 +37,7 @@
 | AB14 P3 — bounded 3-hop self-host oracle | ✅ complete — hard stop | Coverage support>=2 tăng 17%→24%, nhưng 3-hop chỉ +0.0155 vs local và +0.0014 vs 2-hop; cả hai CI cắt 0. Không tăng tiếp n-hop bằng cùng item-overlay. |
 | AB14 P4 — filtered 3-hop | ✅ complete — hard stop | Filter giữ support>=2 ở 19%; NDCG@5 0.5939, chỉ +0.0186 vs local và +0.0031 vs raw 3-hop, cả hai CI cắt 0. |
 | AB14 P5/P5b — candidate graph 3/5-layer | ✅ complete — hard stop | Full graph tăng gold coverage 15%→30% nhưng negative evidence 2.33%→13.78%; residual 5-layer +0.0077 vs local và −0.0019 vs 3-layer. |
+| AB14 P6 — learned adaptive multi-hop | 🟡 running — model locked | Fresh-test protocol; graph smoke pass, train 1.200 event. Validation chọn alpha 0.6/gate 0.1 và +0.0265; fresh test chưa evaluate. |
 
 ## AB14 — Amazon Books 2014 temporal P0/P1 — 2026-08-26
 

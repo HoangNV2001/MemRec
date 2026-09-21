@@ -1,0 +1,69 @@
+# Learned depth-adaptive graph scorer with a fresh temporal test cohort.
+dataset:
+  reviews_file: data/Books_rating.csv
+  metadata_file: data/books_data.csv
+  p0_audit: data/temporal_amazon_books_2014/p0_temporal_audit.json
+
+p6:
+  run_id: p6_adaptive_graph_fresh_test-hnv
+  prepared: data/temporal_amazon_books_2014/p6_prepared-hnv.json
+  graph_smoke: data/temporal_amazon_books_2014/p6_graph_smoke-hnv.json
+  train_scores: data/temporal_amazon_books_2014/p6_train_scores-hnv.jsonl
+  locked_model: data/temporal_amazon_books_2014/p6_locked_model-hnv.json
+  fit_manifest: data/temporal_amazon_books_2014/p6_fit_manifest-hnv.json
+  test_graph_scores: data/temporal_amazon_books_2014/p6_test_graph_scores-hnv.jsonl
+  metrics: data/temporal_amazon_books_2014/p6_metrics-hnv.json
+  manifest: data/temporal_amazon_books_2014/p6_manifest-hnv.json
+  old_validation_prepared: data/temporal_amazon_books_2014/p3v4_selfhost_prepared-hnv.json
+  old_validation_calls: data/temporal_amazon_books_2014/p3v4_selfhost_calls-hnv.jsonl
+  old_validation_graph_scores: data/temporal_amazon_books_2014/p5b_candidate_graph_full_scores-hnv.jsonl
+  old_validation_prepared_sha256: b25d3a2c66f0c33a7e17b385862ea01e152dc07810aa3e67a779ef7db62ca5ef
+  old_validation_calls_sha256: 1bc217a28c87e9b1c554c0f19c079c2b2486a9d97dba2fd33897bf6a1dc6bb2a
+  old_validation_graph_scores_sha256: b22e9168403f28c6fe7e151553241d8ef54a5ea705a0b0c679d79da66c9cac1b
+  positive_rating_min: 4.0
+  inner_train_window_days: 365
+  min_positive_history: 5
+  training_events: 1200
+  test_events: 100
+  candidates_per_event: 10
+  graph_smoke_train_events: 24
+  graph_smoke_test_events: 20
+  source_anchor_cap: 6
+  peers_per_item: 8
+  items_per_peer: 8
+  beam_width: 64
+  max_paths_per_candidate: 8
+  shallow_item_layers: 3
+  deep_item_layers: 5
+  recency_half_life_days: 730.0
+  length_decay: 0.70
+  hub_penalty_weight: 0.50
+  pairwise_ridge_l2: 0.10
+  pairwise_newton_steps: 50
+  fusion_alpha_grid: [0.0, 0.05, 0.10, 0.15, 0.25, 0.40, 0.60]
+  margin_gate_grid: [0.0, 0.10, 0.25, 0.50, 1.00]
+  bootstrap_resamples: 10000
+  bootstrap_seed: 20260921
+  admission_min_delta: 0.02
+
+self_host:
+  model: Qwen/Qwen3-4B-Instruct-2507
+  revision: cdbee75f17c01a7cc42f958dc650907174af0554
+  dtype: bfloat16
+  tensor_parallel_size: 1
+  hard_memory_fraction: 0.25
+  max_model_len: 4096
+  seed: 20260921
+  temperature: 0.0
+  structured_decoding: lm-format-enforcer-json-schema
+  workers: 1
+  stage_r_max_tokens: 384
+  rerank_max_tokens: 96
+  smoke_events: 20
+  primary_generations: 200
+  retry_reserve: 20
+  hard_generation_cap: 220
+  attempts: data/temporal_amazon_books_2014/p6_local_attempts-hnv.jsonl
+  calls: data/temporal_amazon_books_2014/p6_local_calls-hnv.jsonl
+  smoke_manifest: data/temporal_amazon_books_2014/p6_local_smoke-hnv.json
+  manifest: data/temporal_amazon_books_2014/p6_local_manifest-hnv.json
