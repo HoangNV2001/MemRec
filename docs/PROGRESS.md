@@ -38,6 +38,7 @@
 | AB14 P4 — filtered 3-hop | ✅ complete — hard stop | Filter giữ support>=2 ở 19%; NDCG@5 0.5939, chỉ +0.0186 vs local và +0.0031 vs raw 3-hop, cả hai CI cắt 0. |
 | AB14 P5/P5b — candidate graph 3/5-layer | ✅ complete — hard stop | Full graph tăng gold coverage 15%→30% nhưng negative evidence 2.33%→13.78%; residual 5-layer +0.0077 vs local và −0.0019 vs 3-layer. |
 | AB14 P6 — learned adaptive multi-hop | ✅ complete — hard stop | Validation +0.0265 không transfer: fresh test adaptive 0.5672 vs local 0.5897 (−0.0225, CI [−0.0559,+0.0113]). Oracle best-of còn +0.0305 nhưng gate sai 22 event. |
+| AB14 P7 — temporal transition PPR | 🟡 running — fresh test admitted | Directed next-item graph; calibration PPR residual 0.7088 vs local 0.5897 (+0.1191), alpha 0.8 locked. Fresh labels chưa mở. |
 
 ## AB14 — Amazon Books 2014 temporal P0/P1 — 2026-08-26
 
