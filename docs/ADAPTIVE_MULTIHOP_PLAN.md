@@ -1,8 +1,7 @@
 # ADAPTIVE_MULTIHOP_PLAN.md — P6 learned depth-adaptive graph scoring
 
 > **Protocol khóa trước khi chạy:** 2026-09-21.
-> **Trạng thái:** graph smoke + fit/calibration complete; fresh-test evaluation
-> chưa chạy.
+> **Trạng thái:** **complete — hard stop** trên fresh test.
 
 ## Mục tiêu và tính hợp lệ
 
@@ -84,5 +83,32 @@ Protocol ở trên được khóa khi chưa có P6 result. Sau đó:
   0,5752 (+0,0265). Đây chỉ là selection result, không phải primary test.
   Locked-model SHA256:
   `1e7a13e48bdee9f9753b54ccaffdf12c51874d31c87b627664180e729aa3cd7f`.
-- Fresh-test labels chưa được dùng để tune/analyze. Bước kế tiếp là LLM smoke
-  20 event, full local baseline, rồi evaluate đúng locked model.
+- LLM smoke 20 event pass; full có 200/200 primary success, zero retry/error/
+  repair. Qwen revision giữ nguyên, peak 7,84 GiB trên đúng một H100; process
+  thoát và cả bốn card về 1 MiB. Local manifest SHA256:
+  `9916675d13f02c76e4bfcfb6900d3dc69838feb72b1b0845a74f45a0e53cc5bb`.
+
+Fresh-test primary result, chỉ mở label sau khi model/alpha/gate đã khóa:
+
+| Arm | NDCG@5 | H@5 | Δ vs local |
+|---|---:|---:|---:|
+| fresh local | 0,5897 | 0,79 | reference |
+| adaptive multi-hop | 0,5672 | 0,77 | **−0,0225** |
+
+Paired CI của delta là [−0,0559; +0,0113]; adaptive cải thiện 8, làm tệ 22 và
+giữ nguyên 70 event. Gate active 57/100, cao hơn validation 44/100. Layer-3/5
+cover 9/18 gold; negative evidence rate 2,56%/13,78%.
+
+Post-hoc oracle chọn local/adaptive tốt hơn theo từng event đạt 0,6202,
++0,0305 vs local. Đây là diagnostic không deployable: nó cho thấy signal vẫn
+có, nhưng margin gate không nhận diện được khi nào nên can thiệp. Không retune
+alpha/gate trên fresh test. Metrics SHA256:
+`91389ca081e24a6fcb981d74f1add16f630801f81de37e22be3799169a305816`;
+manifest SHA256:
+`2dccc686dd5eeb09657076e660fef91c49c80f68db0816a8a96eefd357515619`.
+
+**Quyết định:** hard stop cho pairwise depth weighting + scalar margin gate
+hiện tại. Nếu vẫn tiếp tục multi-hop, protocol mới phải học trực tiếp
+intervention risk (`graph giúp local` hay `làm hại local`) trên cohort lớn hơn
+và đánh giá trên một fresh cohort khác; không được dùng 100 P6 test event để
+tune rồi báo lại như test.

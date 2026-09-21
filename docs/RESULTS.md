@@ -3,12 +3,13 @@
 > **Protocol registry:** [MULTIHOP_PLAN.md](MULTIHOP_PLAN.md),
 > [CANDIDATE_EVIDENCE_PLAN.md](CANDIDATE_EVIDENCE_PLAN.md), và
 > [BUFFERED_PROPAGATION_PLAN.md](BUFFERED_PROPAGATION_PLAN.md), và
-> [AMAZON_BOOKS_2014_TEMPORAL_PLAN.md](AMAZON_BOOKS_2014_TEMPORAL_PLAN.md).
+> [AMAZON_BOOKS_2014_TEMPORAL_PLAN.md](AMAZON_BOOKS_2014_TEMPORAL_PLAN.md), và
+> [ADAPTIVE_MULTIHOP_PLAN.md](ADAPTIVE_MULTIHOP_PLAN.md).
 > Amazon Books 2014 P2-v1 was stopped for a reranker output-contract error.
 > Its separate P2-v2 smoke-first rerun completed and failed the oracle headroom
 > gate. P3 self-host 3-hop cũng đã complete và fail gate; no candidate-blind
-> implementation is admitted. P4 filtered 3-hop và P5/P5b candidate graph đều
-> tăng nhẹ nhưng fail gate.
+> implementation is admitted. P4/P5 tăng nhẹ nhưng fail gate; P6 adaptive
+> multi-hop tăng trên validation nhưng giảm trên fresh test.
 >
 > Các số của hướng SFT/RL cũ nằm trong [RL_WORK_SUMMARY.md](RL_WORK_SUMMARY.md)
 > và không được dùng làm baseline trực tiếp ở đây: M0 cũ sample negative theo
@@ -25,7 +26,7 @@
 | Candidate protocol | 10 fixed candidates/user; cùng thứ tự trong mọi arm của user |
 | Primary metric | Paired NDCG@5, 10,000 bootstrap user resamples |
 | Context control | Per-user K_u node slots và T_u token cap từ 1-hop control |
-| Active result status | InstructRec MH2/CE1 đều closed. Amazon Books P5b full-graph residual 5-layer chỉ +0.0077 vs local và kém 3-layer −0.0019; hard stop. |
+| Active result status | InstructRec MH2/CE1 đều closed. Amazon Books P6 adaptive multi-hop giảm −0.0225 NDCG@5 trên fresh test; hard stop cho scalar margin gate. |
 
 MH2 kết luận riêng cho graph expansion. Candidate-conditioned 1-hop evidence là
 một protocol ranking-time mới, được preregister tại
@@ -336,3 +337,31 @@ Scoring runtime 7,51 giây sau load trên CPU, LLM=0, GPU=none. Metrics SHA256:
 **Decision: hard stop.** Không tăng depth hoặc tune fixed score trên validation.
 Một continuation hợp lệ cần independent training cohort và learned
 depth-adaptive gate; đó là protocol mới.
+
+## 15. Learned depth-adaptive multi-hop trên fresh test
+
+Protocol: [ADAPTIVE_MULTIHOP_PLAN.md](ADAPTIVE_MULTIHOP_PLAN.md). P6 học
+pairwise scorer từ 1.200 event quá khứ, dùng cohort P3–P5 cũ làm calibration,
+và chỉ kết luận trên 100 event mới sau validation cutoff.
+
+| Arm | NDCG@5 | H@5 | Δ vs local |
+|---|---:|---:|---:|
+| fresh local Qwen | 0,5897 | 0,79 | reference |
+| adaptive multi-hop | 0,5672 | 0,77 | **−0,0225** |
+
+Delta CI [−0,0559; +0,0113]; 8 event tốt hơn, 22 tệ hơn và 70 không đổi.
+Selection khóa từ validation (`alpha=0,6`, margin `0,1`) đã tăng +0,0265 ở
+validation nhưng không transfer: số event can thiệp tăng 44→57. Gold coverage
+layer-3/5 là 9%/18%, trong khi negative evidence rate là 2,56%/13,78%.
+
+Oracle best-of local/adaptive sau primary là +0,0305, cho thấy còn conditional
+headroom nhưng scalar margin không dự đoán đúng intervention risk. Không dùng
+oracle này để đổi primary decision hoặc tune lại trên test.
+
+Self-host baseline có 200/200 success, zero retry/error/repair, peak 7,84 GiB
+trên một H100; GPU được nhả về 1 MiB. Metrics SHA256:
+`91389ca081e24a6fcb981d74f1add16f630801f81de37e22be3799169a305816`.
+
+**Decision: hard stop.** Không admit scorer/gate P6. Hướng multi-hop tiếp theo,
+nếu có, phải học trực tiếp xác suất graph làm tốt hơn local trên train/
+calibration lớn hơn và dùng một fresh test khác.

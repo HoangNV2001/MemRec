@@ -37,7 +37,7 @@
 | AB14 P3 — bounded 3-hop self-host oracle | ✅ complete — hard stop | Coverage support>=2 tăng 17%→24%, nhưng 3-hop chỉ +0.0155 vs local và +0.0014 vs 2-hop; cả hai CI cắt 0. Không tăng tiếp n-hop bằng cùng item-overlay. |
 | AB14 P4 — filtered 3-hop | ✅ complete — hard stop | Filter giữ support>=2 ở 19%; NDCG@5 0.5939, chỉ +0.0186 vs local và +0.0031 vs raw 3-hop, cả hai CI cắt 0. |
 | AB14 P5/P5b — candidate graph 3/5-layer | ✅ complete — hard stop | Full graph tăng gold coverage 15%→30% nhưng negative evidence 2.33%→13.78%; residual 5-layer +0.0077 vs local và −0.0019 vs 3-layer. |
-| AB14 P6 — learned adaptive multi-hop | 🟡 running — model locked | Fresh-test protocol; graph smoke pass, train 1.200 event. Validation chọn alpha 0.6/gate 0.1 và +0.0265; fresh test chưa evaluate. |
+| AB14 P6 — learned adaptive multi-hop | ✅ complete — hard stop | Validation +0.0265 không transfer: fresh test adaptive 0.5672 vs local 0.5897 (−0.0225, CI [−0.0559,+0.0113]). Oracle best-of còn +0.0305 nhưng gate sai 22 event. |
 
 ## AB14 — Amazon Books 2014 temporal P0/P1 — 2026-08-26
 
@@ -175,6 +175,26 @@
 - **Quyết định:** hard stop cho fixed 5-layer scorer. Density khắc phục recall,
   nhưng deeper expansion làm noise tăng nhanh hơn signal. Chỉ xét protocol mới
   với independent training cohort + learned depth-adaptive gate.
+
+## AB14 — P6 learned adaptive multi-hop — 2026-09-21
+
+- Khóa fresh-test protocol vì cohort P3–P5 đã bị quan sát: train pairwise scorer
+  trên 1.200 event quá khứ, dùng 100 event cũ chỉ calibration và dành 100 event
+  sau validation cutoff làm primary test.
+- Graph smoke 24 train + 20 test pass. Temporal audit trước fit bắt được và sửa
+  lỗi same-timestamp: các review cùng ngày không còn được tính là history của
+  nhau. Toàn bộ test prompt có 5–6 review strict-past.
+- Validation chọn alpha 0,6, margin gate 0,1: 0,6018 vs local 0,5752 (+0,0265),
+  active 44/100. Model/config được hash trước khi test labels được mở.
+- Fresh test: local/adaptive NDCG@5 = 0,5897/0,5672; delta −0,0225, CI
+  [−0,0559; +0,0113]. Adaptive cải thiện 8, làm tệ 22, giữ nguyên 70; active
+  57/100. Oracle best-of post-hoc +0,0305 nhưng không deployable.
+- Self-host smoke 20 pass; full 200/200 success, zero retry/error/repair, peak
+  7,84 GiB trên một H100. Process thoát và GPU về 1 MiB. Metrics SHA256:
+  `91389ca081e24a6fcb981d74f1add16f630801f81de37e22be3799169a305816`.
+- **Quyết định:** hard stop cho depth-weight + scalar margin gate. Không retune
+  trên fresh test; continuation cần learned intervention-risk gate và một test
+  cohort mới.
 
 ## MH0 — Freeze protocol — 2026-08-25
 
