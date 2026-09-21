@@ -7,7 +7,8 @@
 > Amazon Books 2014 P2-v1 was stopped for a reranker output-contract error.
 > Its separate P2-v2 smoke-first rerun completed and failed the oracle headroom
 > gate. P3 self-host 3-hop cũng đã complete và fail gate; no candidate-blind
-> implementation is admitted. P4 filtered 3-hop tăng rất nhẹ nhưng cũng fail.
+> implementation is admitted. P4 filtered 3-hop và P5/P5b candidate graph đều
+> tăng nhẹ nhưng fail gate.
 >
 > Các số của hướng SFT/RL cũ nằm trong [RL_WORK_SUMMARY.md](RL_WORK_SUMMARY.md)
 > và không được dùng làm baseline trực tiếp ở đây: M0 cũ sample negative theo
@@ -24,7 +25,7 @@
 | Candidate protocol | 10 fixed candidates/user; cùng thứ tự trong mọi arm của user |
 | Primary metric | Paired NDCG@5, 10,000 bootstrap user resamples |
 | Context control | Per-user K_u node slots và T_u token cap từ 1-hop control |
-| Active result status | InstructRec MH2/CE1 và write-side feasibility đều closed. Amazon Books P4 filtered 3-hop chỉ +0.0186 vs local và +0.0031 vs raw 3-hop; hard stop. |
+| Active result status | InstructRec MH2/CE1 đều closed. Amazon Books P5b full-graph residual 5-layer chỉ +0.0077 vs local và kém 3-layer −0.0019; hard stop. |
 
 MH2 kết luận riêng cho graph expansion. Candidate-conditioned 1-hop evidence là
 một protocol ranking-time mới, được preregister tại
@@ -309,3 +310,29 @@ success, zero retry/repair. Peak VRAM 7,85 GiB trên một H100; card được n
 **Decision: hard stop.** Filter quality có tín hiệu nhỏ nhưng không đủ headroom
 và không ổn định. Không tune threshold post-hoc; packet overlay không được
 admit. Nếu tiếp tục graph, cần candidate-level scoring/retrieval protocol mới.
+
+## 14. Candidate-directed 3/5-layer graph scoring
+
+Protocol: [CANDIDATE_GRAPH_5L_PLAN.md](CANDIDATE_GRAPH_5L_PLAN.md). P5 sampled
+graph cho thấy evidence quá sparse; P5b giữ nguyên scorer và mở sang full
+positive graph, không gọi LLM/GPU.
+
+| Full-graph arm | NDCG@5 | H@5 | Δ vs local |
+|---|---:|---:|---:|
+| local | 0,5752 | 0,76 | reference |
+| graph-only 3-layer | 0,3776 | 0,54 | −0,1976 |
+| graph-only 5-layer | 0,4513 | 0,63 | −0,1239 |
+| residual 3-layer | 0,5848 | 0,78 | +0,0096 |
+| residual 5-layer | 0,5829 | 0,77 | **+0,0077** |
+
+Residual 5-layer vs local CI [−0,0100; +0,0266]; vs residual 3-layer là
+−0,0019, CI [−0,0137; +0,0086]. Full graph tăng gold evidence 15%→30% từ
+3→5 layers, nhưng negative evidence tăng nhanh hơn, 2,33%→13,78%. Vì vậy graph
+density giải quyết reachability, còn fixed depth làm precision suy giảm.
+
+Scoring runtime 7,51 giây sau load trên CPU, LLM=0, GPU=none. Metrics SHA256:
+`928c12300868ac662355373fe2d83bfcbdf426f2416cabf0293689661da84168`.
+
+**Decision: hard stop.** Không tăng depth hoặc tune fixed score trên validation.
+Một continuation hợp lệ cần independent training cohort và learned
+depth-adaptive gate; đó là protocol mới.

@@ -36,6 +36,7 @@
 | AB14 P2-v2 — smoke-first oracle rerun | ✅ complete — hard stop | 100 event/300 final rerank; oracle ΔNDCG@5 = +0.0324, 95% CI [+0.0073, +0.0592], dưới gate +0.05. |
 | AB14 P3 — bounded 3-hop self-host oracle | ✅ complete — hard stop | Coverage support>=2 tăng 17%→24%, nhưng 3-hop chỉ +0.0155 vs local và +0.0014 vs 2-hop; cả hai CI cắt 0. Không tăng tiếp n-hop bằng cùng item-overlay. |
 | AB14 P4 — filtered 3-hop | ✅ complete — hard stop | Filter giữ support>=2 ở 19%; NDCG@5 0.5939, chỉ +0.0186 vs local và +0.0031 vs raw 3-hop, cả hai CI cắt 0. |
+| AB14 P5/P5b — candidate graph 3/5-layer | ✅ complete — hard stop | Full graph tăng gold coverage 15%→30% nhưng negative evidence 2.33%→13.78%; residual 5-layer +0.0077 vs local và −0.0019 vs 3-layer. |
 
 ## AB14 — Amazon Books 2014 temporal P0/P1 — 2026-08-26
 
@@ -155,6 +156,24 @@
 - **Quyết định:** hard stop cho path filter + packet overlay này. Không tune
   rating/half-life/hub/diversity sau result; hướng tiếp theo phải đổi sang
   candidate-level graph scoring/retrieval nếu tiếp tục.
+
+## AB14 — P5/P5b candidate-directed graph scoring — 2026-09-21
+
+- P5 tìm path riêng cho mọi candidate, strict-past và rating>=4; so max 3 vs 5
+  item-layers bằng cùng beam/cap/recency/hub/length score. Graph score fuse vào
+  frozen local rank với alpha 0,25; không LLM/GPU.
+- Trên 1/48 graph, layer-5 chỉ cover 5/100 gold và residual gain +0,0013. P5b
+  giữ nguyên scorer nhưng dùng full graph: gold evidence tăng 15%→30%, trong khi
+  negative-slot evidence tăng 2,33%→13,78%.
+- Full-graph residual layer-3/5 NDCG@5 = 0,5848/0,5829. Layer-5 vs local =
+  +0,0077, CI [−0,0100; +0,0266]; layer-5 vs layer-3 = −0,0019, CI
+  [−0,0137; +0,0086]. Gate +0,02/+0,01 đều fail.
+- Post-hoc best-of local/3/5 chỉ +0,0188; không đủ headroom để justify learned
+  scorer trên cùng cohort. P5b metrics SHA256:
+  `928c12300868ac662355373fe2d83bfcbdf426f2416cabf0293689661da84168`.
+- **Quyết định:** hard stop cho fixed 5-layer scorer. Density khắc phục recall,
+  nhưng deeper expansion làm noise tăng nhanh hơn signal. Chỉ xét protocol mới
+  với independent training cohort + learned depth-adaptive gate.
 
 ## MH0 — Freeze protocol — 2026-08-25
 
