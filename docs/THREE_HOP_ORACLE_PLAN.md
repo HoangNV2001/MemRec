@@ -125,10 +125,10 @@ không post-hoc tăng cap, đổi origin score, đổi prompt/model hoặc chọ
 ## 7. Artifacts
 
 - Config: `configs/temporal_amazon_books_2014/p3_selfhost.yaml`
-- Structural: `p3_structural_smoke.json`, `p3_item_route_ledger.jsonl`,
-  `p3_preflight_manifest.json`
-- Prepared: `p3_selfhost_prepared.json`
-- LLM: `p3_selfhost_{attempts,calls,smoke_manifest,metrics,manifest}.*`
+- Structural: `p3_structural_smoke-hnv.json`, `p3_item_route_ledger-hnv.jsonl`,
+  `p3_preflight_manifest-hnv.json`
+- Prepared: `p3_selfhost_prepared-hnv.json`
+- LLM: `p3_selfhost_{attempts,calls,smoke_manifest,metrics,manifest}-hnv.*`
 
 Mọi artifact ở `data/temporal_amazon_books_2014/` là derived/gitignored; manifest
 ghi SHA256 và kết quả được kéo về local ngay sau run.
