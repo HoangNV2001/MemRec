@@ -1,0 +1,9 @@
+dataset:
+  reviews_file: data/Books_rating.csv
+  metadata_file: data/books_data.csv
+  p0_audit: data/temporal_amazon_books_2014/p0_temporal_audit.json
+
+temporal_split:
+  train_quantile: 0.80
+  validation_quantile: 0.90
+  same_timestamp_policy: strict_past_batch

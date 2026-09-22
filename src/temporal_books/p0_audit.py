@@ -1,4 +1,4 @@
-"""P0: audit whether Kaggle Amazon Books reviews permit causal temporal replay.
+"""Audit whether Kaggle Amazon Books reviews permit causal temporal replay.
 
 The source has a real Unix ``review/time`` field, unlike the existing
 InstructRec conversion.  It still has many same-day ties, so the admissible
@@ -178,8 +178,8 @@ def audit_metadata(path: Path) -> tuple[Dict[str, Any], set[str]]:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="P0 audit for Kaggle Amazon Books temporal replay")
-    parser.add_argument("--config", default="configs/temporal_amazon_books_2014/pilot.yaml")
+    parser = argparse.ArgumentParser(description="Audit Kaggle Amazon Books temporal replay")
+    parser.add_argument("--config", default="configs/temporal_amazon_books_2014/dataset_audit.yaml")
     parser.add_argument("--force", action="store_true", help="replace the derived P0 artifact")
     return parser.parse_args()
 

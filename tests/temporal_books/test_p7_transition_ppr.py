@@ -7,7 +7,7 @@ from src.temporal_books.p7_selfhost_local import (
     configured_smoke_events,
     permutation_repairs,
 )
-from src.temporal_books.p6_selfhost_local import smoke_events
+from src.temporal_books.current_support import smoke_events
 from src.temporal_books.p7_transition_ppr import (
     build_transition_graph,
     one_step_scores,

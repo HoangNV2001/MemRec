@@ -8,11 +8,15 @@ from typing import Any, Dict, Mapping, Sequence
 
 from src.models.selfhost_transformers import TransformersJSONClient
 from src.temporal_books.common import load_yaml, project_path, sha256_file
-from src.temporal_books.p2_oracle import LETTERS, Journal, call_phase, read_jsonl, rerank_prompt
-from src.temporal_books.p3_oracle import event_key
-from src.temporal_books.p6_selfhost_local import (
+from src.temporal_books.current_support import (
+    LETTERS,
+    Journal,
+    call_phase,
+    event_key,
     model_contract,
+    read_jsonl,
     required_keys,
+    rerank_prompt,
     resource_snapshot,
     stage_jobs,
     smoke_events,
@@ -132,7 +136,7 @@ def ranking_contract(config: Mapping[str, Any]) -> Dict[str, Any]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="P7 self-hosted fresh-test local ranker")
-    parser.add_argument("--config", default="configs/temporal_amazon_books_2014/p7_transition_ppr.yaml")
+    parser.add_argument("--config", default="configs/temporal_amazon_books_2014/p7v2_transition_ppr.yaml")
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--smoke-only", action="store_true")
     modes.add_argument("--request", action="store_true")
@@ -203,12 +207,9 @@ def main() -> None:
         max_model_len=int(self_host["max_model_len"]),
     )
     selected_events = smoke if args.smoke_only else list(prepared["test_events"])
-    if self_host.get("ranking_contract") == "permutation_completion_v2":
-        run_events_v2(selected_events, prepared, config, client, journal)
-    else:
-        from src.temporal_books.p6_selfhost_local import run_events
-
-        run_events(selected_events, prepared, config, client, journal)
+    if self_host.get("ranking_contract") != "permutation_completion_v2":
+        raise RuntimeError("only the sealed P7-v2 ranking contract is supported")
+    run_events_v2(selected_events, prepared, config, client, journal)
     stats = client.get_token_stats()
     missing = [key for key in required_keys(selected_events) if key not in (journal.completed or {})]
     if missing:

@@ -23,16 +23,18 @@ from src.temporal_books.common import (
     sha256_file,
     stable_order,
 )
-from src.temporal_books.p2_analysis import paired_bootstrap_ci
-from src.temporal_books.p2_oracle import event_hit_at_5, event_ndcg_at_5
-from src.temporal_books.p3_oracle import event_key
-from src.temporal_books.p5_candidate_graph import rank_by_scores, successful_calls
-from src.temporal_books.p6_adaptive_graph import (
+from src.temporal_books.current_support import (
     add_test_prompt_context,
     attach_candidates,
+    event_hit_at_5,
+    event_key,
+    event_ndcg_at_5,
     first_novel_positive_targets,
     load_positive_graph,
+    paired_bootstrap_ci,
+    rank_by_scores,
     read_jsonl,
+    successful_calls,
 )
 
 
@@ -232,8 +234,7 @@ def prepare(config: Mapping[str, Any], config_path: Path, *, force: bool) -> Dic
     p0 = json.loads(project_path(config["dataset"]["p0_audit"]).read_text(encoding="utf-8"))
     train_cutoff = int(p0["temporal_split"]["train_cutoff"])
     validation_cutoff = int(p0["temporal_split"]["validation_cutoff"])
-    # Reuse P6's audited positive-graph loader with the P7 protocol namespace.
-    positive_histories, positive_item_events = load_positive_graph({**config, "p6": p7})
+    positive_histories, positive_item_events = load_positive_graph(config)
     candidate_pool = sorted(
         item_id for item_id, events in positive_item_events.items() if events and int(events[0][0]) < train_cutoff
     )
@@ -555,7 +556,7 @@ def run_evaluate(config: Mapping[str, Any], config_path: Path, prepared: Mapping
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="P7 temporal transition PPR")
-    parser.add_argument("--config", default="configs/temporal_amazon_books_2014/p7_transition_ppr.yaml")
+    parser.add_argument("--config", default="configs/temporal_amazon_books_2014/p7v2_transition_ppr.yaml")
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--prepare", action="store_true")
     modes.add_argument("--graph-smoke", action="store_true")

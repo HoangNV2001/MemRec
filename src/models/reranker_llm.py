@@ -106,7 +106,7 @@ Your response should be a JSON object with a single field:
             # Format preference patterns (extracted from collaborative memories).
             # Only claim to have found patterns when Stage-R actually produced facets —
             # asserting "we identified preferences" and then saying "(none found)" reads as
-            # contradictory to the LLM and measurably degrades scoring (see docs/PROGRESS.md M0).
+            # contradictory to the LLM and measurably degrades scoring.
             if facets:
                 prompt_parts.append("\n**User Preferences (Extracted from Collaborative Memories):**")
                 prompt_parts.append("Based on collaborative signals from neighboring users and items, we have identified the following preference patterns:")

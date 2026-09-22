@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+secrets/
 # Cluster access/runbook contains internal host/account/job details. Keep it
 # local like the source project's internal_docs policy.
 internal_docs/
@@ -12,26 +13,8 @@ data/Books_rating.csv
 data/books_data.csv
 data/processed/*
 !data/processed/.gitkeep
-# Raw Amazon Reviews'23 archives are downloaded outside Git.  The downloader
-# writes resumable ``.part`` files here before atomically publishing ``.gz``.
-data/raw/amazon-reviews-2023/*
-!data/raw/amazon-reviews-2023/.gitkeep
-# RL artefacts are large and derived (snapshot ~15MB, jsonl ~30MB) — rebuild with
-# scripts/rl/. The split definition is small and *defines* the experiment, so it
-# is tracked: without it the train/val/test partition is not reproducible.
-# (exclude the *contents*, not the directory — git cannot re-include a file whose
-# parent directory is itself excluded)
-data/rl/*
-!data/rl/user_splits_books.json
-# Multi-hop artifacts are materialized inputs/outputs, not source. Keep only
-# the empty directory marker in git.
-data/multihop/*
-!data/multihop/.gitkeep
-# Propagation artifacts are similarly derived and potentially large.
-data/propagation/*
-!data/propagation/.gitkeep
-# Temporal Amazon Books pilot artifacts are fully derived.  Keep a directory
-# marker only; source CSVs above remain at data/ for compatibility with Kaggle.
+# Temporal Amazon Books artifacts are fully derived. Keep a directory marker;
+# source CSVs above remain at data/ for compatibility with Kaggle.
 data/temporal_amazon_books_2014/*
 !data/temporal_amazon_books_2014/.gitkeep
 
