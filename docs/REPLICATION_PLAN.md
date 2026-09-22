@@ -1,10 +1,11 @@
-# Replication plan — Temporal Transition-PPR
+# Replication report — Temporal Transition-PPR
 
-> Trạng thái: protocol/config **locked trước result**; chưa materialize cohort,
-> chưa mở label và chưa dùng GPU. Active config:
+> Trạng thái: internal Amazon Books replication **complete / pass**. Protocol
+> và config được lock trước khi materialize result. Active config:
 > `configs/temporal_amazon_books_2014/transition_ppr_replication_200.yaml`,
 > SHA256 `4a0aa4fee584983eaa4dedacd0633c1293e187da66739ab4ba621d7f43b62098`.
-> P7-v2 test tuyệt đối không được dùng để tune thêm.
+> P7-v2 test không được dùng để tune thêm; replication không retune
+> alpha, restart, walk budget, depth hay prompt sau khi mở labels.
 
 ## 1. Mục tiêu
 
@@ -17,6 +18,9 @@ Replication phải trả lời hai câu hỏi tách biệt:
 
 Primary replication trước mắt là câu 1. External dataset là phase tiếp theo,
 không trộn result hai phase.
+
+Kết luận câu 1: **có**. Effect replicate với gain lớn hơn discovery
+cohort và CI lower dương rõ ràng.
 
 ## 2. Frozen method
 
@@ -114,3 +118,60 @@ buộc thay đổi, result được gọi là adaptation study chứ không ph�
 - LLM smoke fail: sealed run ID; sửa contract bằng run ID mới rồi smoke lại.
 - Primary fail: không tune alpha/restart/depth trên test; kết luận effect chưa
   replicate và chuyển sang error analysis read-only.
+
+## 10. Execution record
+
+| Phase | Status | Evidence |
+|---|---|---|
+| R0 cohort | Pass | 200 events, 200 users; exclude 1.500 prior-cohort users |
+| R1 graph smoke | Pass | 20 events; deterministic replay; labels không dùng khi score |
+| R2 LLM smoke | Pass | 20 events, 40/40 generations, 0 retry/repair |
+| R2 LLM full | Complete | 400/400 primary generations, 0 retry/repair |
+| R3 evaluation | **Pass** | +0,1371 NDCG@5; CI lower +0,0904 |
+
+R0 audit có 10 distinct candidates/event, `gold-in-history = 0`, history dài
+5–6 và candidate pool 189.859 item. R1 dùng cùng graph snapshot với
+1.008.972 users, 142.572 source item, 511.907 consecutive batch pairs và
+876.669 source-to-group links.
+
+GPU run dùng đúng một H100, tensor parallel 1. Smoke peak 7,829 GiB; full
+peak 7,863 GiB. Smoke cache được reuse: full invocation chỉ sinh 360 call
+còn lại. Sau mỗi invocation, model thoát và VRAM trở về 4 MiB/1 MiB.
+
+## 11. Final result cho report
+
+| Arm | NDCG@5 | Hit@5 |
+|---|---:|---:|
+| Frozen local Qwen ranker | 0,624675 | 0,820 |
+| Transition-PPR residual, alpha 0,80 | **0,761807** | **0,905** |
+
+- Delta NDCG@5: **+0,137133**.
+- Paired bootstrap 95% CI: **[+0,090385; +0,183835]**.
+- Improved / worsened / unchanged: 64 / 36 / 100 event.
+- Replication gate (`delta >= +0,03`, CI lower > 0): **pass**.
+- Gold reachability: one-step 36/200; multi-hop PPR 123/200.
+- Negative reachability: one-step 8/1.800 (0,44%); PPR 172/1.800
+  (9,56%).
+- Post-hoc best-of-two oracle: 0,803821 (`+0,179147` vs local), chỉ là
+  headroom, không deployable.
+
+Tổng LLM workload là 400 physical request: 341.893 input token + 21.418
+output token = 363.311 token. Không có graph LLM request; graph scoring và
+bootstrap là CPU-only. Evaluation 200 event sau graph build mất 69,30 giây.
+
+## 12. Artifact integrity
+
+| Artifact | SHA256 |
+|---|---|
+| Prepared cohort | `6b1726a620313051bdf0ea488d4a87f7c8dc42bf259cb87dea9b0e816e54a41e` |
+| Locked method | `4e3d6e98cfed44143b43ce33c0fd6363352f494a353a069d40bd8b8e47d3936a` |
+| Local LLM manifest | `77aec295a6745c9259720d98d1baddadd2b3dc5ade91869fa8bc15a2c814f36c` |
+| Test scores, 200 rows | `58c550c5dc67dcc6a26d1e0f8cf3695e91b4669120b9de693e801894c7ebe219` |
+| Metrics | `956cb632e00b7a1b45ae7307cbe06cd08c95953b3fd9e030cdd9eb6a99cefaf6` |
+| Evaluation manifest | `688fb5c1fee96e047c7e3905334f389edbe861c246acc3e829ffb87be7efc3a7` |
+
+## 13. Next step
+
+Primary Amazon result đã đóng; không tune thêm trên 200 labels này.
+Tiếp theo là external replication/adaptation study trên dataset khác. MovieLens
+32M mới chỉ được đặt trong `data/ml-32m/`; chưa audit, convert hay chạy.

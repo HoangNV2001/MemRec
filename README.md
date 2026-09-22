@@ -2,8 +2,8 @@
 
 Repo này giữ implementation gốc của MemRec và hướng nghiên cứu hiện tại:
 directed temporal item-transition graph + multi-hop PPR cho next-item ranking.
-P7-v2 đã tăng NDCG@5 từ `0,6533` lên `0,7285` trên fresh Amazon Books cohort
-(`+0,0752`, paired 95% CI `[+0,0179; +0,1375]`).
+Replication 200 user-disjoint event trên Amazon Books tăng NDCG@5 từ `0,6247`
+lên `0,7618` (`+0,1371`, paired 95% CI `[+0,0904; +0,1838]`).
 
 ## Tài liệu hiện tại
 
@@ -16,7 +16,8 @@ P7-v2 đã tăng NDCG@5 từ `0,6533` lên `0,7285` trên fresh Amazon Books coh
 ```text
 configs/temporal_amazon_books_2014/
 ├── dataset_audit.yaml
-└── p7v2_transition_ppr.yaml
+├── p7v2_transition_ppr.yaml
+└── transition_ppr_replication_200.yaml
 
 src/temporal_books/
 ├── common.py

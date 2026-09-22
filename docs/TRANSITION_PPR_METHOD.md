@@ -1,9 +1,10 @@
 # Temporal Transition-PPR for next-item recommendation
 
 Đây là tài liệu canonical của hướng nghiên cứu hiện tại. Nó mô tả phương pháp,
-protocol, tiến độ thực nghiệm và kết quả P7-v2; các hướng đã đóng chỉ còn bản
-tóm tắt trong [ARCHIVED_DIRECTIONS.md](ARCHIVED_DIRECTIONS.md). Bước tiếp theo
-được khóa riêng ở [REPLICATION_PLAN.md](REPLICATION_PLAN.md).
+protocol, kết quả discovery P7-v2 và internal replication 200 event; các hướng
+đã đóng chỉ còn bản tóm tắt trong
+[ARCHIVED_DIRECTIONS.md](ARCHIVED_DIRECTIONS.md). Execution record đầy đủ nằm
+trong [REPLICATION_PLAN.md](REPLICATION_PLAN.md).
 
 ## 1. Câu hỏi nghiên cứu
 
@@ -125,6 +126,8 @@ Fresh-test không retune alpha/restart/walk/depth.
 - Calibration: 100 event P6 đã được quan sát; chỉ dùng chọn alpha và admission.
 - Primary: 100 positive event mới sau validation cutoff, user-disjoint với P6
   train/test và validation cũ.
+- Replication: 200 positive event mới, mỗi user đúng một event và user-disjoint
+  với toàn bộ 1.500 user từng xuất hiện trong các cohort P3–P7 đã khóa.
 - 0/100 calibration gold và 0 candidate từng xuất hiện trong strict-past user
   history của event tương ứng.
 - Graph, candidate pool, local output và alpha được hash trước khi mở primary
@@ -142,11 +145,14 @@ Fresh-test không retune alpha/restart/walk/depth.
 | P7-v2 LLM smoke | Pass | 21 event, 42/42 success, 0 error/retry/repair |
 | P7-v2 full local ranker | Complete | 200/200 primary requests, 0 retry/repair |
 | Fresh evaluation | **Pass** | +0,0752 NDCG@5; CI lower dương |
+| Replication R0/R1 | Pass | 200 user-disjoint event; graph deterministic/leakage-safe |
+| Replication LLM | Complete | 400/400 primary requests, 0 retry/repair |
+| Replication evaluation | **Pass** | +0,1371 NDCG@5; CI [+0,0904; +0,1838] |
 
 P7-v1 journal dừng ở 130 attempts và không được trộn vào v2. Regression event
 gây lỗi v1 được thêm vào v2 smoke trước full run.
 
-## 9. Primary result
+## 9. Discovery result — P7-v2
 
 | Arm | NDCG@5 | Hit@5 |
 |---|---:|---:|
@@ -162,11 +168,32 @@ gây lỗi v1 được thêm vào v2 smoke trước full run.
 - Post-hoc oracle best-of-two: 0,7740, +0,1207 vs local; không deployable.
 
 Kết quả cho thấy graph sâu có ích khi edge semantics bám temporal next-item;
-gain không đến từ mở rộng co-preference graph bằng nhiều rule hơn. Tuy vậy 16
-event bị làm tệ và negative reachability tăng rõ, nên routing uncertainty vẫn
-là vấn đề cần audit ở replication, không được tune trên test hiện tại.
+gain không đến từ mở rộng co-preference graph bằng nhiều rule hơn. Replication
+được khóa trước để kiểm tra liệu effect có lặp lại ngoài 100 event này hay không.
 
-## 10. Compute và request audit
+## 10. Internal replication result — final Amazon Books number
+
+Replication giữ nguyên toàn bộ method parameter và alpha 0,80, nhưng dùng 200
+event/user mới, không overlap với các cohort trước.
+
+| Arm | NDCG@5 | Hit@5 |
+|---|---:|---:|
+| Frozen local | 0,624675 | 0,820 |
+| Transition-PPR residual | **0,761807** | **0,905** |
+
+- Delta NDCG@5: **+0,137133**.
+- Paired bootstrap 95% CI: **[+0,090385; +0,183835]**.
+- Improved / worsened / unchanged event: 64 / 36 / 100.
+- Pre-registered replication gate (+0,03 và CI lower > 0): **pass**.
+- Gold reachability: one-step 36/200; PPR 123/200.
+- Negative reachability: one-step 8/1.800 (0,44%); PPR 172/1.800
+  (9,56%).
+- Post-hoc oracle best-of-two: 0,803821, +0,179147 vs local; không deployable.
+
+Đây là số final cho Amazon Books. Không tiếp tục tune alpha/restart/depth trên
+200 labels này; mọi thay đổi tiếp theo phải dùng validation/cohort/dataset khác.
+
+## 11. Compute và request audit
 
 - Smoke: 42 requests, 39.810 token.
 - Full invocation: reuse smoke và chạy thêm 158 requests, 140.778 token.
@@ -174,7 +201,17 @@ là vấn đề cần audit ở replication, không được tune trên test hi�
 - Peak VRAM: 7,8325 GiB trên đúng một H100 80 GB; tensor parallel = 1.
 - Sau smoke/full, process thoát và cả bốn GPU về baseline 1 MiB.
 
-## 11. Reproducibility surface
+Replication:
+
+- Smoke: 40 requests; 34.635 input + 2.127 output = 36.762 token.
+- Full invocation: reuse smoke, thêm 360 requests; 307.258 input + 19.291
+  output = 326.549 token.
+- Tổng: 400 physical requests; 341.893 input + 21.418 output = 363.311 token.
+- Retry/parser/permutation repair: 0/0/0.
+- Peak VRAM: smoke 7,829 GiB; full 7,863 GiB trên đúng một H100.
+- Sau smoke/full, VRAM của GPU đã chọn về baseline lần lượt 4 MiB và 1 MiB.
+
+## 12. Reproducibility surface
 
 Source còn active:
 
@@ -183,6 +220,8 @@ Source còn active:
 - `src/temporal_books/current_support.py`: shared data/ranking/journal utilities.
 - `src/temporal_books/p0_audit.py`: raw temporal dataset audit.
 - `configs/temporal_amazon_books_2014/p7v2_transition_ppr.yaml`: sealed config.
+- `configs/temporal_amazon_books_2014/transition_ppr_replication_200.yaml`:
+  sealed replication config và là default active config.
 
 P7-v2 artifacts là sealed historical record. Active commands dưới đây trỏ tới
 replication config mới, không overwrite run P7-v2:
@@ -200,7 +239,21 @@ GPU commands phải tuân theo local-only `internal_docs/H100_RESOURCE_RULES.md`
 smoke 20–30 mẫu, dynamic idle-GPU selection, đúng một visible GPU cho contract
 hiện tại, và unload ngay khi xong.
 
-## 12. Canonical hashes
+## 13. Canonical hashes
+
+Replication final:
+
+| Artifact | SHA256 |
+|---|---|
+| Config | `4a0aa4fee584983eaa4dedacd0633c1293e187da66739ab4ba621d7f43b62098` |
+| Prepared cohort | `6b1726a620313051bdf0ea488d4a87f7c8dc42bf259cb87dea9b0e816e54a41e` |
+| Locked method | `4e3d6e98cfed44143b43ce33c0fd6363352f494a353a069d40bd8b8e47d3936a` |
+| Local LLM manifest | `77aec295a6745c9259720d98d1baddadd2b3dc5ade91869fa8bc15a2c814f36c` |
+| Test scores, 200 rows | `58c550c5dc67dcc6a26d1e0f8cf3695e91b4669120b9de693e801894c7ebe219` |
+| Metrics | `956cb632e00b7a1b45ae7307cbe06cd08c95953b3fd9e030cdd9eb6a99cefaf6` |
+| Evaluation manifest | `688fb5c1fee96e047c7e3905334f389edbe861c246acc3e829ffb87be7efc3a7` |
+
+P7-v2 discovery record:
 
 | Artifact | SHA256 |
 |---|---|
@@ -211,12 +264,13 @@ hiện tại, và unload ngay khi xong.
 | Metrics | `07bba2e2f222f1a9665a09d190ad53f9262c64b5bbd974bb3ecb3ecc138b93e3` |
 | Evaluation manifest | `0c33effce9056237a186f6c83353c14b40757b06eaea5484b4873c4d0c6c4d1c` |
 
-## 13. Hạn chế
+## 14. Hạn chế
 
-- Chỉ 100 primary events và candidate task 1-positive/9-uniform-negative.
+- Discovery có 100 và internal replication có 200 event; cả hai vẫn dùng
+  candidate task 1-positive/9-uniform-negative khá dễ.
 - Dataset cũ, timestamp chỉ tới độ phân giải ngày.
 - Graph snapshot lớn được dựng lại per command, chưa tối ưu production latency.
 - Frozen local ranker là Qwen3-4B listwise, chưa chứng minh gain transfer sang
   ranker mạnh hơn hoặc retrieval candidate pool lớn.
-- Alpha được calibration trên cohort lịch sử cùng dataset; external validity
-  phải được kiểm bằng replication, không bằng retune P7 test.
+- Alpha được calibration trên cohort lịch sử cùng dataset. Internal replication
+  đã pass nhưng external validity vẫn chưa được chứng minh trên dataset khác.
