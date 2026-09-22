@@ -17,7 +17,7 @@
 | M0 full audit | Pass | 32.000.204 ratings; integrity and feasibility gates pass |
 | M1 shared core | Pass | 31 tests; Amazon golden outputs unchanged; 50-user adapter smoke pass |
 | M2 cohort/graph smoke | Pass | Cohorts locked; small and full dual-view graph smoke pass |
-| M3 local ranker | Not started | 0 LLM requests; 0 GPU use |
+| M3 local ranker | In progress | 36 tests + CPU prompt dry-run pass; 0 LLM/GPU so far |
 | M4 evaluation | Not started | Labels not evaluated |
 
 ## 1. Research question
@@ -307,3 +307,8 @@ five-minute-session view has 2.210.221 pairs and 22.019.905 links. Nonzero
 one-step/PPR candidate slots were 72/20 for exact and 119/19 for session out of
 200 slots. Replay was deterministic; labels were not used. Peak RSS was
 1.446.944 KiB with zero swap and no GPU.
+
+The frozen MovieLens prompt contract renders only prior `title + genres +
+rating` and candidate `title + genres`. Its CPU dry-run SHA256 is
+`6eacf64600391323e4bab1d4eba09be7d05966eae5bbb9d9382e6707fe0e781b`;
+20 development events produced 40 valid jobs without writing a journal.
