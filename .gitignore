@@ -9,14 +9,12 @@ internal_docs/
 
 # Data (large, not tracked)
 data/iagent/
-data/Books_rating.csv
-data/books_data.csv
+data/amazon_books/raw/*
 data/processed/*
 !data/processed/.gitkeep
-# Temporal Amazon Books artifacts are fully derived. Keep a directory marker;
-# source CSVs above remain at data/ for compatibility with Kaggle.
-data/temporal_amazon_books_2014/*
-!data/temporal_amazon_books_2014/.gitkeep
+# Amazon Books artifacts are fully derived. Keep a directory marker only.
+data/amazon_books/artifacts/*
+!data/amazon_books/artifacts/.gitkeep
 
 # Results & checkpoints
 results/

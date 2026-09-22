@@ -136,7 +136,9 @@ def ranking_contract(config: Mapping[str, Any]) -> Dict[str, Any]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="P7 self-hosted fresh-test local ranker")
-    parser.add_argument("--config", default="configs/temporal_amazon_books_2014/p7v2_transition_ppr.yaml")
+    parser.add_argument(
+        "--config", default="configs/temporal_amazon_books_2014/transition_ppr_replication_200.yaml"
+    )
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--smoke-only", action="store_true")
     modes.add_argument("--request", action="store_true")

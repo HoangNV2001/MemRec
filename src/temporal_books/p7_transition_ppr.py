@@ -213,8 +213,137 @@ def residual_ranking(
     return rank_by_scores(candidates, combined)
 
 
+def replication_excluded_users(p7: Mapping[str, Any]) -> tuple[set[str], list[Dict[str, Any]]]:
+    excluded: set[str] = set()
+    inputs: list[Dict[str, Any]] = []
+    for source in p7["replication_exclusions"]:
+        path = project_path(source["path"])
+        digest = sha256_file(path)
+        if digest != str(source["sha256"]):
+            raise RuntimeError(f"replication exclusion hash mismatch: {source['path']}")
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        source_users: set[str] = set()
+        for field in source["event_fields"]:
+            for event in payload[field]:
+                source_users.add(str(event["user_id"]))
+        excluded.update(source_users)
+        inputs.append(
+            {
+                "path": str(source["path"]),
+                "sha256": digest,
+                "event_fields": list(source["event_fields"]),
+                "unique_users": len(source_users),
+            }
+        )
+    return excluded, inputs
+
+
+def prepare_replication(config: Mapping[str, Any], config_path: Path, *, force: bool) -> Dict[str, Any]:
+    p7 = config["p7"]
+    output = project_path(p7["prepared"])
+    if output.exists() and not force:
+        return json.loads(output.read_text(encoding="utf-8"))
+    p0 = json.loads(project_path(config["dataset"]["p0_audit"]).read_text(encoding="utf-8"))
+    train_cutoff = int(p0["temporal_split"]["train_cutoff"])
+    validation_cutoff = int(p0["temporal_split"]["validation_cutoff"])
+    excluded_users, exclusions = replication_excluded_users(p7)
+    positive_histories, positive_item_events = load_positive_graph(config)
+    candidate_pool = sorted(
+        item_id for item_id, events in positive_item_events.items() if events and int(events[0][0]) < train_cutoff
+    )
+    targets = first_novel_positive_targets(
+        positive_histories,
+        start=validation_cutoff,
+        end=None,
+        candidate_pool=set(candidate_pool),
+        minimum_history=int(p7["min_positive_history"]),
+        excluded_users=excluded_users,
+    )
+    targets = sorted(
+        targets,
+        key=lambda row: stable_order(
+            f"{p7['cohort_salt']}\0{row['user_id']}\0{row['timestamp']}\0{row['gold_item_id']}"
+        ),
+    )[: int(p7["test_events"])]
+    if len(targets) != int(p7["test_events"]):
+        raise RuntimeError(f"insufficient user-disjoint replication targets: {len(targets)}")
+    events = attach_candidates(
+        targets,
+        positive_histories,
+        candidate_pool,
+        n_candidates=int(p7["candidates_per_event"]),
+        prefix=str(p7["candidate_salt"]),
+    )
+    events, item_info = add_test_prompt_context(events, config)
+    prepared = {
+        "schema_version": SCHEMA_VERSION,
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "inputs": {
+            "config": {"path": str(config_path.relative_to(PROJECT_ROOT)), "sha256": sha256_file(config_path)},
+            "reviews": {
+                "path": config["dataset"]["reviews_file"],
+                "sha256": sha256_file(project_path(config["dataset"]["reviews_file"])),
+            },
+            "metadata": {
+                "path": config["dataset"]["metadata_file"],
+                "sha256": sha256_file(project_path(config["dataset"]["metadata_file"])),
+            },
+            "exclusions": exclusions,
+        },
+        "protocol": {
+            "graph_cutoff": validation_cutoff,
+            "strict_timestamp_batches": True,
+            "candidate_pool": "positive items first observed before global train cutoff",
+            "candidate_sampling": "one novel positive plus nine deterministic uniform unseen negatives",
+            "replication": True,
+            "user_disjoint_from_all_prior_temporal_cohorts": True,
+            "frozen_alpha": float(p7["fixed_alpha"]),
+        },
+        "excluded_users": len(excluded_users),
+        "candidate_pool_items": len(candidate_pool),
+        "test_events": events,
+        "item_info": item_info,
+    }
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(prepared, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+
+    locked = {
+        "schema_version": SCHEMA_VERSION,
+        "run_id": p7["run_id"],
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "graph_contract": graph_contract(p7),
+        "calibration": {
+            "source": "P7-v2 frozen method; no replication-label calibration",
+            "selected": {"alpha": float(p7["fixed_alpha"])},
+            "test_admission": {
+                "decision": "admit",
+                "criteria": {"frozen_before_replication_labels": True},
+            },
+        },
+    }
+    selection_path = project_path(p7["locked_selection"])
+    selection_path.write_text(json.dumps(locked, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    lock_manifest = {
+        "schema_version": SCHEMA_VERSION,
+        "run_id": p7["run_id"],
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "config": {"path": str(config_path.relative_to(PROJECT_ROOT)), "sha256": sha256_file(config_path)},
+        "prepared": {"path": p7["prepared"], "sha256": sha256_file(output)},
+        "locked_selection": {"path": p7["locked_selection"], "sha256": sha256_file(selection_path)},
+        "replication_labels_used_for_selection": False,
+        "llm_requests": 0,
+        "gpu_used": False,
+    }
+    project_path(p7["calibration_manifest"]).write_text(
+        json.dumps(lock_manifest, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
+    )
+    return prepared
+
+
 def prepare(config: Mapping[str, Any], config_path: Path, *, force: bool) -> Dict[str, Any]:
     p7 = config["p7"]
+    if bool(p7.get("replication_mode")):
+        return prepare_replication(config, config_path, force=force)
     output = project_path(p7["prepared"])
     if output.exists() and not force:
         return json.loads(output.read_text(encoding="utf-8"))
@@ -300,6 +429,11 @@ def graph_contract(p7: Mapping[str, Any]) -> Dict[str, Any]:
 
 def smoke_subsets(config: Mapping[str, Any], prepared: Mapping[str, Any]) -> tuple[list[Dict[str, Any]], list[Dict[str, Any]]]:
     p7 = config["p7"]
+    if bool(p7.get("replication_mode")):
+        test = sorted(
+            prepared["test_events"], key=lambda event: stable_order(f"replication-graph-smoke\0{event_key(event)}")
+        )[: int(p7["smoke_test_events"])]
+        return [], test
     p6 = json.loads(project_path(p7["p6_prepared"]).read_text(encoding="utf-8"))
     calibration = sorted(
         p6["test_events"], key=lambda event: stable_order(f"p7-smoke-calibration\0{event_key(event)}")
@@ -317,10 +451,11 @@ def run_graph_smoke(config: Mapping[str, Any], config_path: Path, prepared: Mapp
     adjacency, stats = build_transition_graph(histories, cutoff=graph_cutoff)
     calibration, test = smoke_subsets(config, prepared)
     started = time.monotonic()
-    rows = score_events(
-        [*calibration, *test], histories, adjacency, p7, walks=int(p7["smoke_walks"])
-    )
-    repeated = score_event(calibration[0], histories, adjacency, p7, walks=int(p7["smoke_walks"]))
+    smoke_events = [*calibration, *test]
+    if not smoke_events:
+        raise RuntimeError("graph smoke cohort is empty")
+    rows = score_events(smoke_events, histories, adjacency, p7, walks=int(p7["smoke_walks"]))
+    repeated = score_event(smoke_events[0], histories, adjacency, p7, walks=int(p7["smoke_walks"]))
     if rows[0] != repeated:
         raise RuntimeError("P7 Monte Carlo smoke is not deterministic")
     if any(len(row["seed_item_ids"]) > int(p7["seed_items"]) for row in rows):
@@ -556,7 +691,9 @@ def run_evaluate(config: Mapping[str, Any], config_path: Path, prepared: Mapping
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="P7 temporal transition PPR")
-    parser.add_argument("--config", default="configs/temporal_amazon_books_2014/p7v2_transition_ppr.yaml")
+    parser.add_argument(
+        "--config", default="configs/temporal_amazon_books_2014/transition_ppr_replication_200.yaml"
+    )
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--prepare", action="store_true")
     modes.add_argument("--graph-smoke", action="store_true")

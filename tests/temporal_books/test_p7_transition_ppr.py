@@ -14,6 +14,7 @@ from src.temporal_books.p7_transition_ppr import (
     ppr_monte_carlo_scores,
     recent_seed_items,
     residual_ranking,
+    smoke_subsets,
     timestamp_batches,
 )
 
@@ -112,3 +113,19 @@ def test_p7v2_permutation_repairs_counts_only_successful_reranks(tmp_path, monke
     calls.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
     monkeypatch.setattr("src.temporal_books.p7_selfhost_local.project_path", lambda value: calls)
     assert permutation_repairs("ignored.jsonl") == ["rerank:local:fixed"]
+
+
+def test_replication_graph_smoke_uses_only_fresh_targets():
+    prepared = {
+        "test_events": [
+            {"user_id": f"u{index}", "timestamp": index}
+            for index in range(30)
+        ]
+    }
+    calibration, test = smoke_subsets(
+        {"p7": {"replication_mode": True, "smoke_test_events": 20}},
+        prepared,
+    )
+    assert calibration == []
+    assert len(test) == 20
+    assert len({f"{event['user_id']}:{event['timestamp']}" for event in test}) == 20

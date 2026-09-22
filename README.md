@@ -26,8 +26,8 @@ src/temporal_books/
 └── p7_transition_ppr.py
 ```
 
-Raw files `data/Books_rating.csv` và `data/books_data.csv`, cùng derived
-artifacts dưới `data/temporal_amazon_books_2014/`, đều gitignored.
+Toàn bộ Amazon Books nằm dưới `data/amazon_books/`: raw CSV ở `raw/` và
+derived outputs ở `artifacts/`. Cả hai đều gitignored ngoại trừ `.gitkeep`.
 
 ## Setup và kiểm tra
 
@@ -38,6 +38,7 @@ pip install -r requirements.txt
 
 python -m pytest -q tests/temporal_books
 python -m src.temporal_books.p0_audit
+python -m src.temporal_books.p7_transition_ppr --prepare
 python -m src.temporal_books.p7_transition_ppr --graph-smoke
 ```
 

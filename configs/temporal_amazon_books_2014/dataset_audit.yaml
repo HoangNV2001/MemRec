@@ -1,7 +1,7 @@
 dataset:
-  reviews_file: data/Books_rating.csv
-  metadata_file: data/books_data.csv
-  p0_audit: data/temporal_amazon_books_2014/p0_temporal_audit.json
+  reviews_file: data/amazon_books/raw/Books_rating.csv
+  metadata_file: data/amazon_books/raw/books_data.csv
+  p0_audit: data/amazon_books/artifacts/p0_temporal_audit.json
 
 temporal_split:
   train_quantile: 0.80

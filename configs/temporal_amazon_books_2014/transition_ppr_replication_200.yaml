@@ -1,0 +1,69 @@
+dataset:
+  reviews_file: data/amazon_books/raw/Books_rating.csv
+  metadata_file: data/amazon_books/raw/books_data.csv
+  p0_audit: data/amazon_books/artifacts/p0_temporal_audit.json
+
+p7:
+  run_id: transition_ppr_replication_200-hnv
+  replication_mode: true
+  fixed_alpha: 0.80
+  cohort_salt: transition-ppr-replication-200-v1
+  candidate_salt: transition-ppr-replication-candidates-v1
+  replication_exclusions:
+    - path: data/amazon_books/artifacts/p6_prepared-hnv.json
+      sha256: bdda8d846376ae62d4d47e0747f7bdd2805a8c2d78d5f7e57dc98054ee6b8dd4
+      event_fields: [train_events, test_events]
+    - path: data/amazon_books/artifacts/p3v4_selfhost_prepared-hnv.json
+      sha256: b25d3a2c66f0c33a7e17b385862ea01e152dc07810aa3e67a779ef7db62ca5ef
+      event_fields: [events]
+    - path: data/amazon_books/artifacts/p7_prepared-hnv.json
+      sha256: 4ebe1a8a10f33239d472bb64e7119de057ffc4e3dcc56183b2bb5591310597a9
+      event_fields: [test_events]
+  prepared: data/amazon_books/artifacts/rep200_prepared-hnv.json
+  graph_smoke: data/amazon_books/artifacts/rep200_graph_smoke-hnv.json
+  calibration_scores: data/amazon_books/artifacts/rep200_unused_calibration_scores-hnv.jsonl
+  locked_selection: data/amazon_books/artifacts/rep200_locked_method-hnv.json
+  calibration_manifest: data/amazon_books/artifacts/rep200_method_lock_manifest-hnv.json
+  test_scores: data/amazon_books/artifacts/rep200_test_scores-hnv.jsonl
+  metrics: data/amazon_books/artifacts/rep200_metrics-hnv.json
+  manifest: data/amazon_books/artifacts/rep200_manifest-hnv.json
+  positive_rating_min: 4.0
+  min_positive_history: 5
+  test_events: 200
+  candidates_per_event: 10
+  seed_items: 6
+  restart_probability: 0.15
+  monte_carlo_walks: 50000
+  max_walk_steps: 64
+  smoke_calibration_events: 0
+  smoke_test_events: 20
+  smoke_walks: 5000
+  fusion_alpha_grid: [0.80]
+  calibration_min_delta_to_run_test: 0.0
+  bootstrap_resamples: 10000
+  bootstrap_seed: 20260922
+  admission_min_delta: 0.03
+
+self_host:
+  model: Qwen/Qwen3-4B-Instruct-2507
+  revision: cdbee75f17c01a7cc42f958dc650907174af0554
+  dtype: bfloat16
+  tensor_parallel_size: 1
+  hard_memory_fraction: 0.25
+  max_model_len: 4096
+  seed: 20260921
+  temperature: 0.0
+  structured_decoding: lm-format-enforcer-json-schema
+  workers: 1
+  stage_r_max_tokens: 384
+  rerank_max_tokens: 96
+  smoke_events: 20
+  ranking_contract: permutation_completion_v2
+  max_permutation_repairs: 5
+  primary_generations: 400
+  retry_reserve: 40
+  hard_generation_cap: 440
+  attempts: data/amazon_books/artifacts/rep200_local_attempts-hnv.jsonl
+  calls: data/amazon_books/artifacts/rep200_local_calls-hnv.jsonl
+  smoke_manifest: data/amazon_books/artifacts/rep200_local_smoke-hnv.json
+  manifest: data/amazon_books/artifacts/rep200_local_manifest-hnv.json

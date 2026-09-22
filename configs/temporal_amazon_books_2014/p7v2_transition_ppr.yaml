@@ -1,25 +1,25 @@
 # P7-v2: same transition-PPR protocol, sealed v2 LLM permutation contract.
 dataset:
-  reviews_file: data/Books_rating.csv
-  metadata_file: data/books_data.csv
-  p0_audit: data/temporal_amazon_books_2014/p0_temporal_audit.json
+  reviews_file: data/amazon_books/raw/Books_rating.csv
+  metadata_file: data/amazon_books/raw/books_data.csv
+  p0_audit: data/amazon_books/artifacts/p0_temporal_audit.json
 
 p7:
   run_id: p7v2_temporal_transition_ppr-hnv
-  p6_prepared: data/temporal_amazon_books_2014/p6_prepared-hnv.json
-  p6_calls: data/temporal_amazon_books_2014/p6_local_calls-hnv.jsonl
-  old_validation_prepared: data/temporal_amazon_books_2014/p3v4_selfhost_prepared-hnv.json
+  p6_prepared: data/amazon_books/artifacts/p6_prepared-hnv.json
+  p6_calls: data/amazon_books/artifacts/p6_local_calls-hnv.jsonl
+  old_validation_prepared: data/amazon_books/artifacts/p3v4_selfhost_prepared-hnv.json
   p6_prepared_sha256: bdda8d846376ae62d4d47e0747f7bdd2805a8c2d78d5f7e57dc98054ee6b8dd4
   p6_calls_sha256: e0667f80066180665266bd9b52a25c596685f95039a581ededc2bcf49923ca9d
   old_validation_prepared_sha256: b25d3a2c66f0c33a7e17b385862ea01e152dc07810aa3e67a779ef7db62ca5ef
-  prepared: data/temporal_amazon_books_2014/p7_prepared-hnv.json
-  graph_smoke: data/temporal_amazon_books_2014/p7v2_graph_smoke-hnv.json
-  calibration_scores: data/temporal_amazon_books_2014/p7v2_calibration_scores-hnv.jsonl
-  locked_selection: data/temporal_amazon_books_2014/p7v2_locked_selection-hnv.json
-  calibration_manifest: data/temporal_amazon_books_2014/p7v2_calibration_manifest-hnv.json
-  test_scores: data/temporal_amazon_books_2014/p7v2_test_scores-hnv.jsonl
-  metrics: data/temporal_amazon_books_2014/p7v2_metrics-hnv.json
-  manifest: data/temporal_amazon_books_2014/p7v2_manifest-hnv.json
+  prepared: data/amazon_books/artifacts/p7_prepared-hnv.json
+  graph_smoke: data/amazon_books/artifacts/p7v2_graph_smoke-hnv.json
+  calibration_scores: data/amazon_books/artifacts/p7v2_calibration_scores-hnv.jsonl
+  locked_selection: data/amazon_books/artifacts/p7v2_locked_selection-hnv.json
+  calibration_manifest: data/amazon_books/artifacts/p7v2_calibration_manifest-hnv.json
+  test_scores: data/amazon_books/artifacts/p7v2_test_scores-hnv.jsonl
+  metrics: data/amazon_books/artifacts/p7v2_metrics-hnv.json
+  manifest: data/amazon_books/artifacts/p7v2_manifest-hnv.json
   positive_rating_min: 4.0
   min_positive_history: 5
   test_events: 100
@@ -57,7 +57,7 @@ self_host:
   primary_generations: 200
   retry_reserve: 20
   hard_generation_cap: 220
-  attempts: data/temporal_amazon_books_2014/p7v2_local_attempts-hnv.jsonl
-  calls: data/temporal_amazon_books_2014/p7v2_local_calls-hnv.jsonl
-  smoke_manifest: data/temporal_amazon_books_2014/p7v2_local_smoke-hnv.json
-  manifest: data/temporal_amazon_books_2014/p7v2_local_manifest-hnv.json
+  attempts: data/amazon_books/artifacts/p7v2_local_attempts-hnv.jsonl
+  calls: data/amazon_books/artifacts/p7v2_local_calls-hnv.jsonl
+  smoke_manifest: data/amazon_books/artifacts/p7v2_local_smoke-hnv.json
+  manifest: data/amazon_books/artifacts/p7v2_local_manifest-hnv.json

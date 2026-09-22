@@ -1,7 +1,10 @@
 # Replication plan — Temporal Transition-PPR
 
-> Trạng thái: protocol draft cho run kế tiếp; chưa materialize cohort, chưa mở
-> label và chưa dùng GPU. P7-v2 test tuyệt đối không được dùng để tune thêm.
+> Trạng thái: protocol/config **locked trước result**; chưa materialize cohort,
+> chưa mở label và chưa dùng GPU. Active config:
+> `configs/temporal_amazon_books_2014/transition_ppr_replication_200.yaml`,
+> SHA256 `4a0aa4fee584983eaa4dedacd0633c1293e187da66739ab4ba621d7f43b62098`.
+> P7-v2 test tuyệt đối không được dùng để tune thêm.
 
 ## 1. Mục tiêu
 

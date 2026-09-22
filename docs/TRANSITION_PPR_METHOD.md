@@ -22,8 +22,10 @@ Primary hypothesis đã khóa trước fresh test:
 
 Nguồn hiện tại là Kaggle Amazon Books:
 
-- `data/Books_rating.csv`: review, user, item, score và Unix `review/time`.
-- `data/books_data.csv`: metadata; không có item ID, chỉ được join exact title.
+- `data/amazon_books/raw/Books_rating.csv`: review, user, item, score và Unix
+  `review/time`.
+- `data/amazon_books/raw/books_data.csv`: metadata; không có item ID, chỉ được
+  join exact title.
 - 2.438.194 interaction có user/item/timestamp hợp lệ; 561.787 dòng userless và
   19 timestamp lỗi bị loại.
 - Timeline theo ngày từ 1996-08-17 đến 2013-03-04. Split global 80/10/10 tạo
@@ -182,12 +184,13 @@ Source còn active:
 - `src/temporal_books/p0_audit.py`: raw temporal dataset audit.
 - `configs/temporal_amazon_books_2014/p7v2_transition_ppr.yaml`: sealed config.
 
-Core commands:
+P7-v2 artifacts là sealed historical record. Active commands dưới đây trỏ tới
+replication config mới, không overwrite run P7-v2:
 
 ```bash
 python -m src.temporal_books.p0_audit --config configs/temporal_amazon_books_2014/dataset_audit.yaml
+python -m src.temporal_books.p7_transition_ppr --prepare
 python -m src.temporal_books.p7_transition_ppr --graph-smoke
-python -m src.temporal_books.p7_transition_ppr --calibrate
 python -m src.temporal_books.p7_selfhost_local --smoke-only
 python -m src.temporal_books.p7_selfhost_local --request
 python -m src.temporal_books.p7_transition_ppr --evaluate
