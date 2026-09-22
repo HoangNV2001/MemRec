@@ -1,9 +1,9 @@
 # TEMPORAL_TRANSITION_GRAPH_PLAN.md — P7 directed transition PPR
 
 > **Protocol khóa trước result:** 2026-09-21.
-> **Trạng thái:** graph smoke + calibration complete; fresh-test admitted.
+> **Trạng thái:** P7-v2 complete, primary fresh-test gate **pass**.
 > P7-v1 LLM run đã bị niêm phong do output-contract failure; P7-v2 được khóa
-> trước khi chạy lại. Fresh-test labels chưa được mở/evaluate.
+> trước khi chạy lại và được evaluate đúng một lần, không post-hoc tuning.
 
 ## Câu hỏi
 
@@ -96,5 +96,29 @@ Protocol trên được khóa khi chưa có result. Sau đó:
   NDCG@5 0,6483. Residual chọn alpha 0,8, đạt 0,7088 vs local 0,5897,
   **+0,1191**; gate admit fresh test. Locked-selection SHA256:
   `61e108c92dedcf17d7552a290680d68de145724aee483727a1f6bbf5342e201e`.
-- Fresh-test labels chưa được mở. Bước kế tiếp: self-host smoke 20, full local
-  baseline P7-v2 rồi chạy đúng locked alpha một lần.
+- Self-host smoke chạy 21 event (20 deterministic + regression event), 42/42
+  success, zero error/retry/parser repair/permutation completion. Full journal
+  hoàn tất 200/200 primary request, zero retry/error/repair; 42 smoke request
+  được reuse nên invocation full chỉ chạy thêm 158 request. Tổng hai invocation
+  là 169.901 input + 10.687 output = 180.588 token. Qwen3-4B revision
+  `cdbee75f…0554`, bf16, một H100, peak VRAM 7,8325 GiB; process thoát và cả
+  bốn GPU về 1 MiB. Local-manifest SHA256:
+  `e6315870a2fcdd389bb5338593e494fcfcfcccdb2adbd1f1c4b6b4e39dc28102`.
+- Fresh test được mở đúng một lần sau khi local output và alpha 0,8 đã khóa.
+  Local NDCG@5/Hit@5 = 0,6533/0,80; transition-PPR residual = 0,7285/0,87,
+  **delta NDCG@5 +0,0752**, paired bootstrap 95% CI
+  **[+0,0179; +0,1375]**. Primary gate (+0,02 và CI lower >0) pass.
+- Residual cải thiện 22 event, làm tệ 16, giữ nguyên 62. Gold coverage one-step
+  21/100 và PPR 63/100; negative coverage tương ứng 1/900 (0,11%) và 97/900
+  (10,78%). Oracle post-hoc đạt 0,7740 (+0,1207 vs local), chỉ dùng đo
+  headroom, không thay primary decision.
+- Test-score có 100 record; manifest xác nhận `test_tuning_after_labels=false`.
+  Metrics/test-score/evaluation-manifest SHA256 lần lượt là
+  `07bba2e2f222f1a9665a09d190ad53f9262c64b5bbd974bb3ecb3ecc138b93e3`,
+  `2fd3fd94897e0138cd9dbc0c116f1e5bb7df50087045e94de690b72940260e2e`,
+  `0c33effce9056237a186f6c83353c14b40757b06eaea5484b4873c4d0c6c4d1c`.
+
+**Kết luận:** temporal transition graph + multi-hop PPR transfer thành công sang
+fresh cohort và vượt gate thống kê đã khóa. Không retune alpha/walk/restart trên
+test này; bước kế tiếp hợp lệ phải là replication trên cohort/dataset mới hoặc
+ablation đã định trước, không khai thác thêm chính 100 labels vừa mở.

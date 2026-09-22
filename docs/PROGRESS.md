@@ -38,7 +38,7 @@
 | AB14 P4 — filtered 3-hop | ✅ complete — hard stop | Filter giữ support>=2 ở 19%; NDCG@5 0.5939, chỉ +0.0186 vs local và +0.0031 vs raw 3-hop, cả hai CI cắt 0. |
 | AB14 P5/P5b — candidate graph 3/5-layer | ✅ complete — hard stop | Full graph tăng gold coverage 15%→30% nhưng negative evidence 2.33%→13.78%; residual 5-layer +0.0077 vs local và −0.0019 vs 3-layer. |
 | AB14 P6 — learned adaptive multi-hop | ✅ complete — hard stop | Validation +0.0265 không transfer: fresh test adaptive 0.5672 vs local 0.5897 (−0.0225, CI [−0.0559,+0.0113]). Oracle best-of còn +0.0305 nhưng gate sai 22 event. |
-| AB14 P7 — temporal transition PPR | 🟡 P7-v2 pending, fresh test admitted | Directed next-item graph; calibration PPR residual 0.7088 vs local 0.5897 (+0.1191), alpha 0.8 locked. P7-v1 sealed after deterministic permutation failure; v2 adds syntax-only completion + regression smoke. Fresh labels chưa mở. |
+| AB14 P7 — temporal transition PPR | ✅ complete — primary gate pass | Fresh test residual 0.7285 vs local 0.6533: ΔNDCG@5 +0.0752, CI [+0.0179,+0.1375], Hit@5 0.80→0.87. Alpha 0.8 locked before labels; 200/200 LLM success, zero retry/repair. |
 
 ## AB14 — Amazon Books 2014 temporal P0/P1 — 2026-08-26
 
@@ -196,6 +196,31 @@
 - **Quyết định:** hard stop cho depth-weight + scalar margin gate. Không retune
   trên fresh test; continuation cần learned intervention-risk gate và một test
   cohort mới.
+
+## AB14 — P7 temporal transition PPR — 2026-09-22
+
+- Thay co-preference graph bằng directed item transition graph: cạnh nối hai
+  timestamp batch liên tiếp trong strict-past history. Scorer là deterministic
+  multi-hop PPR, restart 0,15 từ tối đa 6 item gần nhất, 50.000 walk/event;
+  không rating/hub/path rule. Calibration chọn alpha 0,8 trước fresh labels,
+  +0,1191 NDCG@5 so với frozen local.
+- P7-v1 bị niêm phong vì một rerank lặp label. P7-v2 chỉ thêm deterministic
+  permutation completion, regression event vào smoke và cap tối đa 5 repair;
+  không đổi graph/model/prompt/cohort/alpha. Thực tế smoke 42/42 và full journal
+  200/200 success, zero retry/error/repair; tổng 180.588 token qua hai model
+  invocation. Peak 7,8325 GiB trên đúng một H100, process thoát và GPU về 1 MiB.
+- Fresh test 100 event: local NDCG@5/Hit@5 0,6533/0,80; transition-PPR residual
+  0,7285/0,87. Delta **+0,0752**, paired bootstrap 95% CI
+  **[+0,0179; +0,1375]**; cải thiện/làm tệ/không đổi = 22/16/62. Primary gate
+  +0,02 và CI lower >0 đều pass.
+- Gold reachability one-step/PPR = 21%/63%; negative-slot coverage =
+  0,11%/10,78%. Post-hoc oracle 0,7740, +0,1207 vs local, không deployable và
+  không ảnh hưởng decision. Manifest xác nhận không tune sau test labels.
+- Metrics/evaluation manifest SHA256:
+  `07bba2e2f222f1a9665a09d190ad53f9262c64b5bbd974bb3ecb3ecc138b93e3` /
+  `0c33effce9056237a186f6c83353c14b40757b06eaea5484b4873c4d0c6c4d1c`.
+- **Quyết định:** P7 pass. Không retune trên cohort này; continuation hợp lệ là
+  replication ngoài mẫu hoặc ablation pre-registered của transition semantics.
 
 ## MH0 — Freeze protocol — 2026-08-25
 
