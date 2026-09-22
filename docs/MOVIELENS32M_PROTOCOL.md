@@ -6,6 +6,8 @@
 > `fb5e5356a2b693401f7fb5034238bbb3fb14c5888c7e64c3516de3fbe88b467f`;
 > audit artifact SHA256 is
 > `625c811ce2734fa9885742da84e74a319617f2c6bf55661f11375ca19154040e`.
+> Frozen-transfer config SHA256 is
+> `51d749dbb09ae866e2dd041f336daaa75eaa38b33078938c6d8f4f206431b79b`.
 
 ## 0. Execution status
 
@@ -13,7 +15,7 @@
 |---|---|---|
 | M0 50-row smoke | Pass | Four schemas parsed; no artifact written |
 | M0 full audit | Pass | 32.000.204 ratings; integrity and feasibility gates pass |
-| M1 shared core | Not started | No Amazon behavior change yet |
+| M1 shared core | Pass | 31 tests; Amazon golden outputs unchanged; 50-user adapter smoke pass |
 | M2 cohort/graph smoke | Not started | No cohort materialized |
 | M3 local ranker | Not started | 0 LLM requests; 0 GPU use |
 | M4 evaluation | Not started | Labels not evaluated |
