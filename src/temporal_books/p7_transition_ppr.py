@@ -2,17 +2,30 @@
 from __future__ import annotations
 
 import argparse
-import bisect
 import csv
-import itertools
 import json
-import math
-import random
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, DefaultDict, Dict, Mapping, Sequence
+
+from src.temporal_common.graph import (
+    TransitionEvent,
+    TransitionGraph,
+    build_transition_graph,
+    one_step_scores,
+    ppr_monte_carlo_scores,
+    recent_seed_items,
+    timestamp_batches,
+)
+from src.temporal_common.metrics import (
+    event_hit_at_5,
+    event_ndcg_at_5,
+    paired_bootstrap_ci,
+    rank_by_scores,
+    residual_ranking,
+)
 
 from src.temporal_books.common import (
     PROJECT_ROOT,
@@ -26,21 +39,15 @@ from src.temporal_books.common import (
 from src.temporal_books.current_support import (
     add_test_prompt_context,
     attach_candidates,
-    event_hit_at_5,
     event_key,
-    event_ndcg_at_5,
     first_novel_positive_targets,
     load_positive_graph,
-    paired_bootstrap_ci,
-    rank_by_scores,
     read_jsonl,
     successful_calls,
 )
 
 
 SCHEMA_VERSION = 1
-TransitionEvent = tuple[int, str]
-TransitionGraph = Dict[str, list[tuple[str, ...]]]
 
 
 def load_transition_histories(config: Mapping[str, Any]) -> Dict[str, list[TransitionEvent]]:
@@ -60,99 +67,6 @@ def load_transition_histories(config: Mapping[str, Any]) -> Dict[str, list[Trans
     for values in histories.values():
         values.sort()
     return dict(histories)
-
-
-def timestamp_batches(events: Sequence[TransitionEvent], *, cutoff: int | None = None) -> list[tuple[int, tuple[str, ...]]]:
-    limit = len(events) if cutoff is None else bisect.bisect_left(events, (cutoff, ""))
-    batches: list[tuple[int, tuple[str, ...]]] = []
-    for timestamp, group in itertools.groupby(events[:limit], key=lambda event: event[0]):
-        items = tuple(sorted({item_id for _, item_id in group}))
-        if items:
-            batches.append((timestamp, items))
-    return batches
-
-
-def build_transition_graph(histories: Mapping[str, Sequence[TransitionEvent]], *, cutoff: int) -> tuple[TransitionGraph, Dict[str, int]]:
-    adjacency: DefaultDict[str, list[tuple[str, ...]]] = defaultdict(list)
-    temporal_pairs = 0
-    source_group_links = 0
-    for events in histories.values():
-        batches = timestamp_batches(events, cutoff=cutoff)
-        for (_, sources), (_, destinations) in zip(batches, batches[1:]):
-            temporal_pairs += 1
-            for source in sources:
-                adjacency[source].append(destinations)
-                source_group_links += 1
-    return dict(adjacency), {
-        "users": len(histories),
-        "source_items": len(adjacency),
-        "temporal_batch_pairs": temporal_pairs,
-        "source_to_group_links": source_group_links,
-    }
-
-
-def recent_seed_items(events: Sequence[TransitionEvent], target_time: int, *, limit: int) -> list[str]:
-    end = bisect.bisect_left(events, (target_time, ""))
-    seeds: list[str] = []
-    seen: set[str] = set()
-    for _, item_id in reversed(events[:end]):
-        if item_id not in seen:
-            seen.add(item_id)
-            seeds.append(item_id)
-        if len(seeds) >= limit:
-            break
-    return seeds
-
-
-def one_step_scores(seeds: Sequence[str], candidates: Sequence[str], adjacency: Mapping[str, Sequence[tuple[str, ...]]]) -> Dict[str, float]:
-    scores = {item_id: 0.0 for item_id in candidates}
-    candidate_set = set(candidates)
-    if not seeds:
-        return scores
-    seed_weight = 1.0 / len(seeds)
-    for source in seeds:
-        groups = adjacency.get(source, ())
-        if not groups:
-            continue
-        group_weight = seed_weight / len(groups)
-        for destinations in groups:
-            destination_weight = group_weight / len(destinations)
-            for item_id in destinations:
-                if item_id in candidate_set:
-                    scores[item_id] += destination_weight
-    return scores
-
-
-def ppr_monte_carlo_scores(
-    seeds: Sequence[str],
-    candidates: Sequence[str],
-    adjacency: Mapping[str, Sequence[tuple[str, ...]]],
-    *,
-    walks: int,
-    restart_probability: float,
-    max_steps: int,
-    seed: int,
-) -> Dict[str, float]:
-    if walks < 1 or max_steps < 1 or not 0 < restart_probability < 1:
-        raise ValueError("invalid PPR Monte Carlo contract")
-    counts = {item_id: 0 for item_id in candidates}
-    candidate_set = set(candidates)
-    if not seeds:
-        return {item_id: 0.0 for item_id in candidates}
-    rng = random.Random(seed)
-    for _ in range(walks):
-        current = seeds[rng.randrange(len(seeds))]
-        for _ in range(max_steps):
-            if rng.random() < restart_probability:
-                break
-            groups = adjacency.get(current, ())
-            if not groups:
-                break
-            destinations = groups[rng.randrange(len(groups))]
-            current = destinations[rng.randrange(len(destinations))]
-        if current in candidate_set:
-            counts[current] += 1
-    return {item_id: count / walks for item_id, count in counts.items()}
 
 
 def score_event(
@@ -196,21 +110,6 @@ def score_events(
     walks: int,
 ) -> list[Dict[str, Any]]:
     return [score_event(event, histories, adjacency, p7, walks=walks) for event in events]
-
-
-def residual_ranking(
-    candidates: Sequence[str], local: Sequence[str], graph_scores: Mapping[str, float], *, alpha: float
-) -> list[str]:
-    values = [float(graph_scores[item_id]) for item_id in candidates]
-    minimum, maximum = min(values, default=0.0), max(values, default=0.0)
-    if alpha <= 0 or maximum <= minimum:
-        return list(local)
-    local_scores = {item_id: 1.0 / math.log2(index + 2) for index, item_id in enumerate(local)}
-    combined = {
-        item_id: local_scores[item_id] + alpha * (float(graph_scores[item_id]) - minimum) / (maximum - minimum)
-        for item_id in candidates
-    }
-    return rank_by_scores(candidates, combined)
 
 
 def replication_excluded_users(p7: Mapping[str, Any]) -> tuple[set[str], list[Dict[str, Any]]]:
