@@ -1,0 +1,30 @@
+dataset:
+  ratings_file: data/ml-32m/ratings.csv
+  movies_file: data/ml-32m/movies.csv
+  tags_file: data/ml-32m/tags.csv
+  links_file: data/ml-32m/links.csv
+  checksums_file: data/ml-32m/checksums.txt
+  audit_output: data/ml-32m/artifacts/m0_audit-hnv.json
+
+expected:
+  ratings_rows: 32000204
+  users: 200948
+  movies_rows: 87585
+  tags_rows: 2000072
+  links_rows: 87585
+  md5:
+    links.csv: 8f033867bcb4e6be8792b21468b4fa6e
+    movies.csv: 0df90835c19151f9d819d0822e190797
+    ratings.csv: cf12b74f9ad4b94a011f079e26d4270a
+    tags.csv: 963bf4fa4de6b8901868fddd3eb54567
+
+temporal_split:
+  train_quantile: 0.80
+  validation_quantile: 0.90
+
+protocol:
+  positive_rating_min: 4.0
+  minimum_positive_history: 5
+  session_gap_seconds: 300
+  required_primary_users: 500
+  session_audit_thresholds_seconds: [0, 60, 300, 3600]

@@ -15,6 +15,13 @@ data/processed/*
 # Amazon Books artifacts are fully derived. Keep a directory marker only.
 data/amazon_books/artifacts/*
 !data/amazon_books/artifacts/.gitkeep
+# MovieLens 32M official files are local research data. Derived artifacts are
+# reproducible and remain local; retain only the directory marker in git.
+data/ml-32m/*.csv
+data/ml-32m/README.txt
+data/ml-32m/checksums.txt
+data/ml-32m/artifacts/*
+!data/ml-32m/artifacts/.gitkeep
 
 # Results & checkpoints
 results/
