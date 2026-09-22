@@ -258,14 +258,12 @@ def analyze(
     }
 
 
-def validate_artifacts(
-    config: Mapping[str, Any], config_path: Path
-) -> tuple[Dict[str, Any], list[Dict[str, Any]], Dict[str, Dict[str, Any]], Dict[str, str]]:
-    prepared, _, prepare_manifest = load_locked_inputs(config)
+def artifact_paths(config: Mapping[str, Any]) -> Dict[str, Path]:
     study, self_host = config["study"], config["self_host"]
-    paths = {
+    return {
         "prepared": project_path(study["prepared"]),
         "method_lock": project_path(study["method_lock"]),
+        "prepare_manifest": project_path(study["prepare_manifest"]),
         "graph_smoke": project_path(study["graph_smoke"]),
         "graph_scores": project_path(study["graph_scores"]),
         "local_attempts": project_path(self_host["attempts"]),
@@ -273,30 +271,124 @@ def validate_artifacts(
         "local_smoke": project_path(self_host["smoke_manifest"]),
         "local_manifest": project_path(self_host["manifest"]),
     }
+
+
+def score_lock_path(config: Mapping[str, Any]) -> Path:
+    return project_path(config["study"]["evaluation_manifest"]).with_name("m4_score_lock-hnv.json")
+
+
+def validate_score_inputs(
+    config: Mapping[str, Any], config_path: Path
+) -> tuple[Dict[str, str], int, int]:
+    """Validate and hash score artifacts without parsing the prepared labels."""
+    paths = artifact_paths(config)
     for path in paths.values():
         if not path.exists():
             raise FileNotFoundError(path)
+    prepare_manifest = json.loads(paths["prepare_manifest"].read_text(encoding="utf-8"))
+    if prepare_manifest.get("recommendation_outcomes_evaluated") is not False:
+        raise RuntimeError("prepare manifest was not outcome blind")
+    config_sha = sha256_file(config_path)
+    if prepare_manifest.get("config", {}).get("sha256") != config_sha:
+        raise RuntimeError("prepare/config hash mismatch")
+    hashes = {name: sha256_file(path) for name, path in paths.items()}
+    if prepare_manifest.get("prepared", {}).get("sha256") != hashes["prepared"]:
+        raise RuntimeError("prepared cohort hash mismatch")
+    if prepare_manifest.get("method_lock", {}).get("sha256") != hashes["method_lock"]:
+        raise RuntimeError("method lock hash mismatch")
     local_manifest = json.loads(paths["local_manifest"].read_text(encoding="utf-8"))
+    expected_successes = int(config["study"]["primary_events"]) * 2
     expected_local = {
         "decision": "complete",
-        "config_sha256": sha256_file(config_path),
+        "config_sha256": config_sha,
         "prepared_sha256": prepare_manifest["prepared"]["sha256"],
         "method_lock_sha256": prepare_manifest["method_lock"]["sha256"],
-        "calls_sha256": sha256_file(paths["local_calls"]),
-        "attempts_sha256": sha256_file(paths["local_attempts"]),
-        "successful_keys": len(prepared["primary_events"]) * 2,
+        "smoke_manifest_sha256": hashes["local_smoke"],
+        "calls_sha256": hashes["local_calls"],
+        "attempts_sha256": hashes["local_attempts"],
+        "successful_keys": expected_successes,
     }
     for key, value in expected_local.items():
         if local_manifest.get(key) != value:
             raise RuntimeError(f"local artifact mismatch: {key}")
     graph_smoke = json.loads(paths["graph_smoke"].read_text(encoding="utf-8"))
-    if graph_smoke.get("decision") != "pass" or graph_smoke.get("gold_labels_used_for_scoring") is not False:
-        raise RuntimeError("graph smoke contract failed")
+    expected_graph_smoke = {
+        "decision": "pass",
+        "config_sha256": config_sha,
+        "prepared_sha256": hashes["prepared"],
+        "method_lock_sha256": hashes["method_lock"],
+        "gold_labels_used_for_scoring": False,
+    }
+    for key, value in expected_graph_smoke.items():
+        if graph_smoke.get(key) != value:
+            raise RuntimeError(f"graph smoke mismatch: {key}")
     rows = read_jsonl(paths["graph_scores"])
-    if len(rows) != len(prepared["primary_events"]):
+    if len(rows) != int(config["study"]["primary_events"]):
         raise RuntimeError("graph score count mismatch")
+    if len({str(row.get("event_key")) for row in rows}) != len(rows):
+        raise RuntimeError("duplicate graph event key")
+    for row in rows:
+        if row.get("gold_label_used_for_scoring") is not False:
+            raise RuntimeError("graph score used a gold label")
+        if set(row.get("views", {})) != set(VIEWS):
+            raise RuntimeError("graph score view mismatch")
+        if len(row.get("candidate_item_ids", [])) != int(config["study"]["candidates_per_event"]):
+            raise RuntimeError("graph candidate count mismatch")
     calls = successful_calls(paths["local_calls"])
-    hashes = {name: sha256_file(path) for name, path in paths.items()}
+    if len(calls) != expected_successes:
+        raise RuntimeError("successful local call count mismatch")
+    if sum(key.startswith("stage_r:") for key in calls) != int(config["study"]["primary_events"]):
+        raise RuntimeError("Stage-R call count mismatch")
+    if sum(key.startswith("rerank:local:") for key in calls) != int(config["study"]["primary_events"]):
+        raise RuntimeError("rerank call count mismatch")
+    return hashes, len(rows), len(calls)
+
+
+def run_score_lock(config: Mapping[str, Any], config_path: Path) -> Dict[str, Any]:
+    path = score_lock_path(config)
+    if path.exists():
+        raise FileExistsError("MovieLens score lock already exists")
+    hashes, graph_rows, successful = validate_score_inputs(config, config_path)
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "run_id": config["study"]["run_id"],
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "decision": "locked",
+        "config_sha256": sha256_file(config_path),
+        "locked_input_sha256": hashes,
+        "graph_rows": graph_rows,
+        "successful_calls": successful,
+        "recommendation_labels_accessed": False,
+        "llm_requests": 0,
+        "gpu_used": False,
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    return payload
+
+
+def validate_artifacts(
+    config: Mapping[str, Any], config_path: Path
+) -> tuple[Dict[str, Any], list[Dict[str, Any]], Dict[str, Dict[str, Any]], Dict[str, str]]:
+    lock_path = score_lock_path(config)
+    if not lock_path.exists():
+        raise RuntimeError("MovieLens evaluation blocked: run --lock before opening outcomes")
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    hashes, graph_rows, successful = validate_score_inputs(config, config_path)
+    expected_lock = {
+        "decision": "locked",
+        "config_sha256": sha256_file(config_path),
+        "locked_input_sha256": hashes,
+        "graph_rows": graph_rows,
+        "successful_calls": successful,
+        "recommendation_labels_accessed": False,
+    }
+    for key, value in expected_lock.items():
+        if lock.get(key) != value:
+            raise RuntimeError(f"score lock mismatch: {key}")
+    prepared, _, _ = load_locked_inputs(config)
+    paths = artifact_paths(config)
+    rows = read_jsonl(paths["graph_scores"])
+    calls = successful_calls(paths["local_calls"])
     return prepared, rows, calls, hashes
 
 
@@ -319,6 +411,10 @@ def run_evaluation(config: Mapping[str, Any], config_path: Path) -> Dict[str, An
             "sha256": sha256_file(config_path),
         },
         "locked_input_sha256": hashes,
+        "score_lock": {
+            "path": str(score_lock_path(config).relative_to(PROJECT_ROOT)),
+            "sha256": sha256_file(score_lock_path(config)),
+        },
         "metrics": {"path": study["metrics"], "sha256": sha256_file(metrics_path)},
         "outcomes_opened_once": True,
         "test_tuning_after_labels": False,
@@ -332,7 +428,9 @@ def run_evaluation(config: Mapping[str, Any], config_path: Path) -> Dict[str, An
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate frozen MovieLens temporal graph arms once")
     parser.add_argument("--config", default="configs/temporal_movielens32m/m1_frozen_transfer.yaml")
-    parser.add_argument("--validate-only", action="store_true")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--lock", action="store_true")
+    modes.add_argument("--validate-only", action="store_true")
     return parser.parse_args()
 
 
@@ -340,7 +438,9 @@ def main() -> None:
     args = parse_args()
     config_path = project_path(args.config)
     config = load_yaml(config_path)
-    if args.validate_only:
+    if args.lock:
+        result = run_score_lock(config, config_path)
+    elif args.validate_only:
         prepared, rows, calls, hashes = validate_artifacts(config, config_path)
         result: Dict[str, Any] = {
             "decision": "ready",
