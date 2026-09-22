@@ -7,7 +7,7 @@ from src.temporal_books.p7_transition_ppr import (
     recent_seed_items,
     residual_ranking,
 )
-from src.temporal_common.graph import temporal_groups
+from src.temporal_common.graph import build_transition_graph_from_users, temporal_groups
 
 
 HISTORIES = {
@@ -62,3 +62,8 @@ def test_session_groups_merge_by_gap_and_exclude_cutoff_crossing_session():
         (611, ("d",)),
     ]
     assert temporal_groups([(500, "a"), (700, "b")], cutoff=600, session_gap_seconds=300) == []
+
+
+def test_streamed_graph_builder_matches_mapping_builder():
+    expected = build_transition_graph(HISTORIES, cutoff=30)
+    assert build_transition_graph_from_users(iter(HISTORIES.values()), cutoff=30) == expected

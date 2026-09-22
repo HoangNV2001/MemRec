@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import bisect
 import csv
+import sys
 from pathlib import Path
 from typing import Any, Dict, Iterator, Mapping, Sequence
 
@@ -30,7 +31,7 @@ def iter_user_ratings(path: Path, *, limit_users: int | None = None) -> Iterator
             user_value, movie_value = int(raw[0]), int(raw[1])
             if user_value < previous_user or (user_value == previous_user and movie_value < previous_movie):
                 raise ValueError("ratings are not ordered by userId then movieId")
-            user_id, movie_id = str(user_value), str(movie_value)
+            user_id, movie_id = str(user_value), sys.intern(str(movie_value))
             if current_user is None:
                 current_user = user_id
             if user_id != current_user:

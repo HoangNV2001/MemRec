@@ -16,7 +16,7 @@
 | M0 50-row smoke | Pass | Four schemas parsed; no artifact written |
 | M0 full audit | Pass | 32.000.204 ratings; integrity and feasibility gates pass |
 | M1 shared core | Pass | 31 tests; Amazon golden outputs unchanged; 50-user adapter smoke pass |
-| M2 cohort/graph smoke | Not started | No cohort materialized |
+| M2 cohort/graph smoke | In progress | 20 dev + 500 primary locked; 50-user graph smoke pass |
 | M3 local ranker | Not started | 0 LLM requests; 0 GPU use |
 | M4 evaluation | Not started | Labels not evaluated |
 
@@ -286,3 +286,16 @@ opened. Post-hoc best-of arms is oracle-only and non-deployable.
   retrieval/ranking protocol and must not be mixed into this primary result.
 - TMDb/IMDb descriptions, popularity-matched negatives and learned routing are
   out of scope until the frozen transfer is sealed.
+
+## 12. Locked execution artifacts
+
+| Artifact | SHA256 |
+|---|---|
+| Prepared cohort | `7794a19a354de0a4bf4859f1795216b748ac029e9622e4093654feff8d2c169c` |
+| Method lock | `258901956b4c3a91401407c71fbfa671fee8ed91974aff585b66ad7e60c90083` |
+| Prepare manifest | `f4478962d4018ef7c986d95c88d913925a2b9fa3dba57288b48737ca44d1a1d2` |
+
+Prepared audit: 20 development events and 500 primary events from distinct
+users, no cross-split user overlap, ten unique candidates/event, zero
+candidate/history collision and six strict-past history rows/event. Cohort
+preparation used zero LLM requests and no GPU.

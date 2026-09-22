@@ -5,7 +5,7 @@ import bisect
 import itertools
 import random
 from collections import defaultdict
-from typing import DefaultDict, Dict, Mapping, Sequence
+from typing import DefaultDict, Dict, Iterable, Mapping, Sequence
 
 
 TransitionEvent = tuple[int, str]
@@ -62,10 +62,24 @@ def build_transition_graph(
     cutoff: int,
     session_gap_seconds: int = 0,
 ) -> tuple[TransitionGraph, Dict[str, int]]:
+    return build_transition_graph_from_users(
+        histories.values(), cutoff=cutoff, session_gap_seconds=session_gap_seconds
+    )
+
+
+def build_transition_graph_from_users(
+    user_histories: Iterable[Sequence[TransitionEvent]],
+    *,
+    cutoff: int,
+    session_gap_seconds: int = 0,
+) -> tuple[TransitionGraph, Dict[str, int]]:
+    """Build a graph while allowing the dataset adapter to stream one user."""
     adjacency: DefaultDict[str, list[tuple[str, ...]]] = defaultdict(list)
     temporal_pairs = 0
     source_group_links = 0
-    for events in histories.values():
+    users = 0
+    for events in user_histories:
+        users += 1
         groups = temporal_groups(events, cutoff=cutoff, session_gap_seconds=session_gap_seconds)
         for (_, sources), (_, destinations) in zip(groups, groups[1:]):
             temporal_pairs += 1
@@ -73,7 +87,7 @@ def build_transition_graph(
                 adjacency[source].append(destinations)
                 source_group_links += 1
     return dict(adjacency), {
-        "users": len(histories),
+        "users": users,
         "source_items": len(adjacency),
         "temporal_batch_pairs": temporal_pairs,
         "source_to_group_links": source_group_links,
