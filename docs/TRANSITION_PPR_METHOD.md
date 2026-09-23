@@ -151,6 +151,7 @@ Fresh-test không retune alpha/restart/walk/depth.
 | MovieLens frozen transfer | Complete | 500 event; 1.000/1.000 LLM requests, 0 retry/repair |
 | MovieLens primary evaluation | **Pass** | Exact-PPR +0,3663; CI [+0,3305; +0,4007] |
 | MovieLens secondary evaluation | **Pass** | Session-PPR +0,3774; CI [+0,3430; +0,4115] |
+| MovieLens graph-hard headroom | **Fail / stop** | Exact +0,0194, CI crosses 0; session -0,0353 |
 
 P7-v1 journal dừng ở 130 attempts và không được trộn vào v2. Regression event
 gây lỗi v1 được thêm vào v2 smoke trước full run.
@@ -225,6 +226,14 @@ setting is highly graph-separable; harder retrieval-scale negatives remain a
 new-study requirement. The full protocol, all arms, coverage, compute audit and
 sealed hashes are in [MOVIELENS32M_PROTOCOL.md](MOVIELENS32M_PROTOCOL.md).
 
+The subsequent graph-hard development gate made all 1.800 negatives
+one-step-reachable in both graph views. Exact PPR improved only +0,019396 over
+one-step with CI crossing zero; session PPR decreased -0,035299 with a fully
+negative CI. Both gates failed, so no additional LLM run was allowed. The
+per-event oracle remained positive, indicating heterogeneous depth utility
+rather than a globally superior PPR policy. See
+[MOVIELENS_GRAPH_HARD_HEADROOM.md](MOVIELENS_GRAPH_HARD_HEADROOM.md).
+
 ## 12. Compute và request audit
 
 - Smoke: 42 requests, 39.810 token.
@@ -268,7 +277,11 @@ Source còn active:
   local ranker và sealed evaluator.
 - `configs/temporal_movielens32m/m1_frozen_transfer.yaml`: sealed MovieLens
   transfer config.
+- `configs/temporal_movielens32m/m5_graph_hard_headroom.yaml`: sealed
+  graph-hard development/headroom config.
 - `docs/MOVIELENS32M_PROTOCOL.md`: canonical MovieLens protocol/result record.
+- `docs/MOVIELENS_GRAPH_HARD_HEADROOM.md`: graph-hard method, failed gate and
+  stop decision.
 
 P7-v2 artifacts là sealed historical record. Active commands dưới đây trỏ tới
 replication config mới, không overwrite run P7-v2:
@@ -322,3 +335,6 @@ P7-v2 discovery record:
 - Alpha được calibration trên Amazon và frozen-transfer sang MovieLens đã pass,
   nhưng cả hai dataset vẫn dùng task 1-positive/9-uniform-negative; external
   validity cho candidate retrieval khó hơn hoặc domain khác chưa được chứng minh.
+- Graph-hard MovieLens development removed the reachability shortcut but fixed
+  PPR failed to beat one-step reliably. Its positive oracle is not deployable;
+  any depth router needs a new protocol and fresh evaluation cohort.

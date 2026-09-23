@@ -1,8 +1,20 @@
 # MovieLens graph-hard multi-hop headroom protocol
 
-> Status: protocol frozen before graph-hard development outcomes. This is a
-> new study motivated by the sealed MovieLens 32M result; it does not retune or
-> reopen the prior 500-event primary cohort.
+> Status: **complete, sealed, stop before LLM**. Both preregistered multi-hop
+> headroom gates failed on 200 fresh development users. This study did not
+> retune or reopen the prior 500-event primary cohort and used zero LLM/GPU
+> requests.
+
+## 0. Execution status
+
+| Phase | Status | Result |
+|---|---|---|
+| Unit/data smoke | Pass | 42/42 tests; 50-user adapter smoke |
+| Graph smoke | Pass | 20 events; 180/180 negatives reachable in both views |
+| Full prepare | Pass | 200 users; zero overlap with sealed 520 users |
+| Label-blind score lock | Pass | 200 rows; 50.000 walks/event/view |
+| Development evaluation | **Fail / sealed** | Exact +0,0194 with CI crossing 0; session -0,0353 |
+| LLM/GPU promotion | **Stopped** | Preregistered stop rule applied |
 
 ## 1. Motivation and question
 
@@ -114,3 +126,92 @@ that deeper propagation is needed.
    result and either stop or draft a separate fresh-primary protocol.
 
 Configuration: `configs/temporal_movielens32m/m5_graph_hard_headroom.yaml`.
+
+## 7. Sealed development result
+
+The fixed 500-user scan produced 494 feasible graph-hard events; six lacked
+nine negatives in the exact/session reachable intersection. The first 200
+feasible events were used. They are 200 distinct users with zero overlap with
+the sealed M1 cohort. Reachable-intersection size was at least 60 items and had
+a median of 7.518 items.
+
+| View / graph-only arm | NDCG@5 | Hit@5 |
+|---|---:|---:|
+| Exact one-step | 0,593659 | 0,725 |
+| Exact PPR | 0,613055 | 0,765 |
+| Session one-step | **0,643045** | 0,755 |
+| Session PPR | 0,607746 | 0,760 |
+
+Exact PPR minus one-step:
+
+- delta NDCG@5: **+0,019396**;
+- paired-bootstrap 95% CI: **[-0,015394; +0,053643]**;
+- improved / worsened / unchanged: 35 / 34 / 131;
+- gate requires delta `>= +0,02` and CI lower `> 0`: **fail**.
+
+Session PPR minus one-step:
+
+- delta NDCG@5: **-0,035299**;
+- paired-bootstrap 95% CI: **[-0,067050; -0,004538]**;
+- improved / worsened / unchanged: 25 / 44 / 131;
+- same gate: **fail**.
+
+The preregistered decision is therefore `stop_before_llm`. No fresh primary
+cohort was sampled and no self-hosted model/GPU run was started.
+
+### Coverage audit
+
+| View | Gold one-step | Gold PPR | Negative one-step | Negative PPR |
+|---|---:|---:|---:|---:|
+| Exact | 166/200 (83,0%) | 164/200 (82,0%) | 1.800/1.800 (100%) | 1.156/1.800 (64,22%) |
+| Session 300s | 177/200 (88,5%) | 165/200 (82,5%) | 1.800/1.800 (100%) | 1.247/1.800 (69,28%) |
+
+The candidate contract worked as intended: one-step could not win by merely
+assigning zero to most negatives. Under this harder condition, a fixed PPR
+policy did not provide reliable incremental depth gain.
+
+### Oracle and interpretation
+
+The non-deployable per-event best-of-one-step/PPR oracle reaches:
+
+- exact: 0,668351 NDCG@5, `+0,074692` over exact one-step;
+- session: 0,687003 NDCG@5, `+0,043957` over session one-step.
+
+This oracle cannot change the failed gate, but it shows heterogeneous depth
+utility: PPR helps some events and harms nearly as many. The sealed M1 result is
+therefore best interpreted as strong transition-graph/coverage evidence, not
+evidence that globally applying multi-hop PPR is necessary on MovieLens.
+
+The only methodologically justified continuation inside the graph direction is
+a separately preregistered **depth-routing** study: learn from development
+labels whether an event should use one-step or PPR, using only gold-agnostic
+graph structural features at inference. Hand-tuned thresholds or an oracle
+selector are not acceptable substitutes.
+
+## 8. Compute audit
+
+- Graph smoke: 8m52s, peak RSS 1.656.408 KiB, zero swap.
+- Full prepare: 9m04s, peak RSS 1.656.904 KiB, zero swap.
+- Full label-blind score: 8m01s, peak RSS 1.279.276 KiB, zero swap.
+- Evaluation: 1,65s, peak RSS 24.596 KiB.
+- Entire study: zero LLM requests and zero GPU use.
+
+## 9. Sealed hashes
+
+| Artifact | SHA256 |
+|---|---|
+| Config | `4bd912552d815b47ee733a075761685432e4024b6faec4f9784d9c5771fcd96b` |
+| Graph smoke | `5352f9662ade628fb3a6211b8672cdd54fe5a371beb13b1c51989103dd963e97` |
+| Prepared cohort | `76c26ab9f221c76b0238c86be7d01b6c1a63f204cb0035fd9d31c75974dd7bbc` |
+| Prepare manifest | `bbd72b531dd6c758fc8397dee1e19e4e562980074855bf995763357be11d1be6` |
+| Graph scores | `0cd09c083f19bbc79c64916dd5957493002431e8663f4e43d6696f5f9ca5c8d6` |
+| Score manifest | `2d46e3bea149d7cfa9656422d7734c240aceaaa0f56feb3f86bc1a0f9f8eb689` |
+| Metrics | `4186759288360bc4f71c7baaa366ef2faea0889e6e084c7895529687aeb1f9dc` |
+| Evaluation manifest | `e3e7152186549fa458c6fb01d0ad2b9bfdcbde1bedcd3699a451bdaf42288c06` |
+
+Smoke, cohort preparation and label-blind scoring ran from commit `46c72f3`;
+the sealed evaluator including the preregistered oracle report ran from commit
+`b037e93`. The final suite passed 42/42 tests.
+
+Outcome artifacts are sealed. Do not tune candidate construction, walk depth,
+restart probability, graph view or gate on these 200 development outcomes.

@@ -423,3 +423,21 @@ local test suite passed 39/39 tests before documentation was sealed.
 
 Outcome artifacts are sealed. Do not retune alpha, restart probability, walk
 depth, graph view, session threshold, prompt or candidates on these 500 labels.
+
+## 16. Graph-hard follow-up
+
+A separate 200-user development study replaced random negatives with negatives
+that all have positive one-step evidence in both exact and session graphs. Its
+purpose was to test incremental PPR depth headroom without the easy
+zero-versus-nonzero coverage shortcut.
+
+- Exact PPR minus one-step: +0,019396 NDCG@5, CI95%
+  [-0,015394; +0,053643] — fail.
+- Session PPR minus one-step: -0,035299, CI95%
+  [-0,067050; -0,004538] — fail.
+- Decision: `stop_before_llm`; zero new LLM/GPU requests.
+
+This follow-up strengthens the interpretation boundary above: transition graph
+signal transfers, but fixed multi-hop propagation does not reliably improve
+one-step ranking once every negative is graph-reachable. Full protocol and
+sealed artifacts: [MOVIELENS_GRAPH_HARD_HEADROOM.md](MOVIELENS_GRAPH_HARD_HEADROOM.md).
