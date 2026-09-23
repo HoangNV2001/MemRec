@@ -493,6 +493,7 @@ def headroom_metrics(
     arms: Dict[str, Any] = {}
     comparisons: Dict[str, Any] = {}
     coverage: Dict[str, Any] = {}
+    oracles: Dict[str, Any] = {}
     pass_by_view: Dict[str, bool] = {}
     for view in VIEWS:
         one_values: list[float] = []
@@ -547,6 +548,12 @@ def headroom_metrics(
             "worsened_events": sum(value < 0 for value in delta),
             "unchanged_events": sum(value == 0 for value in delta),
         }
+        oracle = [max(one, ppr) for one, ppr in zip(one_values, ppr_values)]
+        oracles[view] = {
+            "ndcg_at_5": sum(oracle) / len(oracle),
+            "delta_vs_one_step": sum(oracle) / len(oracle) - sum(one_values) / len(one_values),
+            "deployable": False,
+        }
         coverage[view] = {
             "gold_one_step": gold_one,
             "gold_ppr": gold_ppr,
@@ -572,6 +579,7 @@ def headroom_metrics(
         "arms": arms,
         "comparisons": comparisons,
         "coverage": coverage,
+        "posthoc_oracle_best_of_one_step_ppr": oracles,
         "gate": {
             "criteria": {
                 "min_delta_ppr_minus_one_step_ndcg_at_5": float(graph["headroom_min_delta"]),

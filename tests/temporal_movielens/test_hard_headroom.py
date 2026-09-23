@@ -74,3 +74,4 @@ def test_headroom_gate_compares_ppr_directly_against_one_step():
     assert result["gate"]["session_300s"] == "pass"
     assert result["gate"]["decision"] == "promote_both_views"
     assert result["coverage"]["exact"]["negative_one_step_rate"] == 1.0
+    assert result["posthoc_oracle_best_of_one_step_ppr"]["exact"]["deployable"] is False
