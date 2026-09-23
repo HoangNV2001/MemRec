@@ -1,7 +1,20 @@
 # MovieLens learned graph-depth router protocol
 
-> Status: frozen before router feature/outcome evaluation. This study follows
-> the sealed graph-hard result and obeys a strict no-manual-tuning contract.
+> Status: **complete, sealed, stop depth routing**. Both deterministic
+> out-of-fold gates failed. No feature, model, threshold or hyperparameter was
+> changed after outcomes; no final model, fresh cohort, LLM request or GPU run
+> was created.
+
+## 0. Execution status
+
+| Phase | Status | Result |
+|---|---|---|
+| Unit tests | Pass | Full suite 45/45 |
+| Feature smoke | Pass | 20 events / 40 rows; deterministic and label-blind |
+| Full feature lock | Pass | 400 rows hashed before router evaluation |
+| Five-fold OOF evaluation | **Fail / sealed** | Exact -0,0004; session -0,0086 vs one-step |
+| Final model | Not written | Both promotion gates failed |
+| Fresh test / LLM / GPU | Not started | Stop rule applied |
 
 ## 1. Research question
 
@@ -98,3 +111,71 @@ separately locked fresh cohort.
 6. Apply the frozen gate; no manual adjustment after seeing results.
 
 Configuration: `configs/temporal_movielens32m/m6_depth_router.yaml`.
+
+## 7. Sealed cross-validation result
+
+The deterministic fold sizes were 43 / 41 / 34 / 43 / 39. Every held-out
+prediction came from an OLS model fitted on the other four folds. The design
+rank was 12 in every fold because at least one locked feature was constant;
+the implementation retained it and did not perform feature selection.
+
+| View / policy | NDCG@5 | Hit@5 |
+|---|---:|---:|
+| Exact always one-step | 0,593659 | 0,725 |
+| Exact always PPR | 0,613055 | 0,765 |
+| **Exact OOF router** | **0,593283** | **0,735** |
+| Session always one-step | 0,643045 | 0,755 |
+| Session always PPR | 0,607746 | 0,760 |
+| **Session OOF router** | **0,634396** | **0,750** |
+
+Exact router versus one-step:
+
+- delta NDCG@5: **-0,000376**;
+- paired-bootstrap 95% CI: **[-0,026653; +0,025604]**;
+- improved / worsened / unchanged: 16 / 22 / 162;
+- PPR selected for 117/200 events (58,5%);
+- sign accuracy on non-ties: 40,58%;
+- gate: **fail**.
+
+Session router versus one-step:
+
+- delta NDCG@5: **-0,008650**;
+- paired-bootstrap 95% CI: **[-0,021419; +0,002334]**;
+- improved / worsened / unchanged: 2 / 9 / 189;
+- PPR selected for 60/200 events (30,0%);
+- sign accuracy on non-ties: 53,62%;
+- gate: **fail**.
+
+Decision: `stop_depth_routing`. Since neither view passed, the implementation
+did not refit on all development rows and did not write
+`m6_router_model-hnv.json`.
+
+## 8. Interpretation
+
+The oracle heterogeneity in M5 is real descriptively, but the frozen
+gold-agnostic score-distribution features do not predict it out of fold. Exact
+routing is effectively neutral and session routing is worse than one-step.
+Consequently, the oracle cannot justify deployment or a fresh-primary run.
+
+This closes the current MovieLens multi-hop line under the no-manual-tuning
+constraint:
+
+- fixed PPR does not reliably beat one-step on graph-hard negatives;
+- a preregistered learned depth selector also does not beat one-step;
+- changing features, model class, regularization, fold count or threshold now
+  would be post-outcome tuning and is prohibited.
+
+## 9. Sealed hashes
+
+| Artifact | SHA256 |
+|---|---|
+| Config | `1a4718ac1127a21d86e48c9437a3a29832223099e387e3e96046e9330263ab5e` |
+| Feature smoke | `15fae1fe08fbe0db8e9822e515ab96c6a663cabe3d5ddbadc65844f3c6dce839` |
+| Feature matrix, 400 rows | `14f8a27a2e4b9151faf1ef21cb3c364c560d1a2b6d5ef05c3f72d9edc429ac0d` |
+| Feature manifest | `dde6103ab9faea83cc93fbde226992508d27aef79a18837c331fd1f0fa5fa9b0` |
+| CV metrics | `1ae2feb42cb82a1e5e7a6224f2fed7b05f4353f0f67645d81880d518ed1eeedb` |
+| CV manifest | `19564f3432da536ee30981ebbd1a3fcc2ba1c576a7b6a5b4438257a48b6d71bc` |
+
+Code and contract were committed at `479b6af` before feature smoke. The final
+audit confirms `manual_tuning_performed=false`, `final_model.written=false`,
+zero LLM requests and zero GPU use.

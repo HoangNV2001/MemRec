@@ -441,3 +441,21 @@ This follow-up strengthens the interpretation boundary above: transition graph
 signal transfers, but fixed multi-hop propagation does not reliably improve
 one-step ranking once every negative is graph-reachable. Full protocol and
 sealed artifacts: [MOVIELENS_GRAPH_HARD_HEADROOM.md](MOVIELENS_GRAPH_HARD_HEADROOM.md).
+
+## 17. No-tuning learned depth-router follow-up
+
+A preregistered router used 12 gold-agnostic graph score features, deterministic
+five-fold OOF evaluation, ordinary least squares without regularization and a
+fixed predicted-gain threshold of zero. No model/feature/threshold search was
+permitted.
+
+- Exact OOF router delta versus one-step: -0,000376, CI95%
+  [-0,026653; +0,025604] — fail.
+- Session OOF router delta: -0,008650, CI95%
+  [-0,021419; +0,002334] — fail.
+- Decision: `stop_depth_routing`; no final model, fresh cohort, LLM or GPU.
+
+Therefore the current MovieLens evidence supports transition graph signal but
+does not support either globally applied PPR or a learned one-step/PPR selector
+under graph-hard candidates. Full record:
+[MOVIELENS_DEPTH_ROUTER_PROTOCOL.md](MOVIELENS_DEPTH_ROUTER_PROTOCOL.md).

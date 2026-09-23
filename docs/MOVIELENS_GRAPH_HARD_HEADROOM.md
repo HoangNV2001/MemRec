@@ -188,6 +188,12 @@ labels whether an event should use one-step or PPR, using only gold-agnostic
 graph structural features at inference. Hand-tuned thresholds or an oracle
 selector are not acceptable substitutes.
 
+That follow-up was executed with a frozen 12-feature, zero-threshold,
+hyperparameter-free OLS contract. Five-fold out-of-fold routing failed in both
+views: -0,000376 exact and -0,008650 session versus one-step. No final router
+model was written. See
+[MOVIELENS_DEPTH_ROUTER_PROTOCOL.md](MOVIELENS_DEPTH_ROUTER_PROTOCOL.md).
+
 ## 8. Compute audit
 
 - Graph smoke: 8m52s, peak RSS 1.656.408 KiB, zero swap.

@@ -152,6 +152,7 @@ Fresh-test không retune alpha/restart/walk/depth.
 | MovieLens primary evaluation | **Pass** | Exact-PPR +0,3663; CI [+0,3305; +0,4007] |
 | MovieLens secondary evaluation | **Pass** | Session-PPR +0,3774; CI [+0,3430; +0,4115] |
 | MovieLens graph-hard headroom | **Fail / stop** | Exact +0,0194, CI crosses 0; session -0,0353 |
+| MovieLens no-tuning depth router | **Fail / stop** | OOF exact -0,0004; session -0,0086 |
 
 P7-v1 journal dừng ở 130 attempts và không được trộn vào v2. Regression event
 gây lỗi v1 được thêm vào v2 smoke trước full run.
@@ -234,6 +235,12 @@ per-event oracle remained positive, indicating heterogeneous depth utility
 rather than a globally superior PPR policy. See
 [MOVIELENS_GRAPH_HARD_HEADROOM.md](MOVIELENS_GRAPH_HARD_HEADROOM.md).
 
+A final no-manual-tuning router follow-up froze 12 gold-agnostic features, OLS
+without regularization, five hash folds and a zero decision threshold before
+evaluation. Its OOF policy changed exact/session NDCG@5 by -0,000376/-0,008650
+versus one-step, so both gates failed and no model was promoted. See
+[MOVIELENS_DEPTH_ROUTER_PROTOCOL.md](MOVIELENS_DEPTH_ROUTER_PROTOCOL.md).
+
 ## 12. Compute và request audit
 
 - Smoke: 42 requests, 39.810 token.
@@ -279,9 +286,13 @@ Source còn active:
   transfer config.
 - `configs/temporal_movielens32m/m5_graph_hard_headroom.yaml`: sealed
   graph-hard development/headroom config.
+- `configs/temporal_movielens32m/m6_depth_router.yaml`: sealed no-tuning router
+  config.
 - `docs/MOVIELENS32M_PROTOCOL.md`: canonical MovieLens protocol/result record.
 - `docs/MOVIELENS_GRAPH_HARD_HEADROOM.md`: graph-hard method, failed gate and
   stop decision.
+- `docs/MOVIELENS_DEPTH_ROUTER_PROTOCOL.md`: learned router contract, OOF
+  failure and no-tuning audit.
 
 P7-v2 artifacts là sealed historical record. Active commands dưới đây trỏ tới
 replication config mới, không overwrite run P7-v2:
@@ -336,5 +347,6 @@ P7-v2 discovery record:
   nhưng cả hai dataset vẫn dùng task 1-positive/9-uniform-negative; external
   validity cho candidate retrieval khó hơn hoặc domain khác chưa được chứng minh.
 - Graph-hard MovieLens development removed the reachability shortcut but fixed
-  PPR failed to beat one-step reliably. Its positive oracle is not deployable;
-  any depth router needs a new protocol and fresh evaluation cohort.
+  PPR failed to beat one-step reliably. The subsequent preregistered OOF depth
+  router also failed; its positive oracle remains non-deployable and further
+  feature/model/threshold changes on these labels are prohibited.
