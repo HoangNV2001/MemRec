@@ -1,0 +1,41 @@
+dataset:
+  ratings_file: data/ml-32m/ratings.csv
+  movies_file: data/ml-32m/movies.csv
+  audit: data/ml-32m/artifacts/m0_audit-hnv.json
+  audit_sha256: 625c811ce2734fa9885742da84e74a319617f2c6bf55661f11375ca19154040e
+
+study:
+  run_id: movielens32m_graph_hard_headroom_v1-hnv
+  sealed_prepared: data/ml-32m/artifacts/m1_prepared-hnv.json
+  sealed_prepared_sha256: 7794a19a354de0a4bf4859f1795216b748ac029e9622e4093654feff8d2c169c
+  graph_smoke: data/ml-32m/artifacts/m5_graph_hard_smoke-hnv.json
+  prepared: data/ml-32m/artifacts/m5_graph_hard_prepared-hnv.json
+  prepare_manifest: data/ml-32m/artifacts/m5_graph_hard_prepare_manifest-hnv.json
+  graph_scores: data/ml-32m/artifacts/m5_graph_hard_scores-hnv.jsonl
+  score_manifest: data/ml-32m/artifacts/m5_graph_hard_score_manifest-hnv.json
+  metrics: data/ml-32m/artifacts/m5_graph_hard_metrics-hnv.json
+  evaluation_manifest: data/ml-32m/artifacts/m5_graph_hard_evaluation_manifest-hnv.json
+  positive_rating_min: 4.0
+  minimum_positive_history: 5
+  session_gap_seconds: 300
+  development_scan_users: 500
+  development_events: 200
+  candidates_per_event: 10
+  history_events: 6
+  target_salt: ml32m-graph-hard-target-v1
+  scan_salt: ml32m-graph-hard-scan-v1
+  candidate_salt: ml32m-graph-hard-candidates-v1
+  candidate_order_salt: ml32m-graph-hard-order-v1
+
+graph:
+  exact_session_gap_seconds: 0
+  robustness_session_gap_seconds: 300
+  seed_items: 6
+  restart_probability: 0.15
+  monte_carlo_walks: 50000
+  smoke_walks: 5000
+  max_walk_steps: 64
+  graph_smoke_events: 20
+  bootstrap_resamples: 10000
+  bootstrap_seed: 20260923
+  headroom_min_delta: 0.02
