@@ -366,9 +366,10 @@ def run_score_lock(config: Mapping[str, Any], config_path: Path) -> Dict[str, An
     return payload
 
 
-def validate_artifacts(
+def validate_score_lock(
     config: Mapping[str, Any], config_path: Path
-) -> tuple[Dict[str, Any], list[Dict[str, Any]], Dict[str, Dict[str, Any]], Dict[str, str]]:
+) -> tuple[Dict[str, str], int, int]:
+    """Recheck the score lock without parsing the outcome-bearing cohort."""
     lock_path = score_lock_path(config)
     if not lock_path.exists():
         raise RuntimeError("MovieLens evaluation blocked: run --lock before opening outcomes")
@@ -385,6 +386,13 @@ def validate_artifacts(
     for key, value in expected_lock.items():
         if lock.get(key) != value:
             raise RuntimeError(f"score lock mismatch: {key}")
+    return hashes, graph_rows, successful
+
+
+def validate_artifacts(
+    config: Mapping[str, Any], config_path: Path
+) -> tuple[Dict[str, Any], list[Dict[str, Any]], Dict[str, Dict[str, Any]], Dict[str, str]]:
+    hashes, _, _ = validate_score_lock(config, config_path)
     prepared, _, _ = load_locked_inputs(config)
     paths = artifact_paths(config)
     rows = read_jsonl(paths["graph_scores"])
@@ -441,12 +449,11 @@ def main() -> None:
     if args.lock:
         result = run_score_lock(config, config_path)
     elif args.validate_only:
-        prepared, rows, calls, hashes = validate_artifacts(config, config_path)
+        hashes, graph_rows, successful = validate_score_lock(config, config_path)
         result: Dict[str, Any] = {
             "decision": "ready",
-            "events": len(prepared["primary_events"]),
-            "graph_rows": len(rows),
-            "successful_calls": len(calls),
+            "graph_rows": graph_rows,
+            "successful_calls": successful,
             "locked_input_sha256": hashes,
             "outcomes_evaluated": False,
         }
