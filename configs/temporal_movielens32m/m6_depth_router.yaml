@@ -1,0 +1,46 @@
+study:
+  run_id: movielens32m_depth_router_v1-hnv
+  source_prepared: data/ml-32m/artifacts/m5_graph_hard_prepared-hnv.json
+  source_prepared_sha256: 76c26ab9f221c76b0238c86be7d01b6c1a63f204cb0035fd9d31c75974dd7bbc
+  source_scores: data/ml-32m/artifacts/m5_graph_hard_scores-hnv.jsonl
+  source_scores_sha256: 0cd09c083f19bbc79c64916dd5957493002431e8663f4e43d6696f5f9ca5c8d6
+  source_score_manifest: data/ml-32m/artifacts/m5_graph_hard_score_manifest-hnv.json
+  source_score_manifest_sha256: 2d46e3bea149d7cfa9656422d7734c240aceaaa0f56feb3f86bc1a0f9f8eb689
+  source_evaluation_manifest: data/ml-32m/artifacts/m5_graph_hard_evaluation_manifest-hnv.json
+  source_evaluation_manifest_sha256: e3e7152186549fa458c6fb01d0ad2b9bfdcbde1bedcd3699a451bdaf42288c06
+  feature_smoke: data/ml-32m/artifacts/m6_router_feature_smoke-hnv.json
+  features: data/ml-32m/artifacts/m6_router_features-hnv.jsonl
+  feature_manifest: data/ml-32m/artifacts/m6_router_feature_manifest-hnv.json
+  cv_metrics: data/ml-32m/artifacts/m6_router_cv_metrics-hnv.json
+  cv_manifest: data/ml-32m/artifacts/m6_router_cv_manifest-hnv.json
+  final_model: data/ml-32m/artifacts/m6_router_model-hnv.json
+  events: 200
+  views: [exact, session_300s]
+  feature_smoke_events: 20
+
+features:
+  names:
+    - one_step_nonzero_fraction
+    - ppr_nonzero_fraction
+    - one_step_max_share
+    - ppr_max_share
+    - one_step_top_margin_share
+    - ppr_top_margin_share
+    - one_step_normalized_entropy
+    - ppr_normalized_entropy
+    - distribution_l1_distance
+    - normalized_rank_footrule
+    - top1_agreement
+    - seed_fraction
+  seed_cap: 6
+
+model:
+  estimator: standardized_ordinary_least_squares
+  solver: numpy_linalg_lstsq
+  regularization: none
+  folds: 5
+  fold_salt: ml32m-depth-router-fold-v1
+  decision_threshold: 0.0
+  bootstrap_resamples: 10000
+  bootstrap_seed: 20260923
+  promotion_min_delta: 0.02
