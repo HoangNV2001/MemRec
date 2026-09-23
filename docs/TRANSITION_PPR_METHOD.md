@@ -1,8 +1,8 @@
 # Temporal Transition-PPR for next-item recommendation
 
 Đây là tài liệu canonical của hướng nghiên cứu hiện tại. Nó mô tả phương pháp,
-protocol, kết quả discovery P7-v2 và internal replication 200 event; các hướng
-đã đóng chỉ còn bản tóm tắt trong
+protocol, kết quả discovery P7-v2, internal replication 200 event và frozen
+cross-domain transfer trên MovieLens 32M; các hướng đã đóng chỉ còn bản tóm tắt trong
 [ARCHIVED_DIRECTIONS.md](ARCHIVED_DIRECTIONS.md). Execution record đầy đủ nằm
 trong [REPLICATION_PLAN.md](REPLICATION_PLAN.md).
 
@@ -148,6 +148,9 @@ Fresh-test không retune alpha/restart/walk/depth.
 | Replication R0/R1 | Pass | 200 user-disjoint event; graph deterministic/leakage-safe |
 | Replication LLM | Complete | 400/400 primary requests, 0 retry/repair |
 | Replication evaluation | **Pass** | +0,1371 NDCG@5; CI [+0,0904; +0,1838] |
+| MovieLens frozen transfer | Complete | 500 event; 1.000/1.000 LLM requests, 0 retry/repair |
+| MovieLens primary evaluation | **Pass** | Exact-PPR +0,3663; CI [+0,3305; +0,4007] |
+| MovieLens secondary evaluation | **Pass** | Session-PPR +0,3774; CI [+0,3430; +0,4115] |
 
 P7-v1 journal dừng ở 130 attempts và không được trộn vào v2. Regression event
 gây lỗi v1 được thêm vào v2 smoke trước full run.
@@ -193,7 +196,36 @@ event/user mới, không overlap với các cohort trước.
 Đây là số final cho Amazon Books. Không tiếp tục tune alpha/restart/depth trên
 200 labels này; mọi thay đổi tiếp theo phải dùng validation/cohort/dataset khác.
 
-## 11. Compute và request audit
+## 11. Frozen cross-domain result — MovieLens 32M
+
+MovieLens study giữ nguyên model, revision, graph parameters và alpha 0,80 từ
+Amazon, nhưng đổi rendering sang prior `title + genres + rating` và candidate
+`title + genres`. Cohort gồm 500 singleton-five-minute-session rating events;
+graph cutoff luôn trước target và candidate protocol vẫn là một positive cộng
+chín uniform strict-past-unseen negatives.
+
+| Arm | NDCG@5 | Hit@5 |
+|---|---:|---:|
+| Frozen local | 0,471944 | 0,702 |
+| Exact Transition-PPR residual — primary | **0,838235** | **0,952** |
+| Session-300s Transition-PPR residual — secondary | **0,849310** | **0,960** |
+
+- Primary exact delta: **+0,366290**, CI95%
+  **[+0,330511; +0,400667]**, gate pass.
+- Secondary session delta: **+0,377365**, CI95%
+  **[+0,343037; +0,411524]**, gate pass.
+- Preregistered conclusion: **robust cross-domain transfer**.
+- Retry/parser/permutation repair: 0/0/0 across 1.000 physical requests.
+
+The effect should be interpreted as transition-graph transfer, not proof that
+multi-hop is intrinsically superior. Exact/session one-step graph-only reached
+0,861449/0,869054 NDCG@5, both above their PPR graph-only variants. Graph-only
+PPR also slightly exceeded residual PPR. The easy ten-candidate uniform-negative
+setting is highly graph-separable; harder retrieval-scale negatives remain a
+new-study requirement. The full protocol, all arms, coverage, compute audit and
+sealed hashes are in [MOVIELENS32M_PROTOCOL.md](MOVIELENS32M_PROTOCOL.md).
+
+## 12. Compute và request audit
 
 - Smoke: 42 requests, 39.810 token.
 - Full invocation: reuse smoke và chạy thêm 158 requests, 140.778 token.
@@ -211,7 +243,17 @@ Replication:
 - Peak VRAM: smoke 7,829 GiB; full 7,863 GiB trên đúng một H100.
 - Sau smoke/full, VRAM của GPU đã chọn về baseline lần lượt 4 MiB và 1 MiB.
 
-## 12. Reproducibility surface
+MovieLens 32M frozen transfer:
+
+- Smoke: 40 requests; 17.272 input + 1.767 output = 19.039 token.
+- Full invocation reuse smoke, thêm 960 requests; 415.165 input + 41.733
+  output = 456.898 token.
+- Tổng: 1.000 physical requests; 432.437 input + 43.500 output = 475.937
+  token; retry/parser/permutation repair = 0/0/0.
+- Peak VRAM: smoke 7,702 GiB; full 7,707 GiB trên đúng một H100; GPU về
+  baseline 1 MiB sau full run.
+
+## 13. Reproducibility surface
 
 Source còn active:
 
@@ -222,6 +264,11 @@ Source còn active:
 - `configs/temporal_amazon_books_2014/p7v2_transition_ppr.yaml`: sealed config.
 - `configs/temporal_amazon_books_2014/transition_ppr_replication_200.yaml`:
   sealed replication config và là default active config.
+- `src/temporal_movielens/`: MovieLens audit, preparation, graph scorer, frozen
+  local ranker và sealed evaluator.
+- `configs/temporal_movielens32m/m1_frozen_transfer.yaml`: sealed MovieLens
+  transfer config.
+- `docs/MOVIELENS32M_PROTOCOL.md`: canonical MovieLens protocol/result record.
 
 P7-v2 artifacts là sealed historical record. Active commands dưới đây trỏ tới
 replication config mới, không overwrite run P7-v2:
@@ -239,7 +286,7 @@ GPU commands phải tuân theo local-only `internal_docs/H100_RESOURCE_RULES.md`
 smoke 20–30 mẫu, dynamic idle-GPU selection, đúng một visible GPU cho contract
 hiện tại, và unload ngay khi xong.
 
-## 13. Canonical hashes
+## 14. Canonical hashes
 
 Replication final:
 
@@ -264,7 +311,7 @@ P7-v2 discovery record:
 | Metrics | `07bba2e2f222f1a9665a09d190ad53f9262c64b5bbd974bb3ecb3ecc138b93e3` |
 | Evaluation manifest | `0c33effce9056237a186f6c83353c14b40757b06eaea5484b4873c4d0c6c4d1c` |
 
-## 14. Hạn chế
+## 15. Hạn chế
 
 - Discovery có 100 và internal replication có 200 event; cả hai vẫn dùng
   candidate task 1-positive/9-uniform-negative khá dễ.
@@ -272,5 +319,6 @@ P7-v2 discovery record:
 - Graph snapshot lớn được dựng lại per command, chưa tối ưu production latency.
 - Frozen local ranker là Qwen3-4B listwise, chưa chứng minh gain transfer sang
   ranker mạnh hơn hoặc retrieval candidate pool lớn.
-- Alpha được calibration trên cohort lịch sử cùng dataset. Internal replication
-  đã pass nhưng external validity vẫn chưa được chứng minh trên dataset khác.
+- Alpha được calibration trên Amazon và frozen-transfer sang MovieLens đã pass,
+  nhưng cả hai dataset vẫn dùng task 1-positive/9-uniform-negative; external
+  validity cho candidate retrieval khó hơn hoặc domain khác chưa được chứng minh.

@@ -1,8 +1,9 @@
 # MovieLens 32M protocol — frozen cross-domain study
 
-> Status: protocol accepted and frozen; **M0 complete / pass**. No cohort has
-> been sampled, no recommendation outcome has been evaluated and no LLM/GPU
-> request has run. M0 config SHA256 is
+> Status: **complete and sealed**. The 500-event frozen transfer study passed
+> both the primary exact-PPR and fixed secondary session-PPR gates. Outcomes
+> were opened once after local/graph score hashes were locked; no test-time
+> tuning was performed. M0 config SHA256 is
 > `fb5e5356a2b693401f7fb5034238bbb3fb14c5888c7e64c3516de3fbe88b467f`;
 > audit artifact SHA256 is
 > `625c811ce2734fa9885742da84e74a319617f2c6bf55661f11375ca19154040e`.
@@ -17,8 +18,9 @@
 | M0 full audit | Pass | 32.000.204 ratings; integrity and feasibility gates pass |
 | M1 shared core | Pass | 31 tests; Amazon golden outputs unchanged; 50-user adapter smoke pass |
 | M2 cohort/graph smoke | Pass | Cohorts locked; small and full dual-view graph smoke pass |
-| M3 local ranker | In progress | 36 tests + CPU prompt dry-run pass; 0 LLM/GPU so far |
-| M4 evaluation | Not started | Labels not evaluated |
+| M3 local ranker | Complete | 1.000/1.000 success; 0 retry/parser/permutation repair |
+| M4 score lock | Complete | 500 graph rows and all local artifacts hashed before labels |
+| M4 evaluation | **Pass, sealed** | Exact-PPR +0,3663; session-PPR +0,3774 NDCG@5 |
 
 ## 1. Research question
 
@@ -284,8 +286,8 @@ opened. Post-hoc best-of arms is oracle-only and non-deployable.
 - A 100-candidate study is not a small ablation: the current A–J listwise
   contract supports exactly ten candidates. It needs a separately designed
   retrieval/ranking protocol and must not be mixed into this primary result.
-- TMDb/IMDb descriptions, popularity-matched negatives and learned routing are
-  out of scope until the frozen transfer is sealed.
+- TMDb/IMDb descriptions, popularity-matched negatives and learned routing
+  remain out of scope for this sealed frozen-transfer study.
 
 ## 12. Locked execution artifacts
 
@@ -312,3 +314,112 @@ The frozen MovieLens prompt contract renders only prior `title + genres +
 rating` and candidate `title + genres`. Its CPU dry-run SHA256 is
 `6eacf64600391323e4bab1d4eba09be7d05966eae5bbb9d9382e6707fe0e781b`;
 20 development events produced 40 valid jobs without writing a journal.
+
+## 13. Final sealed result
+
+All rows below use the same 500 events, ten-candidate order and frozen
+parameters. `Graph-only` is reported to expose how much signal is already in
+the transition graph; it does not replace the preregistered residual-fusion
+gate.
+
+| Graph view / ranking arm | NDCG@5 | Hit@5 |
+|---|---:|---:|
+| Frozen local ranker | 0,471944 | 0,702 |
+| Exact one-step, graph-only | **0,861449** | 0,950 |
+| Exact one-step, residual | 0,848785 | 0,948 |
+| Exact PPR, graph-only | 0,844459 | 0,936 |
+| **Exact PPR, residual — primary** | **0,838235** | **0,952** |
+| Session one-step, graph-only | **0,869054** | 0,960 |
+| Session one-step, residual | 0,841716 | 0,946 |
+| Session PPR, graph-only | 0,854884 | 0,948 |
+| **Session PPR, residual — fixed secondary** | **0,849310** | **0,960** |
+
+Primary exact-PPR versus local:
+
+- delta NDCG@5: **+0,366290**;
+- paired-bootstrap 95% CI: **[+0,330511; +0,400667]**;
+- improved / worsened / unchanged: 310 / 36 / 154 events;
+- changed rankings: 443/500;
+- gate `delta >= +0,03` and CI lower `> 0`: **pass**.
+
+Fixed secondary session-PPR versus local:
+
+- delta NDCG@5: **+0,377365**;
+- paired-bootstrap 95% CI: **[+0,343037; +0,411524]**;
+- improved / worsened / unchanged: 314 / 27 / 159 events;
+- changed rankings: 459/500;
+- same gate: **pass**.
+
+The preregistered conclusion matrix therefore yields
+`robust_cross_domain_transfer`: both exact-timestamp and five-minute-session
+Transition-PPR residual arms beat the frozen local ranker by the locked margin
+with positive lower confidence bounds.
+
+### Reachability and descriptive buckets
+
+| View | Gold one-step | Gold PPR | Negative one-step | Negative PPR |
+|---|---:|---:|---:|---:|
+| Exact timestamp | 452/500 (90,4%) | 450/500 (90,0%) | 1.351/4.500 (30,02%) | 847/4.500 (18,82%) |
+| Session 300s | 477/500 (95,4%) | 460/500 (92,0%) | 2.453/4.500 (54,51%) | 987/4.500 (21,93%) |
+
+Both PPR residual arms have positive descriptive deltas in every preregistered
+historical-burstiness and preceding-gap bucket. These buckets are descriptive,
+not additional hypothesis tests. The full per-bucket numbers remain in the
+sealed metrics artifact.
+
+### Interpretation boundary
+
+This result is strong evidence that the **transition-graph signal** transfers
+from Amazon Books to the frozen MovieLens rating-event protocol. It is not
+evidence that deeper propagation always dominates one hop:
+
+- exact one-step graph-only is +0,0170 NDCG@5 above exact PPR graph-only;
+- session one-step graph-only is +0,0142 above session PPR graph-only;
+- exact one-step residual is +0,0105 above exact PPR residual, while session
+  PPR residual is only +0,0076 above session one-step residual;
+- graph-only PPR is also slightly above residual PPR in both views, so the
+  frozen local fusion is not the source of the large gain on MovieLens.
+
+The task has one positive and nine uniformly sampled negatives. Gold graph
+reachability is much higher than negative reachability, making this candidate
+set substantially graph-separable. The numbers are valid for the frozen
+protocol and useful as cross-domain evidence, but must not be presented as a
+production-scale retrieval result or as proof that multi-hop itself causes the
+entire improvement. A harder candidate protocol requires a new, separately
+preregistered study.
+
+## 14. Compute and request audit
+
+- LLM smoke: 40 physical requests; 17.272 input + 1.767 output tokens.
+- Full invocation: reused all smoke calls and issued 960 new requests; 415.165
+  input + 41.733 output tokens.
+- Total: **1.000 physical requests**, 432.437 input + 43.500 output = 475.937
+  tokens; retry/parser/permutation repair = **0/0/0**.
+- Model: `Qwen/Qwen3-4B-Instruct-2507`, revision
+  `cdbee75f17c01a7cc42f958dc650907174af0554`, bf16, greedy, TP=1.
+- Peak VRAM: smoke 7,702 GiB; full 7,707 GiB on exactly one H100. The process
+  exited and the selected GPU returned to 1 MiB baseline.
+- Full dual-view graph score: 13m49s CPU, peak RSS 1.447.452 KiB, zero swap,
+  zero GPU and zero LLM request.
+- Evaluation: 15,7s CPU, zero GPU and zero LLM request.
+
+## 15. Final artifact hashes
+
+| Artifact | SHA256 |
+|---|---|
+| Frozen config | `51d749dbb09ae866e2dd041f336daaa75eaa38b33078938c6d8f4f206431b79b` |
+| Prepared cohort | `7794a19a354de0a4bf4859f1795216b748ac029e9622e4093654feff8d2c169c` |
+| Method lock | `258901956b4c3a91401407c71fbfa671fee8ed91974aff585b66ad7e60c90083` |
+| Local calls, 1.000 rows | `a6cbd2afcd78e7d0923a121ec1300965d0300b851f25e92c31f486c53848131f` |
+| Local manifest | `5f0a49110897f48ba6f92ad09aa3474f8e2496f6e93790898d3694caccf76e14` |
+| Graph scores, 500 rows | `cf2ba269f6140080a5498920e140ad9c66e9486ef2e5a54a66c1babe2c8cffdb` |
+| Pre-outcome score lock | `5a0938a99c236d4dcbb7576e0931ccea21450d80d2465a0bf13d04727fac7afc` |
+| Metrics | `8241dc975da4a8f66954fac79a3b1613b9bc6fe2ab7073ffb5df09c2c3affade` |
+| Evaluation manifest | `7f9fca95f533e54891b0727c25f365b6cf0170826e0fb5960f8e5d7813a11058` |
+
+Code provenance: self-hosted inference ran from commit `76f8927`; full graph
+scoring, score lock and sealed evaluation ran from commit `1122a73`. The final
+local test suite passed 39/39 tests before documentation was sealed.
+
+Outcome artifacts are sealed. Do not retune alpha, restart probability, walk
+depth, graph view, session threshold, prompt or candidates on these 500 labels.
