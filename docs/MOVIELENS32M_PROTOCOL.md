@@ -459,3 +459,15 @@ Therefore the current MovieLens evidence supports transition graph signal but
 does not support either globally applied PPR or a learned one-step/PPR selector
 under graph-hard candidates. Full record:
 [MOVIELENS_DEPTH_ROUTER_PROTOCOL.md](MOVIELENS_DEPTH_ROUTER_PROTOCOL.md).
+
+## 18. Next confirmatory study
+
+The remaining scientific question is not whether deeper propagation can be
+tuned further. It is whether direct transition evidence complements the frozen
+local LLM after the zero-versus-nonzero reachability shortcut has been removed.
+A fresh, user-disjoint graph-hard end-to-end study will therefore use
+`Local + exact one-step` versus `Local` as its sole primary comparison; PPR and
+the session graph remain fixed secondary arms. Strong classical baselines must
+also be locked before the fresh outcomes are opened. The no-manual-tuning
+contract, five ranking arms, decision gate and Goodreads deferral are specified
+in [THESIS_ROADMAP.md](THESIS_ROADMAP.md).

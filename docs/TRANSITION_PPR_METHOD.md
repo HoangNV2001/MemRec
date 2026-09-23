@@ -1,10 +1,17 @@
 # Temporal Transition-PPR for next-item recommendation
 
-Đây là tài liệu canonical của hướng nghiên cứu hiện tại. Nó mô tả phương pháp,
-protocol, kết quả discovery P7-v2, internal replication 200 event và frozen
-cross-domain transfer trên MovieLens 32M; các hướng đã đóng chỉ còn bản tóm tắt trong
-[ARCHIVED_DIRECTIONS.md](ARCHIVED_DIRECTIONS.md). Execution record đầy đủ nằm
-trong [REPLICATION_PLAN.md](REPLICATION_PLAN.md).
+> **Scope note (2026-09-23):** đây là sealed method/result record của các run
+> discovery, replication và frozen transfer. Framing hiện tại của thesis là
+> **Temporal Transition Graph Augmentation**: one-step transition là method
+> chính, PPR là propagation variant dùng khi graph thưa chứ không phải đóng góp
+> luôn vượt one-step. Roadmap và thí nghiệm còn lại nằm trong
+> [THESIS_ROADMAP.md](THESIS_ROADMAP.md).
+
+Đây là tài liệu canonical của phase Transition-PPR đã sealed. Nó mô tả phương
+pháp, protocol, kết quả discovery P7-v2, internal replication 200 event và
+frozen cross-domain transfer trên MovieLens 32M; các hướng đã đóng chỉ còn bản
+tóm tắt trong [ARCHIVED_DIRECTIONS.md](ARCHIVED_DIRECTIONS.md). Execution record
+đầy đủ nằm trong [REPLICATION_PLAN.md](REPLICATION_PLAN.md).
 
 ## 1. Câu hỏi nghiên cứu
 
