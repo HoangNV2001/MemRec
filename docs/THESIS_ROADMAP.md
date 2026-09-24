@@ -302,11 +302,13 @@ tune M5/M6 hoặc tăng thêm hop để tối ưu test.
 - [x] No-tuning depth router sealed; gate fail.
 - [x] Thesis framing/RQs và next-study priority được khóa.
 - [x] Bounded Goodreads readiness audit; deferred do thiếu timestamp/item ID.
-- [ ] Viết và hash M7 graph-hard end-to-end protocol.
+- [x] Viết M7 graph-hard end-to-end protocol; hash cùng config khi prepare.
 - [ ] Hoàn thiện/test MostPopular, BPR-MF và SASRec baselines.
-- [ ] Prepare fresh 500-user M7 cohort và seal candidates.
-- [ ] Smoke 20–30 event cho từng workload mới.
-- [ ] Score/hash tất cả arms trước khi mở outcome.
+- [x] Prepare fresh 500-user M7 cohort và seal candidates.
+- [ ] Smoke 20–30 event cho từng workload mới (candidate/graph/local dry pass;
+  baseline và LLM GPU smoke còn lại).
+- [ ] Score/hash tất cả arms trước khi mở outcome (graph 500/500 complete;
+  baseline và local LLM còn lại).
 - [ ] One-time M7 evaluation và result documentation.
 - [ ] Candidate hardness mechanism analysis.
 - [ ] Thesis tables, plots, limitations và reproducibility appendix.

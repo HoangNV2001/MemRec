@@ -171,7 +171,12 @@ def load_locked(config: Mapping[str, Any], config_path: Any) -> tuple[Dict[str, 
 
 def dry_contract(config: Mapping[str, Any], config_path: Any) -> Dict[str, Any]:
     prepared, _, manifest = load_locked(config, config_path)
-    events = prepared["development_events"]
+    events = list(prepared.get("development_events", []))
+    if not events:
+        # Final confirmatory studies have no development outcomes. Prompt/schema
+        # validation is outcome-blind, so use a bounded primary prefix without
+        # reading gold_item_id.
+        events = list(prepared["primary_events"][:20])
     stages = {f"stage_r:{event_key(event)}": {"facets": []} for event in events}
     jobs = [*stage_jobs(events), *rerank_jobs(events, prepared["item_info"], stages)]
     serialized = json.dumps(

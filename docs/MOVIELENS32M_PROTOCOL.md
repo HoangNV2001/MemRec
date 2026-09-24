@@ -471,3 +471,6 @@ the session graph remain fixed secondary arms. Strong classical baselines must
 also be locked before the fresh outcomes are opened. The no-manual-tuning
 contract, five ranking arms, decision gate and Goodreads deferral are specified
 in [THESIS_ROADMAP.md](THESIS_ROADMAP.md).
+
+The preregistered implementation protocol is now available in
+[MOVIELENS_GRAPH_HARD_END2END_PROTOCOL.md](MOVIELENS_GRAPH_HARD_END2END_PROTOCOL.md).

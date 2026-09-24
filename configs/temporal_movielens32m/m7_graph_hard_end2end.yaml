@@ -1,0 +1,104 @@
+dataset:
+  ratings_file: data/ml-32m/ratings.csv
+  movies_file: data/ml-32m/movies.csv
+  audit: data/ml-32m/artifacts/m0_audit-hnv.json
+  audit_sha256: 625c811ce2734fa9885742da84e74a319617f2c6bf55661f11375ca19154040e
+
+study:
+  run_id: movielens32m_graph_hard_end2end_v1-hnv
+  sealed_m1_prepared: data/ml-32m/artifacts/m1_prepared-hnv.json
+  sealed_m1_prepared_sha256: 7794a19a354de0a4bf4859f1795216b748ac029e9622e4093654feff8d2c169c
+  sealed_m5_config: configs/temporal_movielens32m/m5_graph_hard_headroom.yaml
+  sealed_m5_config_sha256: 4bd912552d815b47ee733a075761685432e4024b6faec4f9784d9c5771fcd96b
+  sealed_m5_prepared: data/ml-32m/artifacts/m5_graph_hard_prepared-hnv.json
+  sealed_m5_prepared_sha256: 76c26ab9f221c76b0238c86be7d01b6c1a63f204cb0035fd9d31c75974dd7bbc
+  candidate_smoke: data/ml-32m/artifacts/m7_candidate_smoke-hnv.json
+  prepared: data/ml-32m/artifacts/m7_prepared-hnv.json
+  method_lock: data/ml-32m/artifacts/m7_method_lock-hnv.json
+  prepare_manifest: data/ml-32m/artifacts/m7_prepare_manifest-hnv.json
+  graph_smoke: data/ml-32m/artifacts/m7_graph_smoke-hnv.json
+  graph_scores: data/ml-32m/artifacts/m7_graph_scores-hnv.jsonl
+  score_lock: data/ml-32m/artifacts/m7_score_lock-hnv.json
+  metrics: data/ml-32m/artifacts/m7_metrics-hnv.json
+  evaluation_manifest: data/ml-32m/artifacts/m7_evaluation_manifest-hnv.json
+  positive_rating_min: 4.0
+  minimum_positive_history: 5
+  session_gap_seconds: 300
+  primary_scan_users: 1000
+  primary_events: 500
+  candidates_per_event: 10
+  history_events: 6
+  target_salt: ml32m-m7-target-v1
+  scan_salt: ml32m-m7-scan-v1
+  candidate_salt: ml32m-m7-candidates-v1
+  candidate_order_salt: ml32m-m7-order-v1
+
+graph:
+  exact_session_gap_seconds: 0
+  robustness_session_gap_seconds: 300
+  seed_items: 6
+  restart_probability: 0.15
+  monte_carlo_walks: 50000
+  smoke_walks: 5000
+  max_walk_steps: 64
+  fusion_alpha: 0.80
+  graph_smoke_events: 20
+  bootstrap_resamples: 10000
+  bootstrap_seed: 20260924
+  admission_min_delta: 0.03
+
+baselines:
+  smoke_events: 20
+  positive_rating_min: 4.0
+  training_cutoff: validation_cutoff
+  scores: data/ml-32m/artifacts/m7_baseline_scores-hnv.jsonl
+  smoke_manifest: data/ml-32m/artifacts/m7_baseline_smoke-hnv.json
+  manifest: data/ml-32m/artifacts/m7_baseline_manifest-hnv.json
+  validation_candidates: 100
+  validation_salt: ml32m-m7-baseline-validation-v1
+  most_popular:
+    enabled: true
+  bpr_mf:
+    embedding_dim: 64
+    batch_size: 8192
+    maximum_epochs: 20
+    learning_rate: 0.001
+    l2: 0.000001
+    early_stopping_patience: 5
+    seed: 20260923
+  sasrec:
+    embedding_dim: 64
+    maximum_sequence_length: 50
+    transformer_blocks: 2
+    attention_heads: 2
+    dropout: 0.2
+    batch_size: 512
+    maximum_epochs: 50
+    learning_rate: 0.001
+    l2: 0.0
+    early_stopping_patience: 5
+    seed: 20260923
+
+self_host:
+  model: Qwen/Qwen3-4B-Instruct-2507
+  revision: cdbee75f17c01a7cc42f958dc650907174af0554
+  dtype: bfloat16
+  tensor_parallel_size: 1
+  hard_memory_fraction: 0.25
+  max_model_len: 4096
+  seed: 20260921
+  temperature: 0.0
+  structured_decoding: lm-format-enforcer-json-schema
+  workers: 1
+  stage_r_max_tokens: 384
+  rerank_max_tokens: 96
+  smoke_events: 20
+  ranking_contract: permutation_completion_v2
+  max_permutation_repairs: 5
+  primary_generations: 1000
+  retry_reserve: 100
+  hard_generation_cap: 1100
+  attempts: data/ml-32m/artifacts/m7_local_attempts-hnv.jsonl
+  calls: data/ml-32m/artifacts/m7_local_calls-hnv.jsonl
+  smoke_manifest: data/ml-32m/artifacts/m7_local_smoke-hnv.json
+  manifest: data/ml-32m/artifacts/m7_local_manifest-hnv.json
