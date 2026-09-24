@@ -23,7 +23,7 @@ from src.temporal_books.common import (
     sha256_file,
     stable_order,
 )
-from src.temporal_books.current_support import event_key, stable_sample_candidates
+from src.temporal_books.current_support import event_key
 from src.temporal_common.metrics import rank_by_scores
 from src.temporal_movielens.baseline_models import BPRMF, SASRec, right_padded_sequences
 from src.temporal_movielens.data import (
@@ -60,6 +60,33 @@ class ValidationEvent:
     history: list[int]
     candidates: list[int]
     gold_index: int
+
+
+def stable_validation_candidates(
+    pool: Sequence[str],
+    known_items: set[str],
+    gold_item_id: str,
+    *,
+    count: int,
+    seed_key: str,
+) -> list[str]:
+    """Deterministic gold-injected sampling for the frozen 100-item validation."""
+    if count < 2 or gold_item_id not in pool:
+        raise ValueError("invalid baseline validation candidate contract")
+    available = len(set(pool) - known_items - {gold_item_id})
+    if available < count - 1:
+        raise ValueError("insufficient unseen validation negatives")
+    rng = random.Random(stable_order(seed_key))
+    blocked = {*known_items, gold_item_id}
+    negatives: list[str] = []
+    while len(negatives) < count - 1:
+        candidate = pool[rng.randrange(len(pool))]
+        if candidate not in blocked:
+            blocked.add(candidate)
+            negatives.append(candidate)
+    candidates = [gold_item_id, *negatives]
+    rng.shuffle(candidates)
+    return candidates
 
 
 def _seed_everything(seed: int) -> None:
@@ -202,11 +229,11 @@ def build_validation_events(
         history_events = strict_history(events, int(target["timestamp"]))
         known = {item_id for _, item_id, _ in history_events}
         gold = str(target["gold_item_id"])
-        candidate_ids = stable_sample_candidates(
+        candidate_ids = stable_validation_candidates(
             sorted(pool, key=int),
             known,
             gold,
-            n_candidates=candidates_per_event,
+            count=candidates_per_event,
             seed_key=f"{baselines['validation_salt']}\0{user_id}\0{target['timestamp']}\0{gold}",
         )
         history = [

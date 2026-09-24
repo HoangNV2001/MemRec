@@ -2,7 +2,11 @@ import numpy as np
 import torch
 
 from src.temporal_movielens.baseline_models import BPRMF, SASRec
-from src.temporal_movielens.baselines import _bpr_epoch, _sasrec_epoch
+from src.temporal_movielens.baselines import (
+    _bpr_epoch,
+    _sasrec_epoch,
+    stable_validation_candidates,
+)
 
 
 def test_bpr_epoch_updates_model_with_fixed_candidate_universe():
@@ -60,3 +64,17 @@ def test_sasrec_epoch_updates_model_with_right_padded_targets():
     )
     assert np.isfinite(loss)
     assert not torch.equal(before, model.item_embedding.weight)
+
+
+def test_validation_sampler_is_deterministic_and_supports_one_hundred_candidates():
+    pool = [str(value) for value in range(200)]
+    first = stable_validation_candidates(
+        pool, {"1", "2"}, "150", count=100, seed_key="validation-toy"
+    )
+    second = stable_validation_candidates(
+        pool, {"1", "2"}, "150", count=100, seed_key="validation-toy"
+    )
+    assert first == second
+    assert len(first) == len(set(first)) == 100
+    assert "150" in first
+    assert not ({"1", "2"} & set(first))
