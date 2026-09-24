@@ -460,17 +460,25 @@ does not support either globally applied PPR or a learned one-step/PPR selector
 under graph-hard candidates. Full record:
 [MOVIELENS_DEPTH_ROUTER_PROTOCOL.md](MOVIELENS_DEPTH_ROUTER_PROTOCOL.md).
 
-## 18. Next confirmatory study
+## 18. Graph-hard end-to-end confirmatory study
 
-The remaining scientific question is not whether deeper propagation can be
-tuned further. It is whether direct transition evidence complements the frozen
-local LLM after the zero-versus-nonzero reachability shortcut has been removed.
-A fresh, user-disjoint graph-hard end-to-end study will therefore use
-`Local + exact one-step` versus `Local` as its sole primary comparison; PPR and
-the session graph remain fixed secondary arms. Strong classical baselines must
-also be locked before the fresh outcomes are opened. The no-manual-tuning
-contract, five ranking arms, decision gate and Goodreads deferral are specified
-in [THESIS_ROADMAP.md](THESIS_ROADMAP.md).
+The remaining question was whether direct transition evidence complements the
+frozen local LLM after removing the zero-versus-nonzero reachability shortcut.
+A fresh, user-disjoint graph-hard study therefore preregistered
+`Local + exact one-step residual` versus `Local` as its sole primary comparison,
+with fixed PPR/session secondary arms and strong classical baselines. The
+no-manual-tuning contract is specified in [THESIS_ROADMAP.md](THESIS_ROADMAP.md).
 
-The preregistered implementation protocol is now available in
+The study is now sealed. On 500 events, local NDCG@5 was 0,436926 and the
+primary residual was 0,699773: delta +0,262847, paired-bootstrap CI95%
+[+0,226284; +0,298401], so the preregistered gate passed. Every negative slot
+had positive one-step evidence in both graph views, excluding the original
+reachability shortcut.
+
+The result is not SOTA: exact graph-only reached 0,718712, session one-step
+graph-only reached 0,748939, and SASRec was strongest at 0,827329. Direct
+one-step also remained stronger than fixed PPR propagation. The supported claim
+is therefore complementary temporal-transition signal for a frozen LLM ranker,
+not optimal fusion or superiority to a strong sequential recommender. Full
+metrics, audit trail and artifact hashes are in
 [MOVIELENS_GRAPH_HARD_END2END_PROTOCOL.md](MOVIELENS_GRAPH_HARD_END2END_PROTOCOL.md).

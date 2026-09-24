@@ -2,7 +2,7 @@
 
 **Cập nhật:** 2026-09-24
 
-**Trạng thái:** active, canonical cho các bước nghiên cứu tiếp theo
+**Trạng thái:** M7 sealed; canonical cho thesis packaging và analysis-only
 
 **Ràng buộc:** không tune thủ công; mọi full run phải qua smoke 20–30 mẫu
 
@@ -40,8 +40,9 @@ memory ranker**, không phải “multi-hop semantic-memory propagation”.
 > Temporal transition graph có cung cấp ranking signal bổ sung cho một
 > LLM-based semantic recommender hay không?
 
-Amazon discovery/replication và MovieLens frozen transfer đã cung cấp evidence
-ban đầu; graph-hard end-to-end là phép kiểm định còn thiếu.
+Amazon discovery/replication, MovieLens frozen transfer và M7 graph-hard
+end-to-end đều cung cấp evidence dương. M7 đã loại shortcut reachability và
+primary gate vẫn pass.
 
 ### RQ2 — Propagation depth
 
@@ -57,9 +58,9 @@ không pass.
 > Transition augmentation còn hữu ích khi mọi negative đều có graph evidence
 > hợp lệ hay không?
 
-Đây là primary question của thí nghiệm tiếp theo. Nó tách complementary
-preference signal khỏi shortcut “gold reachable, uniform negative không
-reachable”.
+M7 đã trả lời **có**: primary exact one-step residual tăng NDCG@5 thêm
+0,262847, CI95% [+0,226284; +0,298401], khi cả 4.500 negative slots đều có
+positive one-step evidence trong cả hai graph view.
 
 Strong classical baselines là threat-to-validity check cho ba RQ trên, không
 phải một vòng tìm method mới sau khi thấy test outcome.
@@ -74,13 +75,16 @@ phải một vòng tìm method mới sau khi thấy test outcome.
 | MovieLens frozen transfer, secondary | Session-300s residual | 0,849310; Δ +0,377365; CI95% [+0,343037; +0,411524] | Pass, nhưng candidate dễ |
 | MovieLens graph-hard headroom, 200 event | PPR graph-only vs one-step graph-only | Exact +0,019396, CI95% [-0,015394; +0,053643]; session -0,035299, CI95% [-0,067050; -0,004538] | Fail; stop global PPR promotion |
 | MovieLens depth router | Fixed 12 features, OLS, 5-fold OOF | Exact -0,000376; session -0,008650 vs one-step | Fail; stop router/depth tuning |
+| MovieLens M7 graph-hard, 500 event | Local vs Local + exact one-step residual | 0,436926 → 0,699773; Δ +0,262847; CI95% [+0,226284; +0,298401] | Primary pass; complementary transition signal |
+| MovieLens M7 strong baseline | Identical candidates | MostPopular 0,691561; BPR-MF 0,547455; SASRec 0,827329 | SASRec strongest; no SOTA claim |
 
 Các số và hashes đầy đủ nằm trong:
 
 - [TRANSITION_PPR_METHOD.md](TRANSITION_PPR_METHOD.md);
 - [MOVIELENS32M_PROTOCOL.md](MOVIELENS32M_PROTOCOL.md);
 - [MOVIELENS_GRAPH_HARD_HEADROOM.md](MOVIELENS_GRAPH_HARD_HEADROOM.md);
-- [MOVIELENS_DEPTH_ROUTER_PROTOCOL.md](MOVIELENS_DEPTH_ROUTER_PROTOCOL.md).
+- [MOVIELENS_DEPTH_ROUTER_PROTOCOL.md](MOVIELENS_DEPTH_ROUTER_PROTOCOL.md);
+- [MOVIELENS_GRAPH_HARD_END2END_PROTOCOL.md](MOVIELENS_GRAPH_HARD_END2END_PROTOCOL.md).
 
 ## 4. Interpretation boundary và headroom còn lại
 
@@ -89,18 +93,17 @@ gain lớn. Trong chính cohort đó, exact/session one-step graph-only đạt
 0,861449/0,869054, cao hơn graph-only PPR tương ứng. Graph-hard M5 còn cho thấy
 PPR không có gain ổn định khi tất cả negative đã reachable.
 
-Ngược lại, one-step vẫn đạt 0,593659 (exact) và 0,643045 (session) NDCG@5 trên
-M5 graph-hard. Điều này xác nhận transition graph còn có signal khi shortcut
-zero-vs-nonzero đã bị loại. Tuy nhiên M5 không chạy local LLM, nên **incremental
-headroom của Local + one-step so với Local hiện chưa được đo**. Không được lấy
-chênh lệch giữa local của cohort dễ và graph-only của cohort khó để ước lượng
-headroom vì đó là hai candidate distribution khác nhau.
+M7 trực tiếp đo incremental headroom trên cùng graph-hard candidates. Exact
+one-step residual đạt 0,699773 so với local 0,436926; primary gate pass. Effect
+không đến từ shortcut “negative không reachable”: toàn bộ 4.500 negative slots
+có positive one-step evidence, trong khi gold coverage còn thấp hơn 100%.
 
-Tính khả thi của thí nghiệm tiếp theo là cao ở tầng dữ liệu: 494/500 user trong
-fixed M5 scan tạo được graph-hard candidate set. Compute cũng đã được kiểm chứng:
-Qwen3-4B dùng khoảng 7,7 GiB peak VRAM, và một run 500 event tương ứng 1.000
-physical LLM requests. Rủi ro khoa học chính không phải khả năng chạy, mà là hai
-signal local và one-step có thể trùng nhau sau khi candidate đã graph-hard.
+Interpretation cần giữ hẹp. Exact one-step graph-only (0,718712) cao hơn primary
+fusion 0,018940; session one-step graph-only là graph arm mạnh nhất (0,748939),
+và direct one-step tiếp tục hơn PPR. MostPopular chỉ thấp hơn primary 0,008212,
+còn SASRec cao hơn primary 0,127556. Vì vậy evidence ủng hộ complementary
+transition signal cho frozen LLM, không ủng hộ deeper propagation, residual
+fusion tối ưu hay SOTA.
 
 ## 5. Thứ tự công việc tiếp theo
 
@@ -115,16 +118,16 @@ signal local và one-step có thể trùng nhau sau khi candidate đã graph-har
 - Goodreads hiện chỉ là dataset deferred có điều kiện; xem
   [GOODREADS_READINESS.md](GOODREADS_READINESS.md).
 
-### P1 — Baseline infrastructure, trước khi mở fresh outcome
+### P1 — Baseline infrastructure — hoàn tất
 
 Các baseline bắt buộc trên cùng temporal split, cohort và candidate set:
 
 | Baseline | Vai trò | Trạng thái code |
 |---|---|---|
-| Global MostPopular | non-personalized sanity baseline | đã implement; chờ full score |
+| Global MostPopular | non-personalized sanity baseline | sealed: NDCG@5 0,691561 |
 | First-order Markov / one-step transition | structural sequential baseline; chính là graph-only one-step | đã có scorer |
-| BPR-MF | collaborative non-sequential baseline | model/trainer/early stopping đã test offline; chờ GPU smoke |
-| SASRec | strong sequential baseline | model/trainer/early stopping đã test offline; chờ GPU smoke |
+| BPR-MF | collaborative non-sequential baseline | sealed: NDCG@5 0,547455 |
+| SASRec | strong sequential baseline | sealed: NDCG@5 0,827329 |
 
 LightGCN là optional. Chỉ được đưa vào protocol nếu implementation và smoke đã
 hoàn tất **trước** score lock; không được thêm sau outcome để cứu kết quả.
@@ -135,12 +138,12 @@ validation độc lập. Khóa trước source/revision, preprocessing, seed lis
 maximum epochs, patience, metric và tie-breaking. Báo cáo mọi seed đã khóa,
 không chọn seed tốt nhất.
 
-### P2 — M7: fresh MovieLens graph-hard end-to-end — ưu tiên cao nhất
+### P2 — M7: fresh MovieLens graph-hard end-to-end — hoàn tất
 
 Tạo `MOVIELENS_GRAPH_HARD_END2END_PROTOCOL.md` và khóa nó trước khi materialize
 test scores. Contract chi tiết nằm ở §6.
 
-Luồng thực thi:
+Luồng sau đã hoàn tất đúng thứ tự:
 
 1. unit test candidate, fusion, baseline scoring và leakage guard;
 2. prepare/hash cohort và candidate order nhưng chưa compute metric;
@@ -151,7 +154,7 @@ Luồng thực thi:
 7. hash toàn bộ arm scores và manifests;
 8. mở labels đúng một lần để tính metric, paired bootstrap và gate.
 
-### P3 — Mechanism analysis, không dùng để chọn method
+### P3 — Mechanism analysis, không dùng để chọn method — optional
 
 Sau khi M7 sealed, tạo một analysis-only candidate difficulty curve với tỷ lệ
 graph-reachable negatives cố định ở 0/25/50/75/100%. Ưu tiên CPU graph-only;
@@ -181,7 +184,7 @@ và stable book ID join được metadata. Nếu gate pass, thứ tự là bound
 pre-registered gate pass. Nếu không có timestamp, ghi dataset là excluded vì
 construct mismatch; không ép row order thành chronology.
 
-### P5 — Thesis packaging
+### P5 — Thesis packaging — bước tiếp theo
 
 Sau M7, dừng experimental expansion bất kể pass/fail và hoàn thiện:
 
@@ -305,14 +308,14 @@ tune M5/M6 hoặc tăng thêm hop để tối ưu test.
 - [x] Viết M7 graph-hard end-to-end protocol; hash cùng config khi prepare.
 - [x] Hoàn thiện và unit-test MostPopular, BPR-MF, SASRec cùng M7 score-lock/evaluator.
 - [x] Prepare fresh 500-user M7 cohort và seal candidates.
-- [ ] Smoke 20–30 event cho từng workload mới (candidate/graph/local dry pass;
-  baseline và LLM GPU smoke còn lại).
-- [ ] Score/hash tất cả arms trước khi mở outcome (graph 500/500 complete;
-  baseline và local LLM còn lại).
-- [ ] One-time M7 evaluation và result documentation.
+- [x] Smoke 20 event cho từng workload mới; baseline và local LLM GPU smoke pass.
+- [x] Score/hash tất cả arms trước khi mở outcome; combined score lock pass.
+- [x] One-time M7 evaluation và result documentation; primary gate pass.
 - [ ] Candidate hardness mechanism analysis.
 - [ ] Thesis tables, plots, limitations và reproducibility appendix.
 
-GPU preflight ngày 2026-09-24 xác nhận allocation Slurm `15288` đã hết hạn.
-Theo resource runbook, baseline/LLM smoke và full run đang dừng ở compute gate;
-không tự tạo allocation mới và chưa có outcome nào được mở.
+M7 chạy trên allocation Slurm `17272`, dùng tuần tự đúng một H100 cho mỗi
+workload. Baseline full peak 0,451 GiB; local LLM full peak 7,706 GiB. Sau khi
+LLM thoát, cả bốn H100 đều trở về 1 MiB. Combined score lock được tạo trước khi
+mở label; evaluation chạy đúng một lần. Không chạy thêm method search/tuning
+trên M7 outcome.

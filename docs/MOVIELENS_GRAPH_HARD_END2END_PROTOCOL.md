@@ -2,8 +2,7 @@
 
 **Protocol date:** 2026-09-23
 
-**Status:** cohort/graph scores locked; baseline/evaluation code complete offline;
-GPU smoke and local LLM pending; outcomes unopened
+**Status:** final result sealed; primary gate passed; no further test tuning
 
 **Task boundary:** candidate-set ranking, matching the MemRec paper. “End-to-end”
 here means local semantic ranking plus graph augmentation on the same supplied
@@ -191,8 +190,7 @@ contracts may be merged.
 
 ### Offline validation
 
-- Full local suite after baseline and sealed-evaluator implementation:
-  **60/60 tests pass**.
+- Full local suite after the final validation-sampler fix: **61/61 tests pass**.
 - Adapter smoke: 50 users, 7.927 ratings and 3.690 rated movies; pass.
 - Local prompt/schema dry contract: 20 events, 40 jobs, zero request; pass.
 - Prompt contract SHA256:
@@ -261,18 +259,138 @@ been SHA256-locked.
 No hyperparameter search or manual tuning was added. CPU smoke and the full
 local suite pass; no recommendation label was accessed by these checks.
 
-### Current compute gate
+### GPU execution and baseline lock
 
-The mandatory cluster preflight on 2026-09-24 found Slurm allocation `15288`
-expired. No GPU process was started and no new allocation was requested. Per
-`internal_docs/H100_RESOURCE_RULES.md`, execution must resume only after the
-user provides an active authorized allocation; then the exact order is
-baseline smoke (20 events) → baseline full → LLM smoke (20 events) → LLM full
-→ combined score lock → one-time evaluation.
+The authorized replacement allocation was Slurm job `17272` on `worker-7`.
+Every model step dynamically selected the lowest-utilization/lowest-memory GPU,
+exported exactly one `CUDA_VISIBLE_DEVICES` entry and ran with TP=1. The final
+baseline and LLM runs used source commit
+`93e28b3adfb1ee0ef712d22c952af2f536d82683`.
 
-### Remaining before one-time evaluation
+The final 20-event baseline smoke produced 400/400 finite BPR/SASRec candidate
+scores, used no target labels and peaked at 0,173 GiB VRAM. The blind full run
+then scored 500/500 events and peaked at 0,451 GiB. Automatic validation chose:
 
-- [ ] MostPopular/BPR-MF/SASRec smoke and locked scores.
-- [ ] Self-host LLM smoke 20 events and full 500-event run.
-- [ ] Combined score lock covering every preregistered arm.
-- [ ] One-time outcome evaluation and thesis result table.
+| Baseline | Validation events | Selected epoch | Validation NDCG@10 |
+|---|---:|---:|---:|
+| BPR-MF | 9.389 | 20 | 0,338131 |
+| SASRec | 9.389 | 17 | 0,673287 |
+
+No hyperparameter/config/seed was compared manually. Both selected models were
+refit for their locked epoch counts on positives strictly before the test
+cutoff. The final score file contains exactly 500 blind rows.
+
+### Local LLM execution
+
+The final self-hosted smoke passed on 20 events:
+
+- 40/40 physical requests and successful keys;
+- zero retry, JSON/schema repair or permutation repair;
+- 19.068 total tokens;
+- 7,700 GiB peak VRAM.
+
+The full run reused all 40 smoke calls and issued 960 new calls. Across smoke
+and full, the sealed run used exactly 1.000 physical requests, 434.912 input
+tokens and 43.463 output tokens, or 478.375 tokens total. It had zero retry and
+zero JSON/schema repair. One ranking required the preregistered deterministic
+permutation-completion repair, below the locked cap of five. Full peak VRAM was
+7,706 GiB. The full invocation ran from 13:50 to 15:26 local time; immediately
+after exit all four H100s reported 1 MiB used.
+
+### Operational failure audit
+
+Pre-outcome failures did not produce or merge scores:
+
+- two baseline attempts stopped before model creation because PyTorch 2.10
+  required an initialized CUDA context for peak-memory telemetry;
+- one baseline full attempt stopped before training because the independent
+  validation sampler incorrectly called the ten-item prompt sampler for its
+  locked 100-item validation set; a general deterministic sampler and unit
+  test were added, the old smoke was invalidated, and a fresh smoke passed;
+- the first LLM attempt stopped before loading the model or writing a Journal
+  because the expected Slurm job environment guard was absent.
+
+The outer overlapping `srun` wrapper sometimes reported exit code 1 after a
+successful child workload and post-run snapshot. Promotion used the separately
+captured workload status, immutable manifest and independent artifact
+validator; all successful child workloads returned status 0. No outcome was
+opened during these fixes and the scientific config remained unchanged.
+
+## 12. Final sealed result
+
+The combined score lock validated 500 graph rows, 500 baseline rows and 1.000
+successful LLM keys before accessing `gold_item_id`. Outcome evaluation then
+ran once. All values below use the identical ten candidates for each event.
+
+| Ranking arm | H@1 | H@3 | H@5 | NDCG@3 | NDCG@5 |
+|---|---:|---:|---:|---:|---:|
+| Local LLM | 0,204 | 0,480 | 0,666 | 0,361378 | 0,436926 |
+| MostPopular | 0,498 | 0,772 | 0,862 | 0,654378 | 0,691561 |
+| BPR-MF | 0,384 | 0,582 | 0,696 | 0,499497 | 0,547455 |
+| **SASRec** | **0,660** | **0,894** | **0,960** | **0,800044** | **0,827329** |
+| Exact one-step, graph-only | 0,546 | 0,780 | 0,866 | 0,682901 | 0,718712 |
+| **Exact one-step residual — primary** | **0,528** | **0,754** | **0,854** | **0,658283** | **0,699773** |
+| Exact PPR, graph-only | 0,528 | 0,778 | 0,848 | 0,675258 | 0,704266 |
+| Exact PPR residual | 0,518 | 0,750 | 0,864 | 0,650235 | 0,697317 |
+| Session-300s one-step, graph-only | 0,596 | 0,806 | 0,878 | 0,718806 | 0,748939 |
+| Session-300s one-step residual | 0,554 | 0,798 | 0,892 | 0,696425 | 0,735243 |
+| Session-300s PPR, graph-only | 0,534 | 0,776 | 0,862 | 0,674378 | 0,709663 |
+| Session-300s PPR residual | 0,516 | 0,766 | 0,866 | 0,660116 | 0,701693 |
+
+### Primary gate
+
+`Local + exact one-step residual` versus `Local`:
+
+- delta NDCG@5: **+0,262847**;
+- paired-bootstrap 95% CI: **[+0,226284; +0,298401]**;
+- improved/worsened/unchanged events: **256/83/161**;
+- ranking changed on 477/500 events;
+- preregistered gate (`delta >= 0,03` and CI lower bound `>0`): **PASS**.
+
+This is strong evidence that direct transition magnitude improves the frozen
+LLM even after eliminating the easy “gold reachable, negative unreachable”
+shortcut. Every one of 4.500 negative slots has positive one-step evidence in
+both views. Gold one-step coverage is actually lower: 461/500 (92,2%) for exact
+and 487/500 (97,4%) for session-300s.
+
+### Interpretation boundary
+
+The result supports **transition-graph augmentation**, not a SOTA claim:
+
+- exact one-step graph-only is 0,018940 NDCG@5 above the primary fusion;
+- session-300s one-step graph-only is the best graph arm at 0,748939;
+- direct one-step graph-only exceeds PPR graph-only by 0,014446 exact and
+  0,039276 session, so deeper fixed propagation is not supported;
+- MostPopular reaches 0,691561, only 0,008212 below the primary fusion;
+- SASRec is strongest overall and exceeds the primary fusion by 0,127556.
+
+Therefore the thesis may claim that a temporal transition graph supplies a
+large, statistically reliable complementary signal to the frozen LLM under
+structurally hard candidates. It must also state that the LLM baseline is weak,
+that direct graph ranking slightly beats the frozen residual fusion, and that a
+standard sequential recommender remains substantially stronger. No further
+alpha, prompt, graph, candidate or model tuning is allowed on these labels.
+
+## 13. Final artifact hashes
+
+| Artifact | SHA256 |
+|---|---|
+| Frozen config | `5311a8008a5ad2bf775b0f411509e328e24fd479f0d77e50a6ad9c989a5f1e2e` |
+| Prepared cohort | `c19a64f18e7b340b5e278840d691b2dbb6d5f90947e10e5dbeb2c263d04c8a2e` |
+| Method lock | `eddb551cd0c2d2ccb4c0ccd464413e87d61f537b5b14bc7ad08c526f786e9ca1` |
+| Graph scores | `d0ac0831fc975de02612a6616798195dcabb8ba973bd74bed1ebcc402344e72e` |
+| Baseline smoke | `871e1979c07dbebca065645cb80fdd2f192f1706166621d9468feb32723a9840` |
+| Baseline scores | `e57f216a7a6186c2a3841d53a36eb90bd3c246226a5b362478c01a8173d4b4ee` |
+| Baseline manifest | `2b41c9f1095cdbfd8642d1ea43475bc37f1d0af6e4c20684e3420d77c9021154` |
+| BPR-MF checkpoint | `549ac0340000c11370b4a843523add124ccb2bfa7a1cc46323e51272ee6fae6f` |
+| SASRec checkpoint | `08eeb5aaf958cc51153599b8d2d5387e3b671123d6b279c1daeb0eedc7d61848` |
+| Local smoke | `92b1f47564ca0eb60d20ebde919426f515685a39098973cb482f4f6a291e4813` |
+| Local attempts | `70eb11b610656dbc79f5eb5ca72a0825178bc0faf6242309ed5a9716bf7c176b` |
+| Local calls | `7551d630f40896e5ae3a99896f54003df5f97b088d85cdc4b7de7529b58303c6` |
+| Local manifest | `257fc1a8cf42ca69a8e1fe111e9e56df7b9eb47deb7af3252645b251b5719a9f` |
+| Pre-outcome score lock | `92b1025d7fb8e4604c0937166772c9e9869d81c5b14ccf364c3654f399d0f460` |
+| Metrics | `66df8e555e0a507d9c0f68d6ee875a9bfc6fe255e40f4995795c988b1bf69a1b` |
+| Evaluation manifest | `ec49efc8ce5206fa62a5983aa1fb40ef63cf3b361b45dfba41557477122bc26b` |
+
+Outcome artifacts are sealed. The next work is thesis packaging and optional
+analysis-only mechanism visualization; it is not another method-search loop.
