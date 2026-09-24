@@ -5,6 +5,7 @@ import argparse
 import json
 import math
 import random
+import subprocess
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -67,6 +68,25 @@ def _seed_everything(seed: int) -> None:
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+
+
+def _clean_source_commit() -> str:
+    dirty = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=no"],
+        cwd=PROJECT_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    if dirty:
+        raise RuntimeError("baseline GPU run requires a clean tracked worktree")
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=PROJECT_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
 
 
 def _device(require_cuda: bool) -> torch.device:
@@ -646,6 +666,7 @@ def real_gpu_smoke(
     output = project_path(config["baselines"]["smoke_manifest"])
     if output.exists():
         raise FileExistsError(output)
+    source_commit = _clean_source_commit()
     device = _device(True)
     smoke_count = int(config["baselines"]["smoke_events"])
     events = sorted(
@@ -653,15 +674,19 @@ def real_gpu_smoke(
         key=lambda event: stable_order(f"m7-baseline-smoke\0{event_key(event)}"),
     )[:smoke_count]
     user_ids = {str(event["user_id"]) for event in events}
+    events_by_user = {str(event["user_id"]): event for event in events}
     movies = load_movies(project_path(config["dataset"]["movies_file"]))
     item_ids = sorted(movies, key=int)
     item_index = {item_id: index for index, item_id in enumerate(item_ids)}
     user_index = {user_id: index for index, user_id in enumerate(sorted(user_ids, key=int))}
     sequences: Dict[int, list[int]] = {}
-    cutoff = int(verify_audit(config)["temporal_split"]["validation_cutoff"])
+    inference_histories: Dict[str, list[int]] = {}
+    audit = verify_audit(config)
+    cutoff = int(audit["temporal_split"]["validation_cutoff"])
     for user_id, ratings in iter_user_ratings(project_path(config["dataset"]["ratings_file"])):
         if user_id not in user_ids:
             continue
+        event = events_by_user[user_id]
         positives = [
             item_index[item_id]
             for timestamp, item_id, rating in ratings
@@ -669,16 +694,37 @@ def real_gpu_smoke(
         ]
         if positives:
             sequences[user_index[user_id]] = positives
-    universe = sorted(
-        {
-            item_index[str(item_id)]
-            for event in events
-            for item_id in event["candidate_item_ids"]
-        }
-        | {item for values in sequences.values() for item in values}
+        inference_histories[user_id] = [
+            item_index[item_id]
+            for timestamp, item_id, rating in ratings
+            if timestamp < int(event["timestamp"])
+            and rating >= float(config["baselines"]["positive_rating_min"])
+        ]
+    pool = positive_candidate_pool(
+        project_path(config["dataset"]["ratings_file"]),
+        train_cutoff=int(audit["temporal_split"]["train_cutoff"]),
+        positive_rating_min=float(config["baselines"]["positive_rating_min"]),
     )
-    if len(sequences) != smoke_count:
-        raise RuntimeError("baseline smoke sequences missing")
+    universe = [item_index[item_id] for item_id in pool]
+    if not sequences or sum(len(values) >= 2 for values in sequences.values()) == 0:
+        raise RuntimeError("baseline smoke has no usable training sequences")
+    if len(inference_histories) != smoke_count or any(
+        not values for values in inference_histories.values()
+    ):
+        raise RuntimeError("baseline smoke inference histories missing")
+    rows = [
+        {
+            "event_key": event_key(event),
+            "user_index": user_index[str(event["user_id"])],
+            "candidate_item_ids": [str(item_id) for item_id in event["candidate_item_ids"]],
+            "candidate_indices": [
+                item_index[str(item_id)] for item_id in event["candidate_item_ids"]
+            ],
+            "history_indices": inference_histories[str(event["user_id"])],
+        }
+        for event in events
+    ]
+    torch.cuda.reset_peak_memory_stats(device)
     bpr_settings = config["baselines"]["bpr_mf"]
     _seed_everything(int(bpr_settings["seed"]))
     bpr = BPRMF(len(user_index), len(item_ids), int(bpr_settings["embedding_dim"])).to(device)
@@ -692,6 +738,7 @@ def real_gpu_smoke(
         np.random.default_rng(int(bpr_settings["seed"])),
         device,
     )
+    bpr_scores = _score_model("bpr_mf", bpr, rows, config, device)
     del bpr, bpr_optimizer
     torch.cuda.empty_cache()
     sas_settings = config["baselines"]["sasrec"]
@@ -715,6 +762,17 @@ def real_gpu_smoke(
         np.random.default_rng(int(sas_settings["seed"])),
         device,
     )
+    sasrec_scores = _score_model("sasrec", sasrec, rows, config, device)
+    scored_values = [
+        value
+        for score_rows in (bpr_scores, sasrec_scores)
+        for score_row in score_rows
+        for value in score_row.values()
+    ]
+    if len(scored_values) != smoke_count * int(config["study"]["candidates_per_event"]) * 2:
+        raise RuntimeError("baseline smoke score count mismatch")
+    if not all(math.isfinite(value) for value in scored_values):
+        raise RuntimeError("baseline smoke produced non-finite scores")
     peak = torch.cuda.max_memory_allocated(device) / (1024**3)
     del sasrec, sas_optimizer
     torch.cuda.empty_cache()
@@ -724,12 +782,14 @@ def real_gpu_smoke(
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "decision": "pass",
         "config_sha256": sha256_file(config_path),
+        "source_commit": source_commit,
         "prepared_sha256": manifest["prepared"]["sha256"],
         "method_lock_sha256": manifest["method_lock"]["sha256"],
         "events": smoke_count,
         "models": ["bpr_mf", "sasrec"],
         "bpr_loss": bpr_loss,
         "sasrec_loss": sas_loss,
+        "finite_candidate_scores": len(scored_values),
         "peak_vram_gib": peak,
         "cuda_device": torch.cuda.get_device_name(device),
         "manual_tuning_performed": False,
@@ -748,6 +808,7 @@ def verify_gpu_smoke(config: Mapping[str, Any], config_path: Path, manifest: Map
     expected = {
         "decision": "pass",
         "config_sha256": sha256_file(config_path),
+        "source_commit": _clean_source_commit(),
         "prepared_sha256": manifest["prepared"]["sha256"],
         "method_lock_sha256": manifest["method_lock"]["sha256"],
         "events": int(config["baselines"]["smoke_events"]),
@@ -813,6 +874,7 @@ def run_full(config: Mapping[str, Any], config_path: Path) -> Dict[str, Any]:
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "decision": "complete",
         "config_sha256": sha256_file(config_path),
+        "source_commit": smoke["source_commit"],
         "prepared_sha256": prepare_manifest["prepared"]["sha256"],
         "method_lock_sha256": prepare_manifest["method_lock"]["sha256"],
         "smoke_manifest_sha256": sha256_file(project_path(config["baselines"]["smoke_manifest"])),

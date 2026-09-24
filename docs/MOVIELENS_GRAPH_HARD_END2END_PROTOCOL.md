@@ -2,8 +2,8 @@
 
 **Protocol date:** 2026-09-23
 
-**Status:** cohort/graph scores locked; baselines and local LLM pending;
-outcomes unopened
+**Status:** cohort/graph scores locked; baseline/evaluation code complete offline;
+GPU smoke and local LLM pending; outcomes unopened
 
 **Task boundary:** candidate-set ranking, matching the MemRec paper. “End-to-end”
 here means local semantic ranking plus graph augmentation on the same supplied
@@ -191,7 +191,8 @@ contracts may be merged.
 
 ### Offline validation
 
-- Full local suite after implementation: **50/50 tests pass**.
+- Full local suite after baseline and sealed-evaluator implementation:
+  **60/60 tests pass**.
 - Adapter smoke: 50 users, 7.927 ratings and 3.690 rated movies; pass.
 - Local prompt/schema dry contract: 20 events, 40 jobs, zero request; pass.
 - Prompt contract SHA256:
@@ -234,6 +235,40 @@ Graph-score JSONL SHA256:
 
 These are coverage counts, not recommendation metrics. No gold label was passed
 to graph scoring and no NDCG/Hit outcome has been computed.
+
+### Baseline and evaluation implementation
+
+The locked baseline runner now includes:
+
+- global MostPopular counts from positives strictly before the validation
+  cutoff;
+- 64-dimensional BPR-MF with pairwise negative sampling, the single frozen
+  optimizer/seed/config and automatic validation early stopping;
+- 64-dimensional, two-block SASRec with causal masking, maximum history 50 and
+  the single frozen optimizer/seed/config;
+- refit for the automatically selected epoch count on all positives strictly
+  before the validation cutoff, then blind scoring of the 500 fixed candidate
+  sets;
+- a 20-event real-GPU smoke that trains one bounded epoch and verifies all 400
+  BPR/SASRec candidate scores are finite before promotion.
+
+The separate M7 evaluator reports H@1/3/5 and NDCG@3/5 for all preregistered
+arms. It hard-codes `local + exact one-step residual` as the sole primary arm
+and refuses to read outcomes until cohort, graph scores, baseline scores,
+checkpoints, local calls and manifests have all passed blind validation and
+been SHA256-locked.
+
+No hyperparameter search or manual tuning was added. CPU smoke and the full
+local suite pass; no recommendation label was accessed by these checks.
+
+### Current compute gate
+
+The mandatory cluster preflight on 2026-09-24 found Slurm allocation `15288`
+expired. No GPU process was started and no new allocation was requested. Per
+`internal_docs/H100_RESOURCE_RULES.md`, execution must resume only after the
+user provides an active authorized allocation; then the exact order is
+baseline smoke (20 events) → baseline full → LLM smoke (20 events) → LLM full
+→ combined score lock → one-time evaluation.
 
 ### Remaining before one-time evaluation
 

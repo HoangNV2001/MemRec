@@ -4,11 +4,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import subprocess
 from datetime import datetime, timezone
 from typing import Any, Dict, Mapping, Sequence
 
 from src.models.selfhost_transformers import TransformersJSONClient
-from src.temporal_books.common import load_yaml, project_path, sha256_file, stable_order
+from src.temporal_books.common import PROJECT_ROOT, load_yaml, project_path, sha256_file, stable_order
 from src.temporal_books.current_support import (
     LETTERS,
     Journal,
@@ -26,6 +27,25 @@ from src.temporal_books.p7_selfhost_local import (
 
 
 SCHEMA_VERSION = 1
+
+
+def clean_source_commit() -> str:
+    dirty = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=no"],
+        cwd=PROJECT_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    if dirty:
+        raise RuntimeError("MovieLens GPU run requires a clean tracked worktree")
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=PROJECT_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
 
 
 def stage_r_prompt(event: Mapping[str, Any]) -> tuple[list[Dict[str, str]], Dict[str, Dict[str, Any]]]:
@@ -229,6 +249,7 @@ def main() -> None:
         raise ValueError("MovieLens primary generation count mismatch")
     if primary + int(self_host["retry_reserve"]) > int(self_host["hard_generation_cap"]):
         raise ValueError("MovieLens generation budget exceeds cap")
+    source_commit = clean_source_commit()
     manifest_path = project_path(self_host["manifest"])
     if args.request and manifest_path.exists():
         raise RuntimeError("MovieLens local completion manifest exists; do not overwrite")
@@ -250,6 +271,7 @@ def main() -> None:
         expected = {
             "decision": "pass",
             "config_sha256": sha256_file(config_path),
+            "source_commit": source_commit,
             "prepared_sha256": prepare_manifest["prepared"]["sha256"],
             "method_lock_sha256": prepare_manifest["method_lock"]["sha256"],
             "model_contract": model_contract(config),
@@ -291,6 +313,7 @@ def main() -> None:
         "run_id": study["run_id"],
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "config_sha256": sha256_file(config_path),
+        "source_commit": source_commit,
         "prepared_sha256": prepare_manifest["prepared"]["sha256"],
         "method_lock_sha256": prepare_manifest["method_lock"]["sha256"],
         "model_contract": model_contract(config),

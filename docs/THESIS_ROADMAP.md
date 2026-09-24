@@ -1,6 +1,6 @@
 # Thesis roadmap — Temporal Transition Graph Augmentation
 
-**Cập nhật:** 2026-09-23
+**Cập nhật:** 2026-09-24
 
 **Trạng thái:** active, canonical cho các bước nghiên cứu tiếp theo
 
@@ -121,10 +121,10 @@ Các baseline bắt buộc trên cùng temporal split, cohort và candidate set:
 
 | Baseline | Vai trò | Trạng thái code |
 |---|---|---|
-| Global MostPopular | non-personalized sanity baseline | cần thêm |
+| Global MostPopular | non-personalized sanity baseline | đã implement; chờ full score |
 | First-order Markov / one-step transition | structural sequential baseline; chính là graph-only one-step | đã có scorer |
-| BPR-MF | collaborative non-sequential baseline | cần thêm |
-| SASRec | strong sequential baseline | mới có sampler, chưa có model/trainer hoàn chỉnh |
+| BPR-MF | collaborative non-sequential baseline | model/trainer/early stopping đã test offline; chờ GPU smoke |
+| SASRec | strong sequential baseline | model/trainer/early stopping đã test offline; chờ GPU smoke |
 
 LightGCN là optional. Chỉ được đưa vào protocol nếu implementation và smoke đã
 hoàn tất **trước** score lock; không được thêm sau outcome để cứu kết quả.
@@ -303,7 +303,7 @@ tune M5/M6 hoặc tăng thêm hop để tối ưu test.
 - [x] Thesis framing/RQs và next-study priority được khóa.
 - [x] Bounded Goodreads readiness audit; deferred do thiếu timestamp/item ID.
 - [x] Viết M7 graph-hard end-to-end protocol; hash cùng config khi prepare.
-- [ ] Hoàn thiện/test MostPopular, BPR-MF và SASRec baselines.
+- [x] Hoàn thiện và unit-test MostPopular, BPR-MF, SASRec cùng M7 score-lock/evaluator.
 - [x] Prepare fresh 500-user M7 cohort và seal candidates.
 - [ ] Smoke 20–30 event cho từng workload mới (candidate/graph/local dry pass;
   baseline và LLM GPU smoke còn lại).
@@ -312,3 +312,7 @@ tune M5/M6 hoặc tăng thêm hop để tối ưu test.
 - [ ] One-time M7 evaluation và result documentation.
 - [ ] Candidate hardness mechanism analysis.
 - [ ] Thesis tables, plots, limitations và reproducibility appendix.
+
+GPU preflight ngày 2026-09-24 xác nhận allocation Slurm `15288` đã hết hạn.
+Theo resource runbook, baseline/LLM smoke và full run đang dừng ở compute gate;
+không tự tạo allocation mới và chưa có outcome nào được mở.
