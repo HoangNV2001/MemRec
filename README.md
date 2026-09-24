@@ -7,6 +7,7 @@ lên `0,7618` (`+0,1371`, paired 95% CI `[+0,0904; +0,1838]`).
 
 ## Tài liệu hiện tại
 
+- [Bản thảo đồ án hoàn chỉnh](docs/THESIS_DRAFT.md)
 - [Phương pháp, protocol và kết quả](docs/TRANSITION_PPR_METHOD.md)
 - [Replication plan](docs/REPLICATION_PLAN.md)
 - [Các hướng đã đóng](docs/ARCHIVED_DIRECTIONS.md)
