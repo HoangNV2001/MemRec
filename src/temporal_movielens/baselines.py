@@ -724,7 +724,7 @@ def real_gpu_smoke(
         }
         for event in events
     ]
-    torch.cuda.reset_peak_memory_stats(device)
+    torch.cuda.reset_peak_memory_stats(0)
     bpr_settings = config["baselines"]["bpr_mf"]
     _seed_everything(int(bpr_settings["seed"]))
     bpr = BPRMF(len(user_index), len(item_ids), int(bpr_settings["embedding_dim"])).to(device)
@@ -773,7 +773,7 @@ def real_gpu_smoke(
         raise RuntimeError("baseline smoke score count mismatch")
     if not all(math.isfinite(value) for value in scored_values):
         raise RuntimeError("baseline smoke produced non-finite scores")
-    peak = torch.cuda.max_memory_allocated(device) / (1024**3)
+    peak = torch.cuda.max_memory_allocated(0) / (1024**3)
     del sasrec, sas_optimizer
     torch.cuda.empty_cache()
     payload = {
@@ -791,7 +791,7 @@ def real_gpu_smoke(
         "sasrec_loss": sas_loss,
         "finite_candidate_scores": len(scored_values),
         "peak_vram_gib": peak,
-        "cuda_device": torch.cuda.get_device_name(device),
+        "cuda_device": torch.cuda.get_device_name(0),
         "manual_tuning_performed": False,
         "recommendation_outcomes_evaluated": False,
         "test_labels_used_for_training_or_scoring": False,
@@ -867,7 +867,7 @@ def run_full(config: Mapping[str, Any], config_path: Path) -> Dict[str, Any]:
             }
         )
     records, digest = jsonl_write(scores_path, output_rows)
-    peak = torch.cuda.max_memory_allocated(device) / (1024**3)
+    peak = torch.cuda.max_memory_allocated(0) / (1024**3)
     payload = {
         "schema_version": SCHEMA_VERSION,
         "run_id": config["study"]["run_id"],
