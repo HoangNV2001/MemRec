@@ -724,6 +724,9 @@ def real_gpu_smoke(
         }
         for event in events
     ]
+    # PyTorch 2.10 on the cluster rejects peak-memory telemetry before the
+    # CUDA context exists, even though is_available/device_count have passed.
+    torch.cuda.init()
     torch.cuda.reset_peak_memory_stats(0)
     bpr_settings = config["baselines"]["bpr_mf"]
     _seed_everything(int(bpr_settings["seed"]))
