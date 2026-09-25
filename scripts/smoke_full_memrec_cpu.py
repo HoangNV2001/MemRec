@@ -7,7 +7,9 @@ Fake scores are NOT research results and do not replace the H100 LLM smoke.
 
 import argparse
 import re
+import resource
 import sys
+import time
 from pathlib import Path
 
 import torch
@@ -63,6 +65,7 @@ class FakeJSONClient:
 
 
 def main():
+    started = time.perf_counter()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--users', type=int, default=30)
     parser.add_argument('--warmup-user-scope', choices=['eval', 'all'], default='eval')
@@ -103,6 +106,10 @@ def main():
     print(
         f'CPU WIRING SMOKE PASS: {args.users} ranked / {expected_warmup} warmed; '
         'results are not model performance'
+    )
+    print(
+        f'CPU RESOURCE: elapsed_seconds={time.perf_counter() - started:.2f} '
+        f'peak_rss_mib={resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024:.1f}'
     )
 
 
