@@ -25,6 +25,20 @@ from src.data import RecDataset
 from src.train import MemRecTrainer
 
 
+def redact_credentials(value):
+    """Keep reproducibility metadata without writing provider credentials to results."""
+    if isinstance(value, dict):
+        return {
+            key: ('[REDACTED]' if any(word in key.lower() for word in
+                    ('api_key', 'password', 'secret', 'token', 'authorization'))
+                  else redact_credentials(item))
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [redact_credentials(item) for item in value]
+    return value
+
+
 def save_results(config, valid_metrics, test_metrics, save_dir):
     """Save training results"""
     # Create results directory
@@ -40,7 +54,7 @@ def save_results(config, valid_metrics, test_metrics, save_dir):
     run_file = results_dir / f"{dataset_name}_{model_name}_seed{seed}_{timestamp}.json"
     
     results = {
-        'config': config,
+        'config': redact_credentials(config),
         'valid_metrics': valid_metrics,
         'test_metrics': test_metrics,
         'timestamp': timestamp
@@ -164,6 +178,18 @@ def main():
         help='Number of users to evaluate on (default: None = all users in eval set)'
     )
     parser.add_argument(
+        '--eval-cohort',
+        choices=['dev', 'heldout', 'all'],
+        default=None,
+        help='Books full-MemRec protocol cohort (overrides config)'
+    )
+    parser.add_argument(
+        '--warmup-user-scope',
+        choices=['eval', 'all'],
+        default=None,
+        help='Warm up only evaluated users (smoke) or all users (final benchmark)'
+    )
+    parser.add_argument(
         '--max_workers',
         type=int,
         default=None,
@@ -255,6 +281,12 @@ def main():
     
     if args.n_eval_users is not None:
         config['n_eval_users'] = args.n_eval_users
+
+    if args.eval_cohort is not None:
+        config['eval_cohort'] = args.eval_cohort
+
+    if args.warmup_user_scope is not None:
+        config['warmup_user_scope'] = args.warmup_user_scope
     
     if args.max_workers is not None:
         config['max_workers'] = args.max_workers
@@ -324,7 +356,10 @@ def main():
         sys.exit(1)
     
     print(f"\nLoading dataset from: {data_file}")
-    dataset = RecDataset(str(data_file), seed=seed)
+    dataset = RecDataset(
+        str(data_file), seed=seed,
+        precompute_negatives=not config.get('use_pregenerated_candidates', False)
+    )
     print(dataset)
     
     stats = dataset.get_stats()

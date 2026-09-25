@@ -48,6 +48,7 @@ class MemRecAgent:
         pruner_checkpoint: Optional[str] = None,
         enable_stage_r: bool = True,  # Ablation: control Stage-R
         vanilla_mode: bool = False,  # Ablation: true "no memory system at all" baseline
+        upstream_empty_facets_prompt: bool = False,
         reranker_llm_client = None,  # Optional separate LLMClient for reranker
         debug: bool = False
     ):
@@ -84,6 +85,7 @@ class MemRecAgent:
         self.pruner_mode = pruner_mode
         self.enable_stage_r = enable_stage_r  # Ablation control
         self.vanilla_mode = vanilla_mode  # Ablation control: skip memory framing in reranker prompt entirely
+        self.upstream_empty_facets_prompt = upstream_empty_facets_prompt
         self.pruner_checkpoint = pruner_checkpoint
         self.debug = debug
         
@@ -224,7 +226,8 @@ class MemRecAgent:
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
                 debug_logger=debug_logger,
-                vanilla_mode=self.vanilla_mode
+                vanilla_mode=self.vanilla_mode,
+                upstream_empty_facets_prompt=self.upstream_empty_facets_prompt
             )
         else:  # vector mode
             rerank_scores = self.reranker.rerank(

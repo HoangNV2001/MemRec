@@ -4,6 +4,8 @@ Supports Azure OpenAI API and OpenAI-compatible APIs (TogetherAI, Anyscale, vLLM
 """
 import os
 import json
+import threading
+import math
 from typing import List, Dict, Optional, Tuple
 from pathlib import Path
 from datetime import datetime
@@ -16,6 +18,57 @@ from openai import AzureOpenAI, OpenAI
 _RESTRICTED_SAMPLING_PREFIXES = ("gpt-5", "o1", "o3", "o4")
 _DEFAULT_AZURE_API_VERSION = "2024-02-15-preview"
 _DEFAULT_MODEL = "gpt-4o-mini"
+
+
+class RequestBudgetExceeded(RuntimeError):
+    """Stop a run before sending more physical LLM requests than allowed."""
+
+
+class RequestBudget:
+    def __init__(self, limit: int):
+        if limit <= 0:
+            raise ValueError('Request budget must be positive')
+        self.limit = limit
+        self.used = 0
+        self._lock = threading.Lock()
+
+    def consume(self):
+        with self._lock:
+            if self.used >= self.limit:
+                raise RequestBudgetExceeded(f'LLM request hard cap reached: {self.used}/{self.limit}')
+            self.used += 1
+
+
+def validate_json_shape(value, schema: Dict, path: str = '$'):
+    """Validate the JSON-schema subset used by MemRec without a new dependency."""
+    kind = schema.get('type')
+    if kind == 'object':
+        if not isinstance(value, dict):
+            raise ValueError(f'{path}: expected object')
+        required = schema.get('required', [])
+        missing = set(required) - set(value)
+        if missing:
+            raise ValueError(f'{path}: missing fields {sorted(missing)}')
+        properties = schema.get('properties', {})
+        if schema.get('additionalProperties') is False and set(value) - set(properties):
+            raise ValueError(f'{path}: unexpected fields {sorted(set(value) - set(properties))}')
+        for key, nested in properties.items():
+            if key in value:
+                validate_json_shape(value[key], nested, f'{path}.{key}')
+    elif kind == 'array':
+        if not isinstance(value, list):
+            raise ValueError(f'{path}: expected array')
+        for index, item in enumerate(value):
+            validate_json_shape(item, schema.get('items', {}), f'{path}[{index}]')
+    elif kind == 'string':
+        if not isinstance(value, str):
+            raise ValueError(f'{path}: expected string')
+    elif kind == 'integer':
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f'{path}: expected integer')
+    elif kind == 'number':
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise ValueError(f'{path}: expected finite number')
 
 
 def _strip_provider_prefix(model: str) -> str:
@@ -42,7 +95,8 @@ class LLMClient:
         model: Optional[str] = None,
         provider_name: str = "azure_openai",  # "azure_openai" or "openai"
         save_conversations: bool = False,
-        conversation_log_path: Optional[str] = None
+        conversation_log_path: Optional[str] = None,
+        sdk_max_retries: int = 2,
     ):
         """
         Initialize LLM client
@@ -61,6 +115,11 @@ class LLMClient:
         self.api_key = api_key
         self.api_version = api_version
         self.model = model
+        self.sdk_max_retries = sdk_max_retries
+        self.request_budget = None
+        self.fail_fast = False
+        self.strict_schema_validation = False
+        self.total_physical_requests = 0
         
         # Get from env if not provided
         if not self.api_endpoint:
@@ -112,12 +171,14 @@ class LLMClient:
             self.client = AzureOpenAI(
                 azure_endpoint=self.api_endpoint,
                 api_key=self.api_key,
-                api_version=self.api_version
+                api_version=self.api_version,
+                max_retries=self.sdk_max_retries,
             )
         else:  # OpenAI-compatible (TogetherAI, Anyscale, vLLM, etc.)
             self.client = OpenAI(
                 base_url=self.api_endpoint,
-                api_key=self.api_key
+                api_key=self.api_key,
+                max_retries=self.sdk_max_retries,
             )
         
         # Token usage tracking
@@ -219,6 +280,9 @@ class LLMClient:
         
         # Retry with exponential backoff for rate limit errors
         for attempt in range(max_retries):
+            if self.request_budget is not None:
+                self.request_budget.consume()
+            self.total_physical_requests += 1
             try:
                 completion = self.client.chat.completions.create(**kwargs)
                 response = completion.choices[0].message.content
@@ -341,6 +405,8 @@ class LLMClient:
         
         try:
             response_dict = json.loads(response_text)
+            if self.strict_schema_validation:
+                validate_json_shape(response_dict, json_schema['schema'])
             
             # Debug log: record LLM output
             if debug_logger:
@@ -364,6 +430,7 @@ class LLMClient:
             'total_output_tokens': self.total_output_tokens,
             'total_tokens': self.total_input_tokens + self.total_output_tokens,
             'total_requests': self.total_requests,
+            'total_physical_requests': self.total_physical_requests,
             'avg_input_tokens': self.total_input_tokens / self.total_requests if self.total_requests > 0 else 0,
             'avg_output_tokens': self.total_output_tokens / self.total_requests if self.total_requests > 0 else 0,
         }

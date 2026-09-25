@@ -1,0 +1,45 @@
+# Full MemRec on original InstructRec Books candidates; no test-label writes.
+# Set MEMREC_SELFHOST_BASE_URL, MEMREC_SELFHOST_MODEL and
+# MEMREC_SELFHOST_API_KEY in the Slurm step. Do not put credentials here.
+inherit: configs/memrec_instructrec-books.yaml
+
+use_pregenerated_candidates: true
+n_eval_candidates: 10
+eval_cohort: dev
+eval_feedback: none
+seed: 42
+warmup_user_scope: eval  # smoke/default; full runs must override to all
+llm_retry_reserve_fraction: 0.10  # physical request hard cap = expected + 10%
+
+# Stage-W still runs during warm-up on prior interactions; only test-label
+# feedback is disabled to prevent cross-user test contamination.
+warmup:
+  enabled: true
+  rounds: 1
+
+llm_model: ${ENV:MEMREC_SELFHOST_MODEL}
+provider:
+  name: openai
+  model: ${ENV:MEMREC_SELFHOST_MODEL}
+  endpoint: ${ENV:MEMREC_SELFHOST_BASE_URL}
+  api_key: ${ENV:MEMREC_SELFHOST_API_KEY}
+  sdk_max_retries: 0  # count every HTTP attempt in the shared hard cap
+
+# Preserve upstream reranker wording when Stage-R produces zero facets.
+# The fork previously changed this corner case for an exploratory ablation.
+memrec:
+  k: 16
+  tau_tokens: 1800
+  mix_min_users: 4
+  mix_min_items: 6
+  n_facets: 7
+  temperature: 0.0
+  max_tokens: 4000
+  pruner:
+    mode: llm_rules
+    checkpoint: null
+  reranker_mode: llm
+  upstream_empty_facets_prompt: true
+  write:
+    fanout_cap: 8
+    max_tokens: 4000

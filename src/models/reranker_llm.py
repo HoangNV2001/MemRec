@@ -28,6 +28,7 @@ class LLMReranker:
         vanilla_mode: bool = False,  # Vanilla mode: no memory, only item descriptions
         shared_evidence: Optional[Sequence[Mapping[str, str]]] = None,
         candidate_evidence: Optional[Mapping[int, Sequence[Mapping[str, str]]]] = None,
+        upstream_empty_facets_prompt: bool = False,
     ) -> List[Dict[str, str]]:
         """
         Build reranking prompt
@@ -107,13 +108,16 @@ Your response should be a JSON object with a single field:
             # Only claim to have found patterns when Stage-R actually produced facets —
             # asserting "we identified preferences" and then saying "(none found)" reads as
             # contradictory to the LLM and measurably degrades scoring.
-            if facets:
+            if facets or upstream_empty_facets_prompt:
                 prompt_parts.append("\n**User Preferences (Extracted from Collaborative Memories):**")
                 prompt_parts.append("Based on collaborative signals from neighboring users and items, we have identified the following preference patterns:")
+            if facets:
                 for i, f in enumerate(facets[:10], 1):
                     facet_text = f.get('facet', f.get('text', 'N/A'))
                     conf = f.get('confidence', 0)
                     prompt_parts.append(f"  {i}. {facet_text} (confidence: {conf:.2f})")
+            elif upstream_empty_facets_prompt:
+                prompt_parts.append("  (No facets extracted)")
             
             # Format Item memories
             prompt_parts.append("\n**Candidate Item Memories:**")
@@ -213,7 +217,8 @@ Your response should be a JSON object with a single field:
         temperature: float = 0.0,
         max_tokens: int = 4000,
         debug_logger = None,
-        vanilla_mode: bool = False  # Vanilla mode: no memory
+        vanilla_mode: bool = False,  # Vanilla mode: no memory
+        upstream_empty_facets_prompt: bool = False,
     ) -> List[Dict]:
         """
         Rerank candidate items
@@ -239,7 +244,8 @@ Your response should be a JSON object with a single field:
             candidates=candidates,
             item_mems=item_mems if not vanilla_mode else {},
             instruction=instruction,
-            vanilla_mode=vanilla_mode
+            vanilla_mode=vanilla_mode,
+            upstream_empty_facets_prompt=upstream_empty_facets_prompt,
         )
         
         # Get schema
@@ -269,6 +275,8 @@ Your response should be a JSON object with a single field:
             
             return scores
         except Exception as e:
+            if getattr(self.llm, 'fail_fast', False):
+                raise
             print(f"Error in LLM Reranker for user {user_id}: {e}")
             # Return default scores
             return [{'item_id': c['id'], 'score': 0.5, 'rationale': 'Error'} for c in candidates]

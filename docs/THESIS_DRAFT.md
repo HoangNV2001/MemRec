@@ -1,4 +1,12 @@
-# TĂNG CƯỜNG MÔ HÌNH NGÔN NGỮ LỚN CHO KHUYẾN NGHỊ TUẦN TỰ BẰNG ĐỒ THỊ CHUYỂN TIẾP THEO THỜI GIAN
+> **ĐÃ RÚT LẠI — KHÔNG DÙNG ĐỂ NỘP ĐỒ ÁN (24/09/2026).** Bản thảo này
+> đánh đồng local LLM ranker + transition residual với cải tiến full MemRec.
+> Nó không chứng minh hơn full MemRec hay SASRec. Chỉ giữ làm tư liệu lịch sử;
+> roadmap đúng hiện tại là [THESIS_ROADMAP.md](THESIS_ROADMAP.md), audit là
+> [FULL_MEMREC_BASELINE_AUDIT.md](FULL_MEMREC_BASELINE_AUDIT.md). Các phát biểu
+> “đã hoàn thành”, “final result”, “đóng góp” bên dưới **không còn hiệu lực**
+> cho thesis mới.
+
+# BẢN THẢO CŨ: TĂNG CƯỜNG MÔ HÌNH NGÔN NGỮ LỚN CHO KHUYẾN NGHỊ TUẦN TỰ BẰNG ĐỒ THỊ CHUYỂN TIẾP THEO THỜI GIAN
 
 > **English title:** Temporal Transition Graph Augmentation for LLM-based
 > Sequential Recommendation

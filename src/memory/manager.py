@@ -176,6 +176,8 @@ Your response should be a JSON object with two fields:
             )
             return response
         except Exception as e:
+            if getattr(self.llm, 'fail_fast', False):
+                raise
             print(f"Error in Stage-R for user {user_id}: {e}")
             # Return empty response
             return {
@@ -460,6 +462,8 @@ Your response should be a JSON object with three fields:
             )
             return response
         except Exception as e:
+            if getattr(self.llm, 'fail_fast', False):
+                raise
             error_msg = f"❌ Error in Stage-W for user {user_id}: {e}"
             print(error_msg)
             if debug_logger:

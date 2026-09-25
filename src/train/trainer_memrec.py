@@ -11,10 +11,12 @@ from tqdm import tqdm
 import json
 import random
 import time
+import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
 from src.models import LLMClient, MemRecAgent
+from src.models.llm_client import RequestBudget
 from src.data import RecDataset
 
 # Thread-safe random number generator
@@ -57,8 +59,12 @@ class MemRecTrainer:
         
         # Extract configuration
         self.n_eval_candidates = config.get('n_eval_candidates', 10)
+        self.use_pregenerated_candidates = config.get('use_pregenerated_candidates', False)
         self.n_eval_users = config.get('n_eval_users', None)
         self.eval_user_list = config.get('eval_user_list', None)  # Path to JSON file with fixed user list
+        self.eval_cohort = config.get('eval_cohort', None)  # dev | heldout | all, Books protocol
+        if self.eval_cohort and self.eval_user_list:
+            raise ValueError('Set either eval_cohort or eval_user_list, not both')
         self.topk = config.get('topk', [1, 3, 5])
         self.metrics = config.get('metrics', ['Hit', 'NDCG'])
         
@@ -95,6 +101,9 @@ class MemRecTrainer:
         warmup_config = config.get('warmup', {})
         self.warmup_enabled = warmup_config.get('enabled', False)
         self.warmup_rounds = warmup_config.get('rounds', 1)
+        self.warmup_user_scope = config.get('warmup_user_scope', 'eval')
+        if self.warmup_user_scope not in ('eval', 'all'):
+            raise ValueError('warmup_user_scope must be eval or all')
         
         # Debug settings
         self.debug = config.get('debug', False)
@@ -117,7 +126,8 @@ class MemRecTrainer:
             model=self.llm_model,
             provider_name=provider_name,
             save_conversations=self.save_conversations,
-            conversation_log_path=self.conversation_file
+            conversation_log_path=self.conversation_file,
+            sdk_max_retries=int(provider_config.get('sdk_max_retries', 2)),
         )
         
         # If reranker_mode is 'llm', create a separate client with the same
@@ -140,7 +150,8 @@ class MemRecTrainer:
                 model=reranker_llm_model,
                 provider_name=reranker_provider_name,
                 save_conversations=self.save_conversations,
-                conversation_log_path=self.conversation_file
+                conversation_log_path=self.conversation_file,
+                sdk_max_retries=int(provider_config.get('sdk_max_retries', 2)),
             )
             
             print(f"\nLLM Client Configuration:")
@@ -152,6 +163,16 @@ class MemRecTrainer:
         # Load item metadata
         print("\nLoading item metadata for MemRec...")
         self.dataset.load_item_metadata()
+        if self.use_pregenerated_candidates:
+            self.dataset.load_ranked_lists()
+            if not self.dataset.ranked_lists:
+                raise ValueError('Pre-generated candidates requested, but none were loaded')
+            # Fail before any LLM call if the fixed benchmark list is corrupt.
+            for user_id, target_item in self.dataset.test_data.items():
+                candidates = self._evaluation_candidates(user_id, target_item, 'test')
+                seen_history = set(self.dataset.get_user_all_items(user_id)) - {target_item}
+                if seen_history.intersection(candidates):
+                    raise ValueError(f'Pre-generated candidates overlap user history: {user_id}')
         
         # Initialize MemRec Agent (v2: three stages)
         print("\nInitializing MemRec Agent v2...")
@@ -174,6 +195,7 @@ class MemRecTrainer:
             # ever exists) *and* Stage-R is off. "w/o Collab. Read" keeps warmup on, so it stays
             # out of vanilla_mode and just loses the (now-conditional) facets section instead.
             vanilla_mode=(not self.warmup_enabled and not self.enable_stage_r),
+            upstream_empty_facets_prompt=memrec_config.get('upstream_empty_facets_prompt', False),
             reranker_llm_client=self.reranker_llm_client,  # Separate LLMClient for reranker
             debug=self.debug
         )
@@ -300,6 +322,7 @@ class MemRecTrainer:
         user_id: int, 
         target_item: int, 
         target_data: Dict,
+        split: str = 'test',
         lock: threading.Lock = None
     ) -> Tuple[int, Dict]:
         """
@@ -308,23 +331,20 @@ class MemRecTrainer:
         Returns:
             (position, timings_dict)
         """
-        # Get thread-local random number generator
-        if not hasattr(_thread_local, 'rng'):
-            _thread_local.rng = np.random.RandomState(seed=hash(threading.current_thread().ident) % (2**32))
-        
-        # Build candidate set
-        all_items = set(range(self.dataset.n_items))
-        user_history = set(self.dataset.get_user_train_items(user_id))
-        negative_pool = list(all_items - user_history - {target_item})
-        
-        if len(negative_pool) < self.n_eval_candidates - 1:
-            return (-1, {})  # Skip
-        
-        # Use thread-safe random number generator
-        negative_items = _thread_local.rng.choice(negative_pool, size=self.n_eval_candidates - 1, replace=False).tolist()
-        candidates = [target_item] + negative_items
-        # Shuffle order! Important: avoid target item always being first
-        _thread_local.rng.shuffle(candidates)
+        if self.use_pregenerated_candidates:
+            candidates = self._evaluation_candidates(user_id, target_item, split)
+        else:
+            # Legacy sampler retained for exploratory runs only.
+            if not hasattr(_thread_local, 'rng'):
+                _thread_local.rng = np.random.RandomState(seed=hash(threading.current_thread().ident) % (2**32))
+            all_items = set(range(self.dataset.n_items))
+            user_history = set(self.dataset.get_user_train_items(user_id))
+            negative_pool = list(all_items - user_history - {target_item})
+            if len(negative_pool) < self.n_eval_candidates - 1:
+                return (-1, {})
+            negative_items = _thread_local.rng.choice(negative_pool, size=self.n_eval_candidates - 1, replace=False).tolist()
+            candidates = [target_item] + negative_items
+            _thread_local.rng.shuffle(candidates)
         
         # Get instruction if available
         instruction = None
@@ -404,6 +424,12 @@ class MemRecTrainer:
             Metrics dictionary
         """
         # Initialize debug logger (disabled in parallel mode)
+        if self.use_pregenerated_candidates and split != 'test':
+            raise ValueError('Original InstructRec ranked_lists are test-only; validation needs separate candidates')
+        if self.use_pregenerated_candidates and parallel:
+            raise ValueError('Fixed-list benchmark requires serial memory reads/writes until snapshot isolation is implemented')
+        if self.use_pregenerated_candidates and self.eval_feedback != 'none':
+            raise ValueError('Fixed-list benchmark forbids test-time feedback writes')
         if self.debug and save_dir and not parallel:
             self._init_debug_logger(save_dir)
         # Get evaluation data
@@ -414,9 +440,20 @@ class MemRecTrainer:
         
         # Sample users (if specified)
         # Priority: eval_user_list > n_eval_users > all users
-        if self.eval_user_list:
+        if self.eval_cohort:
+            if split != 'test' or self.dataset.data_path.stem != 'instructrec-books':
+                raise ValueError('eval_cohort is defined only for InstructRec Books test rows')
+            from src.data.books_protocol import books_cohorts
+            cohorts, manifest = books_cohorts(list(target_data.keys()))
+            if self.eval_cohort not in cohorts:
+                raise ValueError(f'Unknown Books eval cohort: {self.eval_cohort}')
+            eval_user_ids = cohorts[self.eval_cohort]
+            if self.n_eval_users is not None:
+                eval_user_ids = eval_user_ids[:self.n_eval_users]
+            print(f"Books cohort: {self.eval_cohort}; {len(eval_user_ids)} users")
+            print(f"Cohort SHA-256: {manifest['cohort_sha256'][self.eval_cohort]}")
+        elif self.eval_user_list:
             # Load fixed user list from JSON file
-            from pathlib import Path
             user_list_path = Path(self.eval_user_list)
             if not user_list_path.is_absolute():
                 # Relative to project root
@@ -440,13 +477,66 @@ class MemRecTrainer:
             print(f"\nSampled {self.n_eval_users} users for evaluation")
         else:
             eval_user_ids = list(target_data.keys())
-        
+
+        if self.use_pregenerated_candidates:
+            if self.eval_cohort == 'heldout' and self.n_eval_users is not None:
+                raise ValueError('Held-out benchmark must score the entire locked cohort')
+            if self.warmup_user_scope == 'eval' and len(eval_user_ids) > 30:
+                raise ValueError('Partial warm-up is permitted only for a 20–30-user smoke')
+            if self.warmup_user_scope == 'eval' and len(eval_user_ids) < 20:
+                raise ValueError('Fixed-list smoke must contain 20–30 users')
+            if self.warmup_user_scope == 'all' and self.eval_cohort == 'heldout' and len(eval_user_ids) != 5377:
+                raise ValueError('Held-out cohort size differs from the locked 5,377-user protocol')
+
         # ========== Training Phase ==========
         # Simulate memory construction and propagation before testing
-        self._run_training(eval_user_ids, target_data, split, parallel=parallel, n_workers=n_workers)
+        warmup_user_ids = (
+            sorted(target_data) if self.warmup_user_scope == 'all' else eval_user_ids
+        )
+        print(f'Warm-up scope: {self.warmup_user_scope}; {len(warmup_user_ids)} users')
+        if self.use_pregenerated_candidates:
+            if getattr(self.llm_client, 'sdk_max_retries', 0) != 0 or (
+                self.reranker_llm_client
+                and getattr(self.reranker_llm_client, 'sdk_max_retries', 0) != 0
+            ):
+                raise ValueError('Fixed-list benchmark requires sdk_max_retries=0 for physical request accounting')
+            expected_warmup_calls = (
+                len(warmup_user_ids) * self.warmup_rounds
+                * (int(self.enable_stage_r) + int(self.reranker_mode == 'llm') + int(self.enable_stage_w))
+                if self.warmup_enabled else 0
+            )
+            expected_eval_calls = len(eval_user_ids) * (
+                int(self.enable_stage_r) + int(self.reranker_mode == 'llm')
+            )
+            expected_calls = expected_warmup_calls + expected_eval_calls
+            retry_fraction = float(self.config.get('llm_retry_reserve_fraction', 0.10))
+            if not 0 <= retry_fraction <= 1:
+                raise ValueError('llm_retry_reserve_fraction must be between 0 and 1')
+            hard_cap = expected_calls + max(10, math.ceil(expected_calls * retry_fraction))
+            self.llm_budget = RequestBudget(hard_cap)
+            self.llm_client.request_budget = self.llm_budget
+            self.llm_client.fail_fast = True
+            self.llm_client.strict_schema_validation = True
+            if self.reranker_llm_client:
+                self.reranker_llm_client.request_budget = self.llm_budget
+                self.reranker_llm_client.fail_fast = True
+                self.reranker_llm_client.strict_schema_validation = True
+            print(f'LLM physical-request contract: expected={expected_calls}, hard_cap={hard_cap}')
+        before_warmup_calls = (
+            self.agent.n_stage_r_calls,
+            self.agent.n_stage_rr_calls,
+            self.agent.n_stage_w_calls,
+        )
+        self._run_training(warmup_user_ids, target_data, split, parallel=parallel, n_workers=n_workers)
+        warmup_calls = (
+            self.agent.n_stage_r_calls - before_warmup_calls[0],
+            self.agent.n_stage_rr_calls - before_warmup_calls[1],
+            self.agent.n_stage_w_calls - before_warmup_calls[2],
+        )
         
         # Evaluation loop
         ranking_positions = []  # Store target item ranking positions
+        prediction_records = []  # Fixed-list benchmark: one record per evaluated user
         n_success = 0
         
         # Stage statistics (v2: three stages)
@@ -484,7 +574,7 @@ class MemRecTrainer:
                     target_item = target_data[user_id]
                     future = executor.submit(
                         self._evaluate_single_user,
-                        user_id, target_item, target_data, lock
+                        user_id, target_item, target_data, split, lock
                     )
                     futures.append(future)
                 
@@ -545,20 +635,19 @@ class MemRecTrainer:
             for user_id in tqdm(eval_user_ids, desc=f"MemRec {split}"):
                 target_item = target_data[user_id]
                 
-                # Build candidate set (1 positive + n-1 negative)
-                # Randomly select negative samples
-                all_items = set(range(self.dataset.n_items))
-                user_history = set(self.dataset.get_user_train_items(user_id))
-                negative_pool = list(all_items - user_history - {target_item})
-                
-                if len(negative_pool) < self.n_eval_candidates - 1:
-                    print(f"Warning: Not enough negative samples for user {user_id}")
-                    continue
-                
-                negative_items = random.sample(negative_pool, self.n_eval_candidates - 1)
-                candidates = [target_item] + negative_items
-                # Shuffle order! Important: avoid target item always being first
-                random.shuffle(candidates)
+                if self.use_pregenerated_candidates:
+                    candidates = self._evaluation_candidates(user_id, target_item, split)
+                else:
+                    # Legacy sampler retained for exploratory runs only.
+                    all_items = set(range(self.dataset.n_items))
+                    user_history = set(self.dataset.get_user_train_items(user_id))
+                    negative_pool = list(all_items - user_history - {target_item})
+                    if len(negative_pool) < self.n_eval_candidates - 1:
+                        print(f"Warning: Not enough negative samples for user {user_id}")
+                        continue
+                    negative_items = random.sample(negative_pool, self.n_eval_candidates - 1)
+                    candidates = [target_item] + negative_items
+                    random.shuffle(candidates)
                 
                 # Stage-R: Reranking
                 try:
@@ -627,19 +716,32 @@ class MemRecTrainer:
                         self._log_debug(f"Stage-ReRank ({self.reranker_mode}): {stage_rr_time*1000:.1f}ms")
                         self._log_debug(f"Total rerank time: {total_time*1000:.1f}ms")
                     
-                    # Find target's ranking position (0-indexed)
-                    if target_item in ranked_items:
+                    # Fixed-list benchmark treats malformed/fallback output as
+                    # a miss, never as an accidentally correct ranking.
+                    if self.use_pregenerated_candidates:
+                        pos, failure = self._benchmark_position(
+                            target_item, candidates, ranked_items, details
+                        )
+                        ranking_positions.append(pos)
+                        n_success += failure is None
+                        prediction_records.append({
+                            'user_id': user_id,
+                            'target_item': target_item,
+                            'candidates': candidates,
+                            'ranked_items': ranked_items,
+                            'target_position': pos,
+                            'failure': failure,
+                        })
+                        if self.debug and failure is None:
+                            self._log_user_detail(user_id, target_item, candidates, details, ranked_items, pos)
+                    elif target_item in ranked_items:
                         pos = ranked_items.index(target_item)
                         ranking_positions.append(pos)
                         n_success += 1
-                        
-                        # Debug log
                         if self.debug:
                             self._log_user_detail(user_id, target_item, candidates, details, ranked_items, pos)
                     else:
-                        # Should not happen
                         ranking_positions.append(len(candidates))
-                        
                         if self.debug:
                             self._log_debug(f"WARNING: Target item {target_item} not in ranked_items for user {user_id}", level="WARNING")
                     
@@ -691,9 +793,20 @@ class MemRecTrainer:
                             self._log_debug(f"WARNING: Stage-W failed for user {user_id}: {e_write}", level="WARNING")
                     
                 except Exception as e:
+                    if self.use_pregenerated_candidates:
+                        raise
                     # Entire evaluation flow errors
                     print(f"\nError evaluating user {user_id}: {e}")
                     ranking_positions.append(len(candidates))
+                    if self.use_pregenerated_candidates:
+                        prediction_records.append({
+                            'user_id': user_id,
+                            'target_item': target_item,
+                            'candidates': candidates,
+                            'ranked_items': [],
+                            'target_position': len(candidates),
+                            'failure': type(e).__name__,
+                        })
                     
                     if self.debug:
                         import traceback
@@ -702,8 +815,31 @@ class MemRecTrainer:
                 
                 continue
         
+        if self.use_pregenerated_candidates and len(ranking_positions) != len(eval_user_ids):
+            raise RuntimeError('Benchmark dropped evaluation users; metric denominator would be wrong')
+        if self.use_pregenerated_candidates and len(prediction_records) != len(eval_user_ids):
+            raise RuntimeError('Benchmark did not record every evaluated user')
+        if self.use_pregenerated_candidates and save_dir:
+            output = Path(save_dir) / f'{split}_predictions.jsonl'
+            output.parent.mkdir(parents=True, exist_ok=True)
+            with output.open('w', encoding='utf-8') as handle:
+                for record in prediction_records:
+                    handle.write(json.dumps(record, ensure_ascii=False) + '\n')
+            print(f'Per-user predictions saved to {output}')
+
         # Calculate metrics
         metrics = self._compute_metrics(ranking_positions, len(eval_user_ids))
+        metrics['n_eval_users'] = len(eval_user_ids)
+        metrics['n_warmup_users'] = len(warmup_user_ids) if self.warmup_enabled else 0
+        metrics['warmup_user_scope'] = self.warmup_user_scope
+        metrics['n_rankings'] = len(ranking_positions)
+        metrics['n_failed_rankings'] = len(eval_user_ids) - n_success
+        if self.use_pregenerated_candidates:
+            metrics['llm_physical_requests'] = self.llm_budget.used
+            metrics['llm_request_hard_cap'] = self.llm_budget.limit
+        metrics['n_stage_r_warmup_calls'] = warmup_calls[0]
+        metrics['n_stage_rr_warmup_calls'] = warmup_calls[1]
+        metrics['n_stage_w_warmup_calls'] = warmup_calls[2]
         
         # Add Stage statistics (v2: three stages)
         metrics['n_stage_r_calls'] = len(stage_r_times)
@@ -793,6 +929,38 @@ class MemRecTrainer:
             print(f"\n✓ Debug log saved to: {self.debug_log_file}")
         
         return metrics
+
+    @staticmethod
+    def _benchmark_position(target_item, candidates, ranked_items, details):
+        """Validate a complete candidate permutation before scoring its target."""
+        if len(ranked_items) != len(candidates) or set(ranked_items) != set(candidates):
+            return len(candidates), 'malformed_ranking'
+        scores = details.get('rerank_scores', [])
+        if scores and all(str(row.get('rationale', '')).lower() == 'error' for row in scores):
+            return len(candidates), 'llm_fallback'
+        if scores and any(
+            not isinstance(row.get('score'), (int, float))
+            or isinstance(row.get('score'), bool)
+            or not math.isfinite(row['score'])
+            or not 0 <= row['score'] <= 1
+            for row in scores
+        ):
+            return len(candidates), 'invalid_score'
+        return ranked_items.index(target_item), None
+
+    def _evaluation_candidates(self, user_id: int, target_item: int, split: str) -> list[int]:
+        """Return the original, fixed InstructRec test candidates without reshuffling."""
+        if split != 'test':
+            raise ValueError('Pre-generated ranked_lists are test-only')
+        if not self.dataset.ranked_lists or user_id not in self.dataset.ranked_lists:
+            raise ValueError(f'Missing pre-generated candidates for user {user_id}')
+        candidates = [int(item) for item in self.dataset.ranked_lists[user_id]]
+        if (len(candidates) != self.n_eval_candidates
+                or len(set(candidates)) != len(candidates)
+                or target_item not in candidates
+                or any(item < 0 or item >= self.dataset.n_items for item in candidates)):
+            raise ValueError(f'Invalid pre-generated candidates for user {user_id}')
+        return candidates
     
     def _construct_candidates(
         self,
@@ -811,7 +979,29 @@ class MemRecTrainer:
         Returns:
             Candidate item list (shuffled)
         """
-        # Get negative sample pool (exclude history from pre-computed negatives)
+        if self.use_pregenerated_candidates:
+            # Warm-up needs its own candidates: the original ranked_lists are
+            # test-only. Stable user/target RNG keeps both paired arms aligned
+            # without materializing ~7,000 full-catalog negative arrays.
+            rng = random.Random(
+                int(self.config.get('seed', 42)) * 1_000_003
+                + int(user_id) * 100_003 + int(target_item)
+            )
+            forbidden = set(self.dataset.get_user_all_items(user_id))
+            forbidden.update(history)
+            forbidden.add(target_item)
+            if self.dataset.n_items - len(forbidden) < self.n_eval_candidates - 1:
+                raise ValueError(f'Not enough warm-up negatives for user {user_id}')
+            negatives = set()
+            while len(negatives) < self.n_eval_candidates - 1:
+                item = rng.randrange(self.dataset.n_items)
+                if item not in forbidden:
+                    negatives.add(item)
+            candidates = [target_item] + sorted(negatives)
+            rng.shuffle(candidates)
+            return candidates
+
+        # Legacy warm-up sampler for exploratory runs.
         user_positives = set(history + [target_item])
         negative_pool = [item for item in self.dataset.user_negatives.get(user_id, []) 
                          if item not in user_positives]
@@ -897,6 +1087,8 @@ class MemRecTrainer:
             return False
             
         except Exception as e:
+            if self.use_pregenerated_candidates:
+                raise
             return False
     
     def _run_training(
@@ -1056,6 +1248,8 @@ class MemRecTrainer:
                                 print(f"  [Training] User {user_id}: Target not in top-5, skipping Stage-W")
                     
                     except Exception as e:
+                        if self.use_pregenerated_candidates:
+                            raise
                         if self.debug:
                             print(f"  [Training] Error for user {user_id}: {e}")
                             import traceback

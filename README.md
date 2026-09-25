@@ -1,18 +1,18 @@
-# MemRec — Temporal Transition-PPR extension
+# MemRec — full-system improvement research
 
-Repo này giữ implementation gốc của MemRec và hướng nghiên cứu hiện tại:
-directed temporal item-transition graph + multi-hop PPR cho next-item ranking.
-Replication 200 user-disjoint event trên Amazon Books tăng NDCG@5 từ `0,6247`
-lên `0,7618` (`+0,1371`, paired 95% CI `[+0,0904; +0,1838]`).
+Mục tiêu thesis là cải tiến **full MemRec** (collaborative memory, Stage-R,
+LLM re-rank và Stage-W) và kiểm chứng tốt hơn full MemRec lẫn SASRec trên
+cùng protocol. **Chưa có kết quả xác nhận đạt mục tiêu này.** Các experiment
+temporal graph/PPR cũ chỉ dùng local ranker, nay là exploratory archive.
 
 ## Tài liệu hiện tại
 
-- [Bản thảo đồ án hoàn chỉnh](docs/THESIS_DRAFT.md)
-- [Phương pháp, protocol và kết quả](docs/TRANSITION_PPR_METHOD.md)
-- [Replication plan](docs/REPLICATION_PLAN.md)
-- [Các hướng đã đóng](docs/ARCHIVED_DIRECTIONS.md)
+- [Roadmap full MemRec hiện tại](docs/THESIS_ROADMAP.md)
+- [Audit baseline và dữ liệu Books](docs/FULL_MEMREC_BASELINE_AUDIT.md)
+- [Bản thảo cũ đã rút lại](docs/THESIS_DRAFT.md)
+- [Exploratory transition/PPR đã lưu](docs/TRANSITION_PPR_METHOD.md)
 
-## Active experiment surface
+## Exploratory experiment surface (không phải thesis benchmark)
 
 ```text
 configs/temporal_amazon_books_2014/
@@ -51,7 +51,11 @@ node và phải nhả GPU ngay khi task kết thúc.
 ## Upstream MemRec
 
 Core memory/model/training modules trong `src/{memory,models,train,data}` và các
-config `configs/memrec_*.yaml` được giữ để đối chiếu baseline. Paper gốc:
+config `configs/memrec_*.yaml` là điểm khởi đầu để tái lập full baseline. Dữ
+liệu Books có original fixed test candidates trong
+`data/processed/instructrec-books/booksAll_recagent.pkl`; bật
+`--use_pregenerated_candidates` khi đánh giá Books. Chưa chạy full benchmark
+cho đến khi hoàn tất các leakage/resource gates trong roadmap. Paper gốc:
 
 > Chen et al., “MemRec: Collaborative Memory-Augmented Agentic Recommender
 > System,” ACL 2026. https://aclanthology.org/2026.acl-long.2061.pdf

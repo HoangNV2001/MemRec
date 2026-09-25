@@ -11,7 +11,7 @@ from collections import defaultdict
 class RecDataset:
     """Base recommendation dataset with leave-one-out split"""
     
-    def __init__(self, data_path: str, seed: int = 42):
+    def __init__(self, data_path: str, seed: int = 42, precompute_negatives: bool = True):
         """
         Args:
             data_path: Path to .inter file (TSV format)
@@ -41,7 +41,9 @@ class RecDataset:
         self.train_data, self.valid_data, self.test_data = self._leave_one_out_split()
         
         # Precompute negative items for each user (HUGE speedup!)
-        self._precompute_user_negatives()
+        self.user_negatives = {}
+        if precompute_negatives:
+            self._precompute_user_negatives()
         
         # Optional: Load additional data (for iAgent)
         self.instructions = None
@@ -179,7 +181,12 @@ class RecDataset:
                             If False, uniform random sampling (default, easier evaluation)
         """
         # Use precomputed negatives (MUCH faster!)
-        all_negatives = self.user_negatives.get(user_id, np.arange(self.n_items))
+        all_negatives = self.user_negatives.get(user_id)
+        if all_negatives is None:
+            all_negatives = np.setdiff1d(
+                np.arange(self.n_items), self.get_user_all_items(user_id),
+                assume_unique=False
+            )
         
         # If not enough negative items available, return all available + padding
         if len(all_negatives) < n_samples:
@@ -359,4 +366,3 @@ class RecDataset:
             history_text += f"user historical information, item title:{title}, item description:{desc} ;"
         
         return history_text
-
