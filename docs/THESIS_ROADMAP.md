@@ -161,6 +161,7 @@ không tự động áp dụng cho task này. Không chạy GPU từ turn lập 
 | Candidate/cohort + feedback guards | Xong 2026-09-25 | held-out SHA-256 `b7751e0a…4af8be`; tests | 2.000 dev, 5.377 held-out; no test writes |
 | CPU full-agent wiring smoke | Xong 2026-09-25 | `scripts/smoke_full_memrec_cpu.py`; 30 user | 30/30 predictions, 30 warm-up writes, 0 failures; fake LLM, không phải ranking result |
 | CPU all-user warm-up wiring smoke | Xong 2026-09-25 | 7.377 fake warm-up + 30 fake ranking | 7.377 Stage-W warm-up, 0 test writes; không phải ranking result |
+| Remote full-MemRec CPU all-user dry-run | Xong 2026-09-25 | [Books baseline progress](BOOKS_FULL_BASELINE_PROGRESS.md); commit `eb9e0f4` | 30/30 valid, 7.377 warm-up, peak RSS 1.342 MiB; fake LLM |
 | SASRec matched adapter + CPU smoke | Xong 2026-09-25 | `configs/books_sasrec_baseline.yaml`; [audit](FULL_MEMREC_BASELINE_AUDIT.md) | 30/30 valid Books rankings, finite one-batch loss; chưa có trained score |
 | Remote Books prep | Xong 2026-09-25 | job `17272` tại thời điểm preflight; 4 file SHA-256 local/server khớp; commit `db56215` | CPU smoke SASRec 30/30 valid; chưa có điểm model |
 | Self-host LLM smoke | Chưa chạy — chọn/pin checkpoint và backend | 20–30 user + GPU manifest | — |

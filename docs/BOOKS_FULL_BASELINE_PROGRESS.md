@@ -89,3 +89,11 @@ checkpoint/hyperparameter và điều kiện LLM. Mốc tiếp theo là pin self
 model/revision/backend, smoke 20–30 user với đủ Stage-R, Stage-ReRank, Stage-W
 và 100% schema hợp lệ; sau đó mới chạy full MemRec dev với all-user warm-up.
 Giữ sealed held-out cho sau khi method/config đã khóa.
+
+Dry-run CPU trên node ở commit `eb9e0f4`: 30 user ranking sau all-user warm-up
+7.377/7.377, `0` failure và `0` test-label write. Fake client ghi 14.784
+Stage-R/W requests và 7.407 Stage-ReRank requests = 22.191 lời gọi giả lập,
+đúng base budget `3×7.377 + 2×30`; physical LLM request thật bằng **0**.
+Elapsed 25,51 giây; peak RSS 1.342,1 MiB. Đây chỉ là footprint/đường code,
+**không** dự báo latency hay chất lượng của LLM thật. Data/candidate/cohort
+contract đã được validate lại ở node trước dry-run.
