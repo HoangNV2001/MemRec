@@ -189,7 +189,8 @@ dùng đúng 30 dev user đầu, chạy một training batch và 30 ranking cho 
 architecture, lưu peak VRAM và manifest. Train-dev tự từ chối nếu thiếu manifest
 hoặc commit/config/cohort/candidate hash không khớp. Đây là gate code; ngoài
 ra vẫn phải làm preflight Slurm/GPU, snapshot cả 4 card và kiểm nhả VRAM theo
-runbook. Chưa có GPU smoke thật hay checkpoint đã train.
+runbook. Smoke và train dev đã hoàn thành ở run v3; xem
+[BOOKS_FULL_BASELINE_PROGRESS.md](BOOKS_FULL_BASELINE_PROGRESS.md).
 
 Unit tests hiện tại `82/82` pass; SASRec CPU smoke trên **Books thật** có
 `30/30` ranking hợp lệ và training loss hữu hạn với một batch. Đây không phải
@@ -201,12 +202,13 @@ kiểm tra ra duy nhất job `17272` RUNNING. Runbook nội bộ đã đổi san
 process thoát và VRAM về 1 MiB. Repo trên node đã pull đúng `db56215`.
 Bốn file Books bắt buộc (`.pkl`, `.inter`, `.instruction`, `.meta`) đã đồng bộ
 vào root MemRec riêng; SHA-256 local/server khớp từng file. SASRec CPU smoke
-trên node pass 30/30, 5/5 adapter tests pass. Chưa chạy GPU smoke/training.
+trên node pass 30/30, 5/5 adapter tests pass.
 GPU smoke v1 dừng trước batch đầu do PyTorch 2.10 trên node cần khởi tạo CUDA
 context trước `reset_peak_memory_stats`; chưa có checkpoint/result, VRAM sau
 thoát đúng baseline 1 MiB/card tại thời điểm đó. Diagnostic tối thiểu xác
-nhận `torch.cuda.init()` giải quyết lỗi. Đã sửa code và chuyển run ID sang v2;
-v1 không được promote. Launcher `scripts/run_books_sasrec_gpu.sh` ghi
+nhận `torch.cuda.init()` giải quyết lỗi. Đã sửa code; v1 không được promote.
+Run v2 pass nhưng thiếu peak VRAM full train; run v3 là bản báo cáo có đủ
+telemetry. Launcher `scripts/run_books_sasrec_gpu.sh` ghi
 snapshot/log, chọn GPU theo utilization rồi VRAM và từ chối nếu card được
 chọn đang bận/giữ nhiều VRAM.
 
@@ -216,6 +218,7 @@ chọn đang bận/giữ nhiều VRAM.
 2. Kết nối full MemRec với self-host LLM qua compatible endpoint, đảm bảo cả
    LM_Mem và LLM_Rec dùng cùng checkpoint. Smoke 20–30 case đúng config trên
    allocation hợp lệ; không chạy LLM trên login node.
-3. Chạy full MemRec và SASRec trên cùng candidates, rồi mới làm headroom/method.
+3. Chạy full MemRec dev trên cùng candidates với SASRec đã khóa, rồi mới làm
+   paired analysis/headroom/method.
 
 Xem [THESIS_ROADMAP.md](THESIS_ROADMAP.md) để biết acceptance gate và plan.
