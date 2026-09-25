@@ -395,7 +395,10 @@ def main():
     
     # Save results
     valid_metrics = best_state.get('metrics', {})
-    save_results(config, valid_metrics, test_metrics, PROJECT_ROOT / "results")
+    # Keep benchmark artifacts together when the caller provides a run-specific
+    # output directory (the shared results/ CSV could mix unrelated contracts).
+    results_dir = save_dir if args.output_dir else PROJECT_ROOT / "results"
+    save_results(config, valid_metrics, test_metrics, results_dir)
     
     print("\n" + "=" * 80)
     print("Evaluation complete!")
