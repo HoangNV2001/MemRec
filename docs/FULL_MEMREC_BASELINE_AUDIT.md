@@ -1,7 +1,7 @@
 # Audit: full MemRec baseline trước khi phát triển method mới
 
 **Ngày:** 2026-09-25
-**Scope:** read-only data/code audit; chưa chạy LLM/GPU hay mở outcome mới.
+**Scope:** audit và chuẩn bị benchmark; chưa chạy LLM/GPU hay mở outcome mới.
 
 ## Kết luận ngắn
 
@@ -159,6 +159,44 @@ hard cap `28.745` và `36.174` physical requests; smoke 30/eval-scope base
 retry nội bộ được tắt (`sdk_max_retries=0`) để đếm từng HTTP attempt; parser
 kiểm schema tối thiểu và mọi API/schema error fail-fast. Các con số này là
 **lập kế hoạch tài nguyên**, không phải request đã gửi/GPU đã dùng.
+Config còn yêu cầu `MEMREC_SELFHOST_REVISION` không rỗng và Stage-R/W cùng
+checkpoint với Stage-ReRank; model/revision được ghi vào metrics. Full run
+không được dùng partial warm-up (`eval` scope chỉ cho smoke 20–30 user).
+
+### Baseline SASRec đối chứng cùng protocol
+
+Đã tạo `configs/books_sasrec_baseline.yaml`, `src/baselines/books_sasrec.py`
+và `scripts/train_books_sasrec.py`. Đây là **baseline SASRec tự huấn luyện**
+theo benchmark mới, không tự nhận là đúng checkpoint/hyperparameter của
+SASRec trong paper. Model dùng toàn bộ chuỗi *trước test* của 7.377 user:
+train history + item áp chót/validation; không dùng target cuối. Item áp chót
+cũng là interaction được full MemRec dùng ở Stage-W warm-up, nên hai arm có
+cùng mốc thông tin. Chấm đúng original list 10 candidate/user, cùng dev user,
+và assert cùng SHA-256 candidate `a13f7435…2f87cb6`.
+
+Trước khi xem kết quả Books SASRec, đã khóa seed `20260925`, Adam LR `0,001`,
+batch `512`, tối đa `50` epoch, early-stop patience `5`, 2 Transformer block,
+2 attention head, dropout `0,2` và grid 4 cấu hình: dimension `64/128` ×
+sequence length `50/100`. Epoch và kiến trúc được chọn **tự động** bằng
+NDCG@5 của 2.000 dev user; không thay rule/trọng số bằng tay sau outcome.
+Held-out 5.377 user **không được chấm trong pha chọn model**. Sau train,
+runner reload checkpoint thắng, xác minh metric dev và ghi per-user predictions,
+hash checkpoint, candidate và predictions. Khi đánh giá held-out sau method
+lock, phải dùng chính checkpoint đã chọn, không train lại theo held-out.
+
+GPU workflow SASRec được code hóa thành `--gpu-smoke` rồi `--train-dev` trong
+cùng run dir `*-hnv` dưới `/mnt/data/users/anhnct/memrec-hnv/runs/`. Smoke
+dùng đúng 30 dev user đầu, chạy một training batch và 30 ranking cho **cả 4**
+architecture, lưu peak VRAM và manifest. Train-dev tự từ chối nếu thiếu manifest
+hoặc commit/config/cohort/candidate hash không khớp. Đây là gate code; ngoài
+ra vẫn phải làm preflight Slurm/GPU, snapshot cả 4 card và kiểm nhả VRAM theo
+runbook. Chưa có GPU smoke thật hay checkpoint đã train.
+
+Unit tests hiện tại `82/82` pass; SASRec CPU smoke trên **Books thật** có
+`30/30` ranking hợp lệ và training loss hữu hạn với một batch. Đây không phải
+model đã train đầy đủ và **không phải** SASRec result để đưa vào thesis.
+GPU train vẫn chưa chạy vì job `15288` ghi trong runbook đã hết hạn; cần một
+allocation được người dùng xác nhận và cập nhật runbook trước preflight mới.
 
 1. Kiểm thử sâu causal trace trên **LLM thật** 20–30 case, bao gồm schema
    100%, token/call counts, memory provenance và GPU release. Candidate/cohort

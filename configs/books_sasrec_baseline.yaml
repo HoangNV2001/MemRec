@@ -1,0 +1,16 @@
+# Locked BEFORE any InstructRec Books SASRec development/held-out outcome.
+# Four architecture choices are selected automatically on the 2,000-user dev
+# cohort; no manual trial-and-error after looking at results.
+seed: 20260925
+maximum_epochs: 50
+early_stopping_patience: 5
+batch_size: 512
+learning_rate: 0.001
+weight_decay: 0.0
+transformer_blocks: 2
+attention_heads: 2
+architectures:
+  - {id: d64_s50, embedding_dim: 64, maximum_sequence_length: 50, dropout: 0.2}
+  - {id: d64_s100, embedding_dim: 64, maximum_sequence_length: 100, dropout: 0.2}
+  - {id: d128_s50, embedding_dim: 128, maximum_sequence_length: 50, dropout: 0.2}
+  - {id: d128_s100, embedding_dim: 128, maximum_sequence_length: 100, dropout: 0.2}

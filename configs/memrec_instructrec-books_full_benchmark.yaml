@@ -1,6 +1,7 @@
 # Full MemRec on original InstructRec Books candidates; no test-label writes.
-# Set MEMREC_SELFHOST_BASE_URL, MEMREC_SELFHOST_MODEL and
-# MEMREC_SELFHOST_API_KEY in the Slurm step. Do not put credentials here.
+# Set MEMREC_SELFHOST_BASE_URL, MEMREC_SELFHOST_MODEL,
+# MEMREC_SELFHOST_REVISION and MEMREC_SELFHOST_API_KEY in the Slurm step.
+# Do not put credentials here.
 inherit: configs/memrec_instructrec-books.yaml
 
 use_pregenerated_candidates: true
@@ -21,6 +22,7 @@ llm_model: ${ENV:MEMREC_SELFHOST_MODEL}
 provider:
   name: openai
   model: ${ENV:MEMREC_SELFHOST_MODEL}
+  revision: ${ENV:MEMREC_SELFHOST_REVISION}
   endpoint: ${ENV:MEMREC_SELFHOST_BASE_URL}
   api_key: ${ENV:MEMREC_SELFHOST_API_KEY}
   sdk_max_retries: 0  # count every HTTP attempt in the shared hard cap

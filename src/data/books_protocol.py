@@ -14,6 +14,17 @@ from typing import Collection, Iterable
 COHORT_SEED = 'full-memrec-books-v1-20260925'
 DEV_SIZE = 2000
 PRIOR_1K = Path(__file__).resolve().parents[2] / 'data/eval_user_samples/eval_user_sample_1k_instructrec-books.json'
+BOOKS_CANDIDATE_SHA256 = 'a13f7435b5f788503bb1f66608fd072bbc9b48d252bbdd0284126d79c2f87cb6'
+
+
+def candidate_digest(candidates: dict[int, list[int]], targets: dict[int, int]) -> str:
+    """Hash ordered item IDs and target for every user, matching the audit script."""
+    digest = hashlib.sha256()
+    for user_id in sorted(candidates):
+        row = [user_id, int(targets[user_id]), [int(item) for item in candidates[user_id]]]
+        digest.update(json.dumps(row, separators=(',', ':')).encode('ascii'))
+        digest.update(b'\n')
+    return digest.hexdigest()
 
 
 def cohort_digest(user_ids: Iterable[int]) -> str:

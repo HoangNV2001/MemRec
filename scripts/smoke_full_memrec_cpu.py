@@ -77,7 +77,10 @@ def main():
         'warmup_user_scope': args.warmup_user_scope,
         'eval_feedback': 'none',
         'llm_model': 'cpu-fake',
-        'provider': {'name': 'openai', 'model': 'cpu-fake', 'endpoint': 'no-network', 'api_key': 'fake'},
+        'provider': {
+            'name': 'openai', 'model': 'cpu-fake', 'revision': 'cpu-fake-v1',
+            'endpoint': 'no-network', 'api_key': 'fake', 'sdk_max_retries': 0,
+        },
     })
     trainer_module.LLMClient = FakeJSONClient
     dataset = RecDataset(

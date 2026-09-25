@@ -105,6 +105,7 @@ def test_lazy_negatives_and_deterministic_warmup(tmp_path):
 
 def test_full_benchmark_config_disables_test_feedback(monkeypatch):
     monkeypatch.setenv('MEMREC_SELFHOST_MODEL', 'local-checkpoint')
+    monkeypatch.setenv('MEMREC_SELFHOST_REVISION', 'pinned-revision')
     monkeypatch.setenv('MEMREC_SELFHOST_BASE_URL', 'http://localhost:8000/v1')
     monkeypatch.setenv('MEMREC_SELFHOST_API_KEY', 'local-placeholder')
     config = load_config('configs/memrec_instructrec-books_full_benchmark.yaml')
@@ -113,6 +114,7 @@ def test_full_benchmark_config_disables_test_feedback(monkeypatch):
     assert config['warmup']['enabled'] is True
     assert config['memrec']['reranker_mode'] == 'llm'
     assert config['provider']['model'] == 'local-checkpoint'
+    assert config['provider']['revision'] == 'pinned-revision'
     assert config['eval_cohort'] == 'dev'
     assert config['memrec']['upstream_empty_facets_prompt'] is True
 

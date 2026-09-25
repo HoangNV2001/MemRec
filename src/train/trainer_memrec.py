@@ -113,6 +113,7 @@ class MemRecTrainer:
         provider_config = config.get('provider', {})
         provider_name = provider_config.get('name', 'azure_openai')  # Default to azure_openai
         self.llm_model = provider_config.get('model', config.get('llm_model', 'gpt-4o-mini'))
+        self.llm_revision = provider_config.get('revision')
         self.api_endpoint = provider_config.get('endpoint', config.get('api_endpoint'))
         self.api_key = provider_config.get('api_key', config.get('api_key'))
         # Allow provider to override api_version
@@ -159,6 +160,12 @@ class MemRecTrainer:
             print(f"  Stage-ReRank: {reranker_llm_model} @ {reranker_endpoint}")
         else:
             self.reranker_llm_client = None
+
+        if self.use_pregenerated_candidates:
+            if not self.llm_revision:
+                raise ValueError('Fixed-list benchmark requires a pinned provider.revision')
+            if self.reranker_llm_client and self.reranker_llm_client.model != self.llm_model:
+                raise ValueError('Full MemRec benchmark requires the same LM for Stage-R/W and Stage-ReRank')
         
         # Load item metadata
         print("\nLoading item metadata for MemRec...")
@@ -173,6 +180,11 @@ class MemRecTrainer:
                 seen_history = set(self.dataset.get_user_all_items(user_id)) - {target_item}
                 if seen_history.intersection(candidates):
                     raise ValueError(f'Pre-generated candidates overlap user history: {user_id}')
+            if self.dataset.data_path.stem == 'instructrec-books':
+                from src.data.books_protocol import BOOKS_CANDIDATE_SHA256, candidate_digest
+                observed_digest = candidate_digest(self.dataset.ranked_lists, self.dataset.test_data)
+                if observed_digest != BOOKS_CANDIDATE_SHA256:
+                    raise ValueError('Books candidate manifest hash differs from locked protocol')
         
         # Initialize MemRec Agent (v2: three stages)
         print("\nInitializing MemRec Agent v2...")
@@ -834,6 +846,7 @@ class MemRecTrainer:
         metrics['warmup_user_scope'] = self.warmup_user_scope
         metrics['n_rankings'] = len(ranking_positions)
         metrics['n_failed_rankings'] = len(eval_user_ids) - n_success
+        metrics['llm_model_revision'] = self.llm_revision
         if self.use_pregenerated_candidates:
             metrics['llm_physical_requests'] = self.llm_budget.used
             metrics['llm_request_hard_cap'] = self.llm_budget.limit
