@@ -348,6 +348,10 @@ def train_dev(data: BooksSASRecData, config: Mapping[str, Any], output_dir: Path
             )
             score = ndcg_at_5(dev_rows)
             history.append({'epoch': epoch, 'train_loss': loss, 'dev_ndcg_at_5': score})
+            print(json.dumps({
+                'architecture_id': architecture['id'], 'epoch': epoch,
+                'train_loss': loss, 'dev_ndcg_at_5': score,
+            }), flush=True)
             if score > best:
                 best = score
                 best_epoch = epoch

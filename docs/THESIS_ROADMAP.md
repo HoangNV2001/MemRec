@@ -160,8 +160,9 @@ không tự động áp dụng cho task này. Không chạy GPU từ turn lập 
 | CPU full-agent wiring smoke | Xong 2026-09-25 | `scripts/smoke_full_memrec_cpu.py`; 30 user | 30/30 predictions, 30 warm-up writes, 0 failures; fake LLM, không phải ranking result |
 | CPU all-user warm-up wiring smoke | Xong 2026-09-25 | 7.377 fake warm-up + 30 fake ranking | 7.377 Stage-W warm-up, 0 test writes; không phải ranking result |
 | SASRec matched adapter + CPU smoke | Xong 2026-09-25 | `configs/books_sasrec_baseline.yaml`; [audit](FULL_MEMREC_BASELINE_AUDIT.md) | 30/30 valid Books rankings, finite one-batch loss; chưa có trained score |
-| Self-host LLM smoke | Chưa chạy — allocation cũ hết hạn | 20–30 user + GPU manifest | — |
-| SASRec one-GPU smoke 20–30 | Chưa chạy — cần allocation được xác nhận | run ID, checkpoint/config hash, GPU release | — |
+| Remote Books prep | Xong 2026-09-25 | job `17272` tại thời điểm preflight; 4 file SHA-256 local/server khớp; commit `db56215` | CPU smoke SASRec 30/30 valid; chưa có điểm model |
+| Self-host LLM smoke | Chưa chạy — chọn/pin checkpoint và backend | 20–30 user + GPU manifest | — |
+| SASRec one-GPU smoke 30 | Chưa chạy | `scripts/run_books_sasrec_gpu.sh`; snapshot/log/VRAM release | — |
 | Full MemRec + SASRec paired baseline | Chưa chạy | same candidate/split | — |
 | Headroom/ablation dev | Chưa chạy | preregistered dev report | — |
 | Method smoke/full held-out | Chưa chạy | hashes, per-user predictions | — |
@@ -170,10 +171,11 @@ không tự động áp dụng cho task này. Không chạy GPU từ turn lập 
 Các số M7/transition giữ trong historical protocol documents, **không chuyển
 vào bảng kết quả full MemRec**.
 
-Thứ tự tiếp theo khi có allocation hợp lệ: (1) cập nhật runbook cho đúng job
-được phép và preflight cả 4 GPU, (2) chạy self-host full MemRec smoke 20–30
-user với revision/checkpoint ghim và kiểm 100% schema, (3) chạy SASRec GPU
-smoke cùng dữ liệu trước khi train grid dev, (4) train SASRec grid trên dev,
-(5) chạy full MemRec dev với all-user warm-up, (6) phân tích headroom và
+Allocation mới đã được xác nhận tại thời điểm preflight; phải resolve lại
+`train_TTS` trước mỗi task, không tái dùng ID nếu job đổi. Thứ tự tiếp theo:
+(1) chạy SASRec GPU smoke 30 user cùng dữ liệu trước khi train grid dev,
+(2) train SASRec grid trên dev, (3) pin checkpoint/backend LLM và chạy
+self-host full MemRec smoke 20–30 user với 100% schema hợp lệ,
+(4) chạy full MemRec dev với all-user warm-up, (5) phân tích headroom và
 thiết kế method chỉ trên dev. Held-out giữ kín đến khi method/config khóa.
 Mỗi task GPU thoát process và xác nhận VRAM về baseline trước task kế.

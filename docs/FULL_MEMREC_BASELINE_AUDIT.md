@@ -146,8 +146,7 @@ Stage-W, `30/30` test Stage-R và Stage-ReRank, `30/30` per-user prediction,
 `0` malformed/failure, `0` test-time Stage-W. Lượt đầu phát hiện lỗi local
 `Path` shadowing ở nhánh cohort; đã sửa và chạy lại pass. LLM trong smoke là
 **fake schema-shaped client**, do đó mọi NDCG in ra là vô nghĩa khoa học và
-không được đưa vào thesis result. Snapshot allocation được phép trong runbook
-đã hết hạn, nên chưa chạy smoke LLM self-host thật.
+không được đưa vào thesis result. Chưa chạy smoke LLM self-host thật.
 
 Đã kiểm thêm `--warmup-user-scope all` bằng fake client: `7.377/7.377`
 Stage-R, Stage-ReRank, Stage-W warm-up; sau đó `30/30` prediction hợp lệ,
@@ -195,8 +194,16 @@ runbook. Chưa có GPU smoke thật hay checkpoint đã train.
 Unit tests hiện tại `82/82` pass; SASRec CPU smoke trên **Books thật** có
 `30/30` ranking hợp lệ và training loss hữu hạn với một batch. Đây không phải
 model đã train đầy đủ và **không phải** SASRec result để đưa vào thesis.
-GPU train vẫn chưa chạy vì job `15288` ghi trong runbook đã hết hạn; cần một
-allocation được người dùng xác nhận và cập nhật runbook trước preflight mới.
+Ngày 2026-09-25 người dùng cung cấp cách resolve allocation `train_TTS`;
+kiểm tra ra duy nhất job `17272` RUNNING. Runbook nội bộ đã đổi sang resolve
+động và vẫn giới hạn một H100. Snapshot cả 4 card lúc preflight: 0% utilization,
+1 MiB/81.559 MiB mỗi card. Kiểm tra CUDA visibility trên đúng một GPU pass,
+process thoát và VRAM về 1 MiB. Repo trên node đã pull đúng `db56215`.
+Bốn file Books bắt buộc (`.pkl`, `.inter`, `.instruction`, `.meta`) đã đồng bộ
+vào root MemRec riêng; SHA-256 local/server khớp từng file. SASRec CPU smoke
+trên node pass 30/30, 5/5 adapter tests pass. Chưa chạy GPU smoke/training.
+Launcher `scripts/run_books_sasrec_gpu.sh` ghi snapshot/log, chọn GPU theo
+utilization rồi VRAM và từ chối nếu card được chọn đang bận/giữ nhiều VRAM.
 
 1. Kiểm thử sâu causal trace trên **LLM thật** 20–30 case, bao gồm schema
    100%, token/call counts, memory provenance và GPU release. Candidate/cohort
