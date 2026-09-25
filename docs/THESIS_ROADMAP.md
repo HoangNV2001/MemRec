@@ -2,7 +2,10 @@
 
 **Cập nhật:** 2026-09-25
 
-**Trạng thái:** reset framing và protocol; **chưa có kết quả chứng minh cải tiến full MemRec**
+**Trạng thái:** Books SASRec dev đã xong; full MemRec real-LLM smoke 30 user
+đã pass và full-dev baseline đang ở gate chạy 7.377 warm-up + 2.000 dev.
+**Chưa có kết quả chứng minh cải tiến full MemRec.** Chi tiết tại
+[Books self-host LLM baseline](BOOKS_SELFHOST_LLM_BASELINE.md).
 
 **Nguồn benchmark:** [MemRec paper, ACL 2026](https://aclanthology.org/2026.acl-long.2061/)
 

@@ -1,8 +1,9 @@
 # Books full MemRec — self-host LLM baseline contract
 
-**Status (2026-09-25):** checkpoint/backend selected before observing any real
-LLM output; environment setup in progress. This is a *baseline protocol*, not
-a result. The 5,377 held-out labels remain sealed.
+**Status (2026-09-25):** real-LLM 30-user smoke v2 passed and its promotion
+artifacts were copied locally with matching SHA-256. Full 2,000-user dev run
+is the next gate; there is **no full-MemRec baseline result yet**. The 5,377
+held-out labels remain sealed.
 
 ## Fixed experiment contract
 
@@ -58,20 +59,33 @@ numbers are only contextual because LLM conditions differ.
    never reuse an output if its input, schema, model or generation settings
    differ. Full dev must not start without a passing smoke and a fresh GPU
    preflight. Held-out evaluation is blocked until method/config are locked.
+6. Full dev uses a SQLite per-user memory/prediction journal and an atomic,
+   durable physical-request budget. A restart replays only committed Stage-W
+   writes and predictions, then resumes at the next user under the same source
+   commit/model/config. The cache may save identical requests, but the
+   pre-request budget reservation remains charged after a crash. The full
+   gate requires 7,377 warm-up journal entries, 2,000 dev predictions, the
+   original candidate lists and a consistent request ledger. A completed
+   run is marked only **after** server shutdown and GPU-memory release.
 
 ## Progress / results
 
 | Gate | Status | Evidence |
 |---|---|---|
 | Checkpoint/backend contract | Frozen before real inference | This document; revision above |
-| Offline smoke gate | Implemented; unit tests pending | `scripts/check_books_memrec_smoke.py` |
-| vLLM venv dependency check | In progress | Slurm CPU step, no GPU |
-| Pinned checkpoint download | Not started | — |
+| Offline smoke gate | Passed | `scripts/check_books_memrec_smoke.py`, 90 local tests passing |
+| vLLM venv dependency check | Passed | `vllm==0.10.2`, `transformers==4.55.4` |
+| Pinned checkpoint download | Passed | revision `5a5a7763…90db`, model config hashes in smoke artifact |
 | Real-LLM 30-user smoke v1 | Aborted before first request | vLLM default compile cache escaped the project root; exact client/server PIDs terminated, GPU 0 returned to 1 MiB; no promotion/result |
-| Real-LLM 30-user smoke v2 | Pending | Explicit `VLLM_CACHE_ROOT`, `TORCHINDUCTOR_CACHE_DIR`, `CUDA_CACHE_PATH`, `TMPDIR` under `memrec-hnv/cache/`; fresh run/cache ID |
-| Full MemRec dev | Blocked on smoke/cache | — |
+| Real-LLM 30-user smoke v2 | **Passed and promoted** | Run `books-memrec-llm-smoke-v2-hnv`, commit `8513bd4`; 30/30 ranking, all Stage-R/RR/W warm-up calls, 150/150 physical requests, 0 schema/failure; GPU 0 returned from 1 to 4 MiB; promotion SHA-256 verified local/remote |
+| Full MemRec dev | Ready for preflight | 7,377 warm-up users, 2,000 dev users, expected 26,131 requests, hard cap 28,745; resumable journal CPU dry-run 7,377+30 passed and prediction SHA matched non-journal and replay run |
 | Held-out | Sealed | 5,377 user labels untouched |
 
 The SASRec matched dev result `NDCG@5 = 0.321127` is recorded in
 [BOOKS_FULL_BASELINE_PROGRESS.md](BOOKS_FULL_BASELINE_PROGRESS.md); it is **not**
 a full-MemRec or self-host-LLM result.
+
+Smoke-only NDCG@5 was `0.689081` and Hit@1 `0.533333` on **30 users with only
+30-user warm-up**. These numbers are a wiring/quality sanity check, not a
+baseline estimate and must not be compared with 2,000-user SASRec or paper
+scores. Full warm-up changes collaborative memory for later users.

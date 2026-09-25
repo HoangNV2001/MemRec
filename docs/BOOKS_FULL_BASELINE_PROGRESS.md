@@ -81,13 +81,14 @@ peak full-train nên giữ để audit, **không** dùng làm run báo cáo chí
 
 ## Full MemRec và giới hạn kết luận hiện tại
 
-Full MemRec mới pass CPU wiring smoke 30 user với **fake** LLM và original
-candidates; chưa có self-host LLM smoke hay score thật. Do đó **chưa thể so
+Full MemRec đã pass 30-user real-LLM smoke bằng Qwen3-30B-A3B-Instruct FP8,
+revision `5a5a7763…90db`, đủ Stage-R/RR/W warm-up, 150 physical requests,
+0 failure. Smoke dùng warm-up chỉ 30 user nên NDCG@5 `0,689081` **không phải**
+baseline 2.000-user. Do đó **chưa thể so
 SASRec với full MemRec, chưa có paired delta, chưa có method gain**. Số SASRec
 ở đây cũng không so trực tiếp với SASRec/ MemRec trong paper: khác cohort,
 checkpoint/hyperparameter và điều kiện LLM. Mốc tiếp theo là pin self-host
-model/revision/backend, smoke 20–30 user với đủ Stage-R, Stage-ReRank, Stage-W
-và 100% schema hợp lệ; sau đó mới chạy full MemRec dev với all-user warm-up.
+model/revision/backend đã khóa và chạy full MemRec dev với all-user warm-up.
 Giữ sealed held-out cho sau khi method/config đã khóa.
 
 Dry-run CPU trên node ở commit `eb9e0f4`: 30 user ranking sau all-user warm-up
@@ -97,3 +98,10 @@ Stage-R/W requests và 7.407 Stage-ReRank requests = 22.191 lời gọi giả l�
 Elapsed 25,51 giây; peak RSS 1.342,1 MiB. Đây chỉ là footprint/đường code,
 **không** dự báo latency hay chất lượng của LLM thật. Data/candidate/cohort
 contract đã được validate lại ở node trước dry-run.
+
+Để chịu được run LLM kéo dài, `books-memrec-llm-dev-v1-hnv` dùng journal
+transactional từng user và request ledger SQLite. Dry-run CPU mới 7.377 user
+warm-up + 30 eval, 22.191 fake calls, 0 failure; chạy lại replay cho đúng
+prediction SHA-256 `cb365a1a…ba987a688ef`, bằng non-journal CPU run. Đây là
+kiểm tra tính đúng của resume, không phải metric nghiên cứu. Full-dev gate
+chỉ được báo sau 2.000 prediction, 7.377 warm-up journal row và GPU trả VRAM.

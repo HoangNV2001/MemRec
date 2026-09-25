@@ -20,6 +20,35 @@ class MemoryStorage:
         self.user_profiles = {}  # {user_id: "A book enthusiast interested in..."}
         self.item_descriptions = {}  # {item_id: "A children's book about..."}
         self.n_updates = 0  # Count of updates
+        self._record_mutations = False
+        self._changed_users = {}
+        self._changed_items = {}
+
+    def begin_mutation_record(self):
+        """Capture only Stage-W writes for one serial warm-up user."""
+        if self._record_mutations:
+            raise RuntimeError('A memory mutation record is already active')
+        self._changed_users = {}
+        self._changed_items = {}
+        self._record_mutations = True
+
+    def finish_mutation_record(self):
+        if not self._record_mutations:
+            raise RuntimeError('No active memory mutation record')
+        self._record_mutations = False
+        return {
+            'users': self._changed_users,
+            'items': self._changed_items,
+            'n_updates': self.n_updates,
+        }
+
+    def apply_mutation_record(self, record):
+        """Replay a committed record without counting its writes twice."""
+        if self._record_mutations:
+            raise RuntimeError('Cannot replay during mutation capture')
+        self.user_profiles.update({int(k): v for k, v in record['users'].items()})
+        self.item_descriptions.update({int(k): v for k, v in record['items'].items()})
+        self.n_updates = int(record['n_updates'])
     
     def get_user_memory(self, user_id: int) -> Optional[str]:
         """Get user memory (natural language profile)"""
@@ -33,12 +62,16 @@ class MemoryStorage:
         """Update user memory (complete overwrite)"""
         if new_profile and new_profile.strip():
             self.user_profiles[user_id] = new_profile.strip()
+            if self._record_mutations:
+                self._changed_users[user_id] = self.user_profiles[user_id]
             self.n_updates += 1
     
     def update_item_memory(self, item_id: int, new_description: str):
         """Update item memory (complete overwrite)"""
         if new_description and new_description.strip():
             self.item_descriptions[item_id] = new_description.strip()
+            if self._record_mutations:
+                self._changed_items[item_id] = self.item_descriptions[item_id]
             self.n_updates += 1
     
     def initialize_item_descriptions(self, item_metadata: Dict[int, Dict]):

@@ -12,11 +12,13 @@ import json
 import random
 import time
 import math
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
 from src.models import LLMClient, MemRecAgent
-from src.models.llm_client import RequestBudget
+from src.models.llm_client import RequestBudget, DurableRequestBudget
+from src.train.books_run_journal import BooksRunJournal
 from src.data import RecDataset
 
 # Thread-safe random number generator
@@ -102,6 +104,7 @@ class MemRecTrainer:
         self.warmup_enabled = warmup_config.get('enabled', False)
         self.warmup_rounds = warmup_config.get('rounds', 1)
         self.warmup_user_scope = config.get('warmup_user_scope', 'eval')
+        self._books_run_journal = None
         if self.warmup_user_scope not in ('eval', 'all'):
             raise ValueError('warmup_user_scope must be eval or all')
         
@@ -525,7 +528,29 @@ class MemRecTrainer:
             if not 0 <= retry_fraction <= 1:
                 raise ValueError('llm_retry_reserve_fraction must be between 0 and 1')
             hard_cap = expected_calls + max(10, math.ceil(expected_calls * retry_fraction))
-            self.llm_budget = RequestBudget(hard_cap)
+            journal_path = os.getenv('MEMREC_BOOKS_RUN_JOURNAL_DB')
+            budget_path = os.getenv('MEMREC_BOOKS_REQUEST_BUDGET_DB')
+            if bool(journal_path) != bool(budget_path):
+                raise ValueError('Books full-run journal and durable budget must be enabled together')
+            if journal_path:
+                if (self.warmup_user_scope != 'all' or self.eval_cohort != 'dev'
+                        or parallel):
+                    raise ValueError('Resumable Books journal is only for serial full-dev evaluation')
+                run_id = os.getenv('MEMREC_BOOKS_FULL_RUN_ID')
+                commit = os.getenv('MEMREC_BOOKS_FULL_GIT_COMMIT')
+                if not run_id or not commit:
+                    raise ValueError('Resumable Books journal needs a pinned run ID and git commit')
+                contract = {
+                    'schema_version': 1, 'run_id': run_id, 'git_commit': commit,
+                    'model_revision': self.llm_revision, 'config': self.config,
+                    'warmup_user_ids': warmup_user_ids, 'eval_user_ids': eval_user_ids,
+                }
+                self._books_run_journal = BooksRunJournal(journal_path, contract)
+                self.llm_budget = DurableRequestBudget(
+                    hard_cap, budget_path, self._books_run_journal.contract_sha256
+                )
+            else:
+                self.llm_budget = RequestBudget(hard_cap)
             self.llm_client.request_budget = self.llm_budget
             self.llm_client.fail_fast = True
             self.llm_client.strict_schema_validation = True
@@ -569,6 +594,23 @@ class MemRecTrainer:
         stage_rr_output_tokens = []
         stage_w_input_tokens = []
         stage_w_output_tokens = []
+
+        eval_records = []
+        if self._books_run_journal is not None:
+            eval_records = self._books_run_journal.read_phase('eval', eval_user_ids)
+            for record in eval_records:
+                ranking_positions.append(record['position'])
+                prediction_records.append(record['prediction'])
+                n_success += bool(record['success'])
+                stage_r_times.append(record['stage_r_time'])
+                stage_rr_times.append(record['stage_rr_time'])
+                stage_r_input_tokens.append(record['stage_r_input'])
+                stage_r_output_tokens.append(record['stage_r_output'])
+                stage_rr_input_tokens.append(record['stage_rr_input'])
+                stage_rr_output_tokens.append(record['stage_rr_output'])
+            if eval_records:
+                self._restore_journal_client_state(eval_records[-1]['client_state'])
+                print(f'Replayed {len(eval_records)}/{len(eval_user_ids)} committed dev predictions')
         
         print(f"\nEvaluating MemRec on {split} set ({len(eval_user_ids)} users)...")
         print(f"Eval feedback mode: {self.eval_feedback}")
@@ -644,7 +686,9 @@ class MemRecTrainer:
         
         # ========== Serial Mode (original logic, debug support retained) ==========
         else:
-            for user_id in tqdm(eval_user_ids, desc=f"MemRec {split}"):
+            for eval_seq, user_id in enumerate(tqdm(eval_user_ids, desc=f"MemRec {split}")):
+                if eval_seq < len(eval_records):
+                    continue
                 target_item = target_data[user_id]
                 
                 if self.use_pregenerated_candidates:
@@ -825,6 +869,22 @@ class MemRecTrainer:
                         self._log_debug(f"ERROR for user {user_id}: {e}", level="ERROR")
                         self._log_debug(traceback.format_exc(), level="ERROR")
                 
+                if self._books_run_journal is not None:
+                    if (len(prediction_records) != eval_seq + 1
+                            or len(stage_r_times) != eval_seq + 1):
+                        raise RuntimeError('Books evaluation journal cannot commit incomplete user')
+                    record = prediction_records[-1]
+                    self._books_run_journal.append('eval', eval_seq, user_id, {
+                        'position': ranking_positions[-1], 'prediction': record,
+                        'success': record['failure'] is None,
+                        'stage_r_time': stage_r_times[-1],
+                        'stage_rr_time': stage_rr_times[-1],
+                        'stage_r_input': stage_r_input_tokens[-1],
+                        'stage_r_output': stage_r_output_tokens[-1],
+                        'stage_rr_input': stage_rr_input_tokens[-1],
+                        'stage_rr_output': stage_rr_output_tokens[-1],
+                        'client_state': self._journal_client_state(),
+                    })
                 continue
         
         if self.use_pregenerated_candidates and len(ranking_positions) != len(eval_user_ids):
@@ -1103,6 +1163,59 @@ class MemRecTrainer:
             if self.use_pregenerated_candidates:
                 raise
             return False
+
+    def _journal_client_state(self):
+        fields = ('total_input_tokens', 'total_output_tokens', 'total_requests',
+                  'total_physical_requests', 'total_cache_hits')
+        return [
+            {field: getattr(client, field, 0) for field in fields} if client else None
+            for client in (self.llm_client, self.reranker_llm_client)
+        ]
+
+    def _restore_journal_client_state(self, states):
+        for client, state in zip((self.llm_client, self.reranker_llm_client), states):
+            if client and state:
+                for field, value in state.items():
+                    setattr(client, field, value)
+
+    def _run_training_with_journal(self, user_ids: list[int], split: str):
+        """Replay committed memory writes, then continue serial Stage-R/RR/W."""
+        journal = self._books_run_journal
+        expected = user_ids * self.warmup_rounds
+        committed = journal.read_phase('warmup', expected)
+        for record in committed:
+            self.agent.storage.apply_mutation_record(record['memory'])
+        if committed:
+            last = committed[-1]
+            self.agent.n_stage_r_calls, self.agent.n_stage_rr_calls, self.agent.n_stage_w_calls = last['stage_calls']
+            self._restore_journal_client_state(last['client_state'])
+            print(f'Replayed {len(committed)}/{len(expected)} committed warm-up users from journal')
+
+        for warmup_round in range(self.warmup_rounds):
+            start = warmup_round * len(user_ids)
+            end = start + len(user_ids)
+            n_updates = sum(bool(row['did_write']) for row in committed[start:end])
+            target_offset = self.warmup_rounds - warmup_round
+            for offset, user_id in enumerate(tqdm(user_ids, desc='MemRec Training')):
+                seq = start + offset
+                if seq < len(committed):
+                    continue
+                self.agent.storage.begin_mutation_record()
+                did_write = self._warmup_single_user(
+                    user_id, warmup_round, target_offset, split
+                )
+                memory = self.agent.storage.finish_mutation_record()
+                journal.append('warmup', seq, user_id, {
+                    'did_write': bool(did_write), 'memory': memory,
+                    'stage_calls': [self.agent.n_stage_r_calls,
+                                    self.agent.n_stage_rr_calls,
+                                    self.agent.n_stage_w_calls],
+                    'client_state': self._journal_client_state(),
+                })
+                n_updates += bool(did_write)
+            print(f'  ✓ {n_updates}/{len(user_ids)} users updated memories')
+        print('\n' + '=' * 80)
+        print('🔥 MemRec Training Complete!')
     
     def _run_training(
         self,
@@ -1130,6 +1243,10 @@ class MemRecTrainer:
         print(f"{'='*80}")
         if parallel:
             print(f"🚀 Parallel mode: {n_workers} workers")
+
+        if getattr(self, '_books_run_journal', None) is not None:
+            self._run_training_with_journal(eval_user_ids, split)
+            return
         
         # Execute training for each user
         for warmup_round in range(self.warmup_rounds):

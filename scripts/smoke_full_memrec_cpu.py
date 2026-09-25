@@ -6,8 +6,10 @@ Fake scores are NOT research results and do not replace the H100 LLM smoke.
 """
 
 import argparse
+import os
 import re
 import resource
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -29,9 +31,18 @@ class FakeJSONClient:
         self.model = 'cpu-fake'
         self.api_endpoint = 'no-network'
         self.requests = 0
+        self.total_requests = 0
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
+        self.total_physical_requests = 0
+        self.total_cache_hits = 0
 
     def generate_json(self, messages, properties, **kwargs):
+        if getattr(self, 'request_budget', None) is not None:
+            self.request_budget.consume()
         self.requests += 1
+        self.total_requests += 1
+        self.total_physical_requests += 1
         if 'scores' in properties:
             section = messages[0]['content'].split('**Candidate Item Memories:**', 1)[1]
             item_ids = [int(value) for value in re.findall(r'• Item (\d+) \(', section)]
@@ -55,9 +66,9 @@ class FakeJSONClient:
 
     def get_token_stats(self):
         return {
-            'total_requests': self.requests,
-            'total_input_tokens': 0,
-            'total_output_tokens': 0,
+            'total_requests': self.total_requests,
+            'total_input_tokens': self.total_input_tokens,
+            'total_output_tokens': self.total_output_tokens,
             'total_tokens': 0,
             'avg_input_tokens': 0,
             'avg_output_tokens': 0,
@@ -69,6 +80,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--users', type=int, default=30)
     parser.add_argument('--warmup-user-scope', choices=['eval', 'all'], default='eval')
+    parser.add_argument('--journal', action='store_true',
+                        help='Exercise durable full-dev warm-up/eval resume with fake LLM')
     args = parser.parse_args()
     if not 20 <= args.users <= 30:
         parser.error('CPU smoke is intentionally limited to 20–30 users')
@@ -85,6 +98,19 @@ def main():
             'endpoint': 'no-network', 'api_key': 'fake', 'sdk_max_retries': 0,
         },
     })
+    output = ROOT / f'results/full_memrec_cpu_smoke_{args.users}_{args.warmup_user_scope}-hnv'
+    if args.journal:
+        if args.warmup_user_scope != 'all':
+            parser.error('--journal requires --warmup-user-scope all')
+        output = ROOT / f'results/full_memrec_cpu_smoke_{args.users}_all_journal-hnv'
+        output.mkdir(parents=True, exist_ok=True)
+        os.environ['MEMREC_BOOKS_RUN_JOURNAL_DB'] = str(output / 'journal.sqlite')
+        os.environ['MEMREC_BOOKS_REQUEST_BUDGET_DB'] = str(output / 'request-budget.sqlite')
+        os.environ['MEMREC_BOOKS_FULL_RUN_ID'] = output.name
+        os.environ['MEMREC_BOOKS_FULL_GIT_COMMIT'] = subprocess.check_output(
+            ['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True
+        ).strip()
+        config['output_dir'] = str(output)
     trainer_module.LLMClient = FakeJSONClient
     dataset = RecDataset(
         str(ROOT / 'data/processed/instructrec-books/instructrec-books.inter'),
@@ -92,7 +118,6 @@ def main():
         precompute_negatives=False,
     )
     trainer = trainer_module.MemRecTrainer(None, dataset, config, torch.device('cpu'))
-    output = ROOT / f'results/full_memrec_cpu_smoke_{args.users}_{args.warmup_user_scope}-hnv'
     metrics = trainer.evaluate(split='test', save_dir=str(output), parallel=False)
     assert metrics['n_eval_users'] == args.users
     assert metrics['n_rankings'] == args.users

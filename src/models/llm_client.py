@@ -6,6 +6,7 @@ import os
 import json
 import threading
 import math
+import sqlite3
 from typing import List, Dict, Optional, Tuple
 from pathlib import Path
 from datetime import datetime
@@ -38,6 +39,48 @@ class RequestBudget:
             if self.used >= self.limit:
                 raise RequestBudgetExceeded(f'LLM request hard cap reached: {self.used}/{self.limit}')
             self.used += 1
+
+
+class DurableRequestBudget(RequestBudget):
+    """Reserve every physical attempt durably before sending it to the LLM."""
+
+    def __init__(self, limit: int, path: str, contract: str):
+        super().__init__(limit)
+        if not contract:
+            raise ValueError('Durable request budget needs a pinned contract')
+        destination = Path(path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        self.connection = sqlite3.connect(str(destination), timeout=30, check_same_thread=False)
+        self.connection.execute('PRAGMA journal_mode=DELETE')
+        self.connection.execute('PRAGMA synchronous=FULL')
+        self.connection.execute(
+            'CREATE TABLE IF NOT EXISTS budget ('
+            'id INTEGER PRIMARY KEY CHECK(id=1), contract TEXT NOT NULL, '
+            'lim INTEGER NOT NULL, used INTEGER NOT NULL)'
+        )
+        self.connection.execute(
+            'INSERT OR IGNORE INTO budget VALUES (1, ?, ?, 0)', (contract, limit)
+        )
+        self.connection.commit()
+        stored_contract, stored_limit, self.used = self.connection.execute(
+            'SELECT contract, lim, used FROM budget WHERE id=1'
+        ).fetchone()
+        if stored_contract != contract or stored_limit != limit:
+            raise ValueError('Durable request budget contract/limit mismatch')
+
+    def consume(self):
+        with self._lock:
+            self.connection.execute('BEGIN IMMEDIATE')
+            try:
+                used = self.connection.execute('SELECT used FROM budget WHERE id=1').fetchone()[0]
+                if used >= self.limit:
+                    raise RequestBudgetExceeded(f'LLM request hard cap reached: {used}/{self.limit}')
+                self.connection.execute('UPDATE budget SET used=? WHERE id=1', (used + 1,))
+                self.connection.commit()
+                self.used = used + 1
+            except Exception:
+                self.connection.rollback()
+                raise
 
 
 def validate_json_shape(value, schema: Dict, path: str = '$'):
