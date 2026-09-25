@@ -39,7 +39,7 @@ numbers are only contextual because LLM conditions differ.
    Python/torch/vLLM versions.
 3. Start one localhost server via
    `scripts/run_books_memrec_selfhost_gpu.sh` for run
-   `books-memrec-llm-smoke-v1-hnv` with an
+   `books-memrec-llm-smoke-v2-hnv` with an
    exact PID file and bounded health wait. Run `scripts/run_train.py` serially
    with `--eval-cohort dev --n_eval_users 30 --warmup-user-scope eval` and the
    fixed benchmark YAML. Run `scripts/check_books_memrec_smoke.py` on its
@@ -67,7 +67,8 @@ numbers are only contextual because LLM conditions differ.
 | Offline smoke gate | Implemented; unit tests pending | `scripts/check_books_memrec_smoke.py` |
 | vLLM venv dependency check | In progress | Slurm CPU step, no GPU |
 | Pinned checkpoint download | Not started | — |
-| Real-LLM 30-user smoke | Not started | — |
+| Real-LLM 30-user smoke v1 | Aborted before first request | vLLM default compile cache escaped the project root; exact client/server PIDs terminated, GPU 0 returned to 1 MiB; no promotion/result |
+| Real-LLM 30-user smoke v2 | Pending | Explicit `VLLM_CACHE_ROOT`, `TORCHINDUCTOR_CACHE_DIR`, `CUDA_CACHE_PATH`, `TMPDIR` under `memrec-hnv/cache/`; fresh run/cache ID |
 | Full MemRec dev | Blocked on smoke/cache | — |
 | Held-out | Sealed | 5,377 user labels untouched |
 

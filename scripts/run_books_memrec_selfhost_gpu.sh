@@ -9,7 +9,7 @@ fi
 
 MEMREC_ROOT=/mnt/data/users/anhnct/memrec-hnv
 REPO="$MEMREC_ROOT/repo/MemRec-hnv"
-RUN_ID=books-memrec-llm-smoke-v1-hnv
+RUN_ID=books-memrec-llm-smoke-v2-hnv
 RUN_DIR="$MEMREC_ROOT/runs/$RUN_ID"
 LOG_DIR="$MEMREC_ROOT/logs"
 MODEL_NAME=Qwen/Qwen3-30B-A3B-Instruct-2507-FP8
@@ -80,11 +80,16 @@ export HF_HUB_CACHE="$HF_HOME/hub"
 export PIP_CACHE_DIR="$MEMREC_ROOT/cache/pip"
 export TORCH_HOME="$MEMREC_ROOT/cache/torch"
 export TRITON_CACHE_DIR="$MEMREC_ROOT/cache/triton"
+export VLLM_CACHE_ROOT="$MEMREC_ROOT/cache/vllm"
+export TORCHINDUCTOR_CACHE_DIR="$MEMREC_ROOT/cache/torchinductor"
+export CUDA_CACHE_PATH="$MEMREC_ROOT/cache/nv/ComputeCache"
+export TMPDIR="$MEMREC_ROOT/cache/tmp"
+mkdir -p "$VLLM_CACHE_ROOT" "$TORCHINDUCTOR_CACHE_DIR" "$CUDA_CACHE_PATH" "$TMPDIR"
 export MEMREC_SELFHOST_MODEL="$MODEL_NAME"
 export MEMREC_SELFHOST_REVISION="$MODEL_REVISION"
 export MEMREC_SELFHOST_BASE_URL="http://127.0.0.1:$PORT/v1"
 export MEMREC_SELFHOST_API_KEY=local-placeholder
-export MEMREC_LLM_CACHE_DB="$MEMREC_ROOT/cache/books-memrec-primary-hnv.sqlite"
+export MEMREC_LLM_CACHE_DB="$MEMREC_ROOT/cache/books-memrec-primary-v2-hnv.sqlite"
 export MEMREC_LLM_CACHE_NAMESPACE="$MODEL_REVISION:vllm0.10.2:tp1:seed42:mem0.60:len16384"
 export MEMREC_LLM_CACHE_READ=0
 export PYTHONUNBUFFERED=1
@@ -175,6 +180,7 @@ record = {
     'tensor_parallel': 1, 'gpu_memory_utilization': 0.60,
     'max_model_len': 16384, 'max_num_seqs': 1, 'seed': 42,
     'response_cache': 'exact-input/write-only-in-smoke',
+    'vllm_cache_root': '/mnt/data/users/anhnct/memrec-hnv/cache/vllm',
     'slurm_job_id': job_id, 'physical_gpu_index': int(gpu_index),
     'candidate_sha256': BOOKS_CANDIDATE_SHA256,
     'dev_cohort_sha256': manifest['cohort_sha256']['dev'],
