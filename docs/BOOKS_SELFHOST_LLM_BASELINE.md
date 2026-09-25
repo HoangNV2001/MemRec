@@ -2,8 +2,9 @@
 
 **Status (2026-09-25):** real-LLM 30-user smoke v2 passed and its promotion
 artifacts were copied locally with matching SHA-256. Full 2,000-user dev run
-is the next gate; there is **no full-MemRec baseline result yet**. The 5,377
-held-out labels remain sealed.
+was started, then **stopped at the user's request** to reconsider its cost;
+there is **no full-MemRec baseline result yet**. The 5,377 held-out labels
+remain sealed.
 
 ## Fixed experiment contract
 
@@ -78,7 +79,7 @@ numbers are only contextual because LLM conditions differ.
 | Pinned checkpoint download | Passed | revision `5a5a7763…90db`, model config hashes in smoke artifact |
 | Real-LLM 30-user smoke v1 | Aborted before first request | vLLM default compile cache escaped the project root; exact client/server PIDs terminated, GPU 0 returned to 1 MiB; no promotion/result |
 | Real-LLM 30-user smoke v2 | **Passed and promoted** | Run `books-memrec-llm-smoke-v2-hnv`, commit `8513bd4`; 30/30 ranking, all Stage-R/RR/W warm-up calls, 150/150 physical requests, 0 schema/failure; GPU 0 returned from 1 to 4 MiB; promotion SHA-256 verified local/remote |
-| Full MemRec dev | Ready for preflight | 7,377 warm-up users, 2,000 dev users, expected 26,131 requests, hard cap 28,745; resumable journal CPU dry-run 7,377+30 passed and prediction SHA matched non-journal and replay run |
+| Full MemRec dev | Stopped by user; no result | Run `books-memrec-llm-dev-v1-hnv` at commit `ab02436`, 129/7,377 warm-up entries committed, 0/2,000 dev users evaluated, 299 physical attempts reserved of hard cap 28,745. Script exited 143; vLLM and client processes exited, tmux session absent, GPU 3 before 1 MiB / after 4 MiB. Journal/cache retained; no automatic resume. |
 | Held-out | Sealed | 5,377 user labels untouched |
 
 The SASRec matched dev result `NDCG@5 = 0.321127` is recorded in

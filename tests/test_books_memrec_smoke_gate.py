@@ -53,3 +53,21 @@ def test_smoke_gate_rejects_missing_stage_w(tmp_path):
     result.write_text(json.dumps(payload))
     with pytest.raises(ValueError, match='Stage-W'):
         check(tmp_path)
+
+
+def test_cache_backed_subset_smoke_requires_matching_promoted_predictions(tmp_path):
+    result, _ = fixture_run(tmp_path)
+    payload = json.loads(result.read_text())
+    payload['config']['books_subset_users'] = 700
+    payload['test_metrics']['llm_physical_requests'] = 0
+    result.write_text(json.dumps(payload))
+    reference = tmp_path / 'promoted_predictions.jsonl'
+    predictions = tmp_path / 'test_predictions.jsonl'
+    reference.write_bytes(predictions.read_bytes())
+    assert check(tmp_path, allow_cache=True, reference_predictions=reference)['physical_requests'] == 0
+    with pytest.raises(ValueError, match='physical'):
+        check(tmp_path)
+    reference.write_text(reference.read_text().replace('"target_position": 0',
+                                                        '"target_position": 1', 1))
+    with pytest.raises(ValueError, match='differs'):
+        check(tmp_path, allow_cache=True, reference_predictions=reference)

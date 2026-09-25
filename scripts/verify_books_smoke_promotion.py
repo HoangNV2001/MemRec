@@ -38,7 +38,8 @@ def semantic_ast(source: str, kind: str) -> str:
     return hashlib.sha256(ast.dump(selected_module, include_attributes=False).encode()).hexdigest()
 
 
-def verify(smoke_dir: Path, repo: Path, revision: str, cache_namespace: str) -> dict:
+def verify(smoke_dir: Path, repo: Path, revision: str, cache_namespace: str,
+           allow_cache: bool = False, reference_predictions: Path | None = None) -> dict:
     promotion = json.loads((smoke_dir / 'promotion.json').read_text())
     if promotion['status'] != 'passed' or promotion['model_revision'] != revision:
         raise ValueError('Unpromoted or wrong-revision smoke')
@@ -47,7 +48,8 @@ def verify(smoke_dir: Path, repo: Path, revision: str, cache_namespace: str) -> 
     for name, expected in promotion['artifact_sha256'].items():
         if digest(smoke_dir / name) != expected:
             raise ValueError(f'Smoke artifact changed: {name}')
-    if check_smoke(smoke_dir)['status'] != 'pass':
+    if check_smoke(smoke_dir, allow_cache=allow_cache,
+                   reference_predictions=reference_predictions)['status'] != 'pass':
         raise ValueError('Smoke output gate no longer passes')
 
     smoke_commit = promotion['git_commit']
@@ -89,9 +91,12 @@ def main():
     parser.add_argument('--repo', type=Path, required=True)
     parser.add_argument('--revision', required=True)
     parser.add_argument('--cache-namespace', required=True)
+    parser.add_argument('--allow-cache', action='store_true')
+    parser.add_argument('--reference-predictions', type=Path)
     args = parser.parse_args()
     print(json.dumps(verify(args.smoke_dir, args.repo, args.revision,
-                            args.cache_namespace), sort_keys=True))
+                            args.cache_namespace, args.allow_cache,
+                            args.reference_predictions), sort_keys=True))
 
 
 if __name__ == '__main__':

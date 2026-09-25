@@ -3,9 +3,12 @@
 **Cập nhật:** 2026-09-25
 
 **Trạng thái:** Books SASRec dev đã xong; full MemRec real-LLM smoke 30 user
-đã pass và full-dev baseline đang ở gate chạy 7.377 warm-up + 2.000 dev.
+đã pass. Full-dev baseline đã dừng theo yêu cầu ở 129/7.377 warm-up user để
+đánh giá lại chi phí; không có full-dev result và không tự động resume.
 **Chưa có kết quả chứng minh cải tiến full MemRec.** Chi tiết tại
 [Books self-host LLM baseline](BOOKS_SELFHOST_LLM_BASELINE.md).
+Nhánh thử nghiệm chi phí thấp 700 warm-up/200 dev được khóa riêng ở
+[BOOKS_DEV700_PROTOCOL.md](BOOKS_DEV700_PROTOCOL.md); không thay thế full-dev.
 
 **Nguồn benchmark:** [MemRec paper, ACL 2026](https://aclanthology.org/2026.acl-long.2061/)
 

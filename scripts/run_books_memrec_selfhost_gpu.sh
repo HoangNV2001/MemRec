@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Real-LLM Books smoke/full-dev. Invoke ONLY through authorized train_TTS step.
+# Real-LLM Books smoke/full-dev/dev700. Invoke ONLY through authorized train_TTS step.
 set -euo pipefail
 
 if [[ $# -gt 1 || -z "${SLURM_JOB_ID:-}" ]]; then
-  echo 'Usage: run_books_memrec_selfhost_gpu.sh [smoke|full|resume] inside Slurm' >&2
+  echo 'Usage: run_books_memrec_selfhost_gpu.sh [smoke|smoke700|full|resume|dev700|resume700] inside Slurm' >&2
   exit 2
 fi
 MODE=${1:-smoke}
-if [[ "$MODE" != smoke && "$MODE" != full && "$MODE" != resume ]]; then
+if [[ "$MODE" != smoke && "$MODE" != smoke700 && "$MODE" != full && "$MODE" != resume && \
+      "$MODE" != dev700 && "$MODE" != resume700 ]]; then
   echo "Unknown mode: $MODE" >&2
   exit 2
 fi
@@ -16,11 +17,28 @@ MEMREC_ROOT=/mnt/data/users/anhnct/memrec-hnv
 REPO="$MEMREC_ROOT/repo/MemRec-hnv"
 if [[ "$MODE" == smoke ]]; then
   RUN_ID=books-memrec-llm-smoke-v2-hnv
+elif [[ "$MODE" == smoke700 ]]; then
+  RUN_ID=books-memrec-llm-dev700-smoke-v1-hnv
+elif [[ "$MODE" == dev700 || "$MODE" == resume700 ]]; then
+  RUN_ID=books-memrec-llm-dev700-v1-hnv
 else
   RUN_ID=books-memrec-llm-dev-v1-hnv
 fi
+CONFIG=configs/memrec_instructrec-books_full_benchmark.yaml
+GATE_FILE=full-dev-gate.json
+N_EVAL_USERS=2000
+WARMUP_SCOPE=all
+RUN_TIMEOUT=72h
+if [[ "$MODE" == dev700 || "$MODE" == resume700 || "$MODE" == smoke700 ]]; then
+  CONFIG=configs/memrec_instructrec-books_dev700.yaml
+  GATE_FILE=dev700-gate.json
+  N_EVAL_USERS=200
+  WARMUP_SCOPE=subset
+  RUN_TIMEOUT=570m  # 9.5h inference + bounded startup/cleanup: <=~10 GPU-hours.
+fi
 RUN_DIR="$MEMREC_ROOT/runs/$RUN_ID"
 SMOKE_DIR="$MEMREC_ROOT/runs/books-memrec-llm-smoke-v2-hnv"
+SUBSET_SMOKE_DIR="$MEMREC_ROOT/runs/books-memrec-llm-dev700-smoke-v1-hnv"
 LOG_DIR="$MEMREC_ROOT/logs"
 MODEL_NAME=Qwen/Qwen3-30B-A3B-Instruct-2507-FP8
 MODEL_REVISION=5a5a776300a41aaa681dd7ff0106608ef2bc90db
@@ -40,9 +58,9 @@ if [[ "$JOB_INFO" != 'anhntc2 RUNNING train_TTS' ]]; then
   echo "Unexpected allocation: $JOB_INFO" >&2
   exit 2
 fi
-if [[ "$MODE" == resume ]]; then
+if [[ "$MODE" == resume || "$MODE" == resume700 ]]; then
   if [[ ! -f "$RUN_DIR/manifest.json" || -f "$RUN_DIR/completion.json" ]]; then
-    echo 'No incomplete full-dev run to resume' >&2
+    echo 'No incomplete Books dev run to resume' >&2
     exit 2
   fi
   "$PYTHON" - "$RUN_DIR/manifest.json" "$(git rev-parse HEAD)" "$MODEL_REVISION" <<'PY'
@@ -84,16 +102,22 @@ if [[ "$MODE" != smoke ]]; then
     --smoke-dir "$SMOKE_DIR" --repo "$REPO" \
     --revision "$MODEL_REVISION" --cache-namespace "$CACHE_NAMESPACE"
 fi
+if [[ "$MODE" == dev700 || "$MODE" == resume700 ]]; then
+  "$PYTHON" scripts/verify_books_smoke_promotion.py \
+    --smoke-dir "$SUBSET_SMOKE_DIR" --repo "$REPO" \
+    --revision "$MODEL_REVISION" --cache-namespace "$CACHE_NAMESPACE" \
+    --allow-cache --reference-predictions "$SMOKE_DIR/test_predictions.jsonl"
+fi
 
 mkdir -p "$LOG_DIR"
-if [[ "$MODE" == smoke ]]; then
+if [[ "$MODE" == smoke || "$MODE" == smoke700 ]]; then
   ATTEMPT=1
   RUN_LOG="$LOG_DIR/$RUN_ID.log"
   BEFORE="$RUN_DIR/gpu-before.csv"
   AFTER="$RUN_DIR/gpu-after.csv"
   SERVER_LOG="$RUN_DIR/vllm-server.log"
 else
-  if [[ "$MODE" == resume ]]; then
+  if [[ "$MODE" == resume || "$MODE" == resume700 ]]; then
     ATTEMPT=$(($(find "$RUN_DIR" -maxdepth 1 -name 'gpu-before-attempt-*.csv' | wc -l) + 1))
   else
     ATTEMPT=1
@@ -123,7 +147,7 @@ if (( GPU_UTIL >= 20 || GPU_MEM_BEFORE >= 2048 )); then
   echo 'No sufficiently idle H100 for this run' >&2
   exit 2
 fi
-if [[ "$MODE" == resume ]]; then
+if [[ "$MODE" == resume || "$MODE" == resume700 ]]; then
   test -d "$RUN_DIR"
 else
   mkdir "$RUN_DIR"  # Atomic claim; refuse a concurrent start of this run ID.
@@ -151,6 +175,8 @@ if [[ "$MODE" == smoke ]]; then
   export MEMREC_LLM_CACHE_READ=0
 else
   export MEMREC_LLM_CACHE_READ=1
+fi
+if [[ "$MODE" != smoke && "$MODE" != smoke700 ]]; then
   export MEMREC_BOOKS_RUN_JOURNAL_DB="$RUN_DIR/journal.sqlite"
   export MEMREC_BOOKS_REQUEST_BUDGET_DB="$RUN_DIR/request-budget.sqlite"
   export MEMREC_BOOKS_FULL_RUN_ID="$RUN_ID"
@@ -192,7 +218,7 @@ cleanup() {
       status=1
     fi
   fi
-  if [[ "$status" -eq 0 && "$MODE" == smoke ]]; then
+  if [[ "$status" -eq 0 && ( "$MODE" == smoke || "$MODE" == smoke700 ) ]]; then
     if ! "$PYTHON" - "$RUN_DIR" "$MEMREC_LLM_CACHE_NAMESPACE" <<'PY'
 import hashlib, json, sys
 from pathlib import Path
@@ -214,13 +240,13 @@ PY
       status=1
     fi
   fi
-  if [[ "$status" -eq 0 && "$MODE" != smoke ]]; then
-    if ! "$PYTHON" - "$RUN_DIR" "$ATTEMPT" "$AFTER" <<'PY'
+  if [[ "$status" -eq 0 && "$MODE" != smoke && "$MODE" != smoke700 ]]; then
+    if ! "$PYTHON" - "$RUN_DIR" "$ATTEMPT" "$AFTER" "$GATE_FILE" <<'PY'
 import hashlib, json, sys
 from pathlib import Path
-run_dir, attempt, after = Path(sys.argv[1]), int(sys.argv[2]), Path(sys.argv[3])
+run_dir, attempt, after, gate_file = Path(sys.argv[1]), int(sys.argv[2]), Path(sys.argv[3]), sys.argv[4]
 names = ('manifest.json', 'source-hashes.sha256', 'test_predictions.jsonl',
-         'full-dev-gate.json', 'journal.sqlite', 'request-budget.sqlite')
+         gate_file, 'journal.sqlite', 'request-budget.sqlite')
 hashes = {name: hashlib.sha256((run_dir / name).read_bytes()).hexdigest()
           for name in names}
 hashes[after.name] = hashlib.sha256(after.read_bytes()).hexdigest()
@@ -246,19 +272,24 @@ echo "run_id=$RUN_ID job=$SLURM_JOB_ID gpu=$GPU_INDEX commit=$(git rev-parse HEA
 "$PYTHON" -c 'import torch; assert torch.cuda.is_available() and torch.cuda.device_count() == 1; print("torch", torch.__version__, "cuda", torch.version.cuda)'
 "$PYTHON" -c 'import vllm, transformers; print("vllm", vllm.__version__, "transformers", transformers.__version__)'
 "$PYTHON" -c 'import socket, sys; s=socket.socket(); e=s.connect_ex(("127.0.0.1", int(sys.argv[1]))); s.close(); sys.exit(0 if e else 1)' "$PORT"
-if [[ "$MODE" != resume ]]; then
-  sha256sum configs/memrec_instructrec-books_full_benchmark.yaml \
+if [[ "$MODE" != resume && "$MODE" != resume700 ]]; then
+  sha256sum configs/memrec_instructrec-books_full_benchmark.yaml "$CONFIG" \
     src/models/llm_client.py src/models/llm_response_cache.py \
     src/models/reranker_llm.py src/models/memrec_agent.py \
     src/train/trainer_memrec.py src/train/books_run_journal.py \
-    src/memory/storage.py \
+    src/memory/storage.py src/data/books_protocol.py \
     "$MODEL_PATH/config.json" "$MODEL_PATH/tokenizer_config.json" > "$RUN_DIR/source-hashes.sha256"
   "$PYTHON" - "$RUN_DIR" "$MODEL_REVISION" "$SLURM_JOB_ID" "$GPU_INDEX" "$MODE" <<'PY'
 import json, subprocess, sys
 from pathlib import Path
-from src.data.books_protocol import books_cohorts, cohort_digest, BOOKS_CANDIDATE_SHA256
+from src.data.books_protocol import (
+    books_cohorts, books_dev_cost_subset, cohort_digest, BOOKS_CANDIDATE_SHA256
+)
 run_dir, revision, job_id, gpu_index, mode = sys.argv[1:]
 cohorts, manifest = books_cohorts(list(range(7377)))
+subset_warmup, subset_eval = books_dev_cost_subset(
+    cohorts['all'], cohorts['dev'], 700, 200
+)
 record = {
     'run_id': Path(run_dir).name,
     'git_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
@@ -272,10 +303,12 @@ record = {
     'slurm_job_id': job_id, 'physical_gpu_index': int(gpu_index),
     'candidate_sha256': BOOKS_CANDIDATE_SHA256,
     'dev_cohort_sha256': manifest['cohort_sha256']['dev'],
-    'warmup_user_scope': 'eval' if mode == 'smoke' else 'all',
-    'eval_cohort': 'dev', 'n_eval_users': 30 if mode == 'smoke' else 2000,
-    'smoke_user_sha256': cohort_digest(cohorts['dev'][:30]) if mode == 'smoke' else None,
-    'smoke_user_ids': cohorts['dev'][:30] if mode == 'smoke' else None,
+    'warmup_user_scope': 'subset' if mode == 'dev700' else 'eval' if mode in ('smoke', 'smoke700') else 'all',
+    'eval_cohort': 'dev', 'n_eval_users': 30 if mode in ('smoke', 'smoke700') else 200 if mode == 'dev700' else 2000,
+    'subset_user_sha256': cohort_digest(subset_warmup) if mode in ('dev700', 'smoke700') else None,
+    'subset_eval_sha256': cohort_digest(subset_eval) if mode in ('dev700', 'smoke700') else None,
+    'smoke_user_sha256': cohort_digest(cohorts['dev'][:30]) if mode in ('smoke', 'smoke700') else None,
+    'smoke_user_ids': cohorts['dev'][:30] if mode in ('smoke', 'smoke700') else None,
 }
 (Path(run_dir) / 'manifest.json').write_text(json.dumps(record, indent=2) + '\n')
 PY
@@ -319,14 +352,29 @@ if [[ "$MODE" == smoke ]]; then
   "$PYTHON" scripts/check_books_memrec_smoke.py --run-dir "$RUN_DIR" \
     > "$RUN_DIR/smoke-gate.json"
   echo '30-user real-LLM smoke passed the output gate; GPU cleanup follows.'
+elif [[ "$MODE" == smoke700 ]]; then
+  "$PYTHON" scripts/run_train.py \
+    --dataset instructrec-books --config "$CONFIG" \
+    --device cpu --eval-cohort dev --n_eval_users 30 --warmup-user-scope eval \
+    --output_dir "$RUN_DIR"
+  "$PYTHON" scripts/check_books_memrec_smoke.py --run-dir "$RUN_DIR" \
+    --allow-cache --reference-predictions "$SMOKE_DIR/test_predictions.jsonl" \
+    > "$RUN_DIR/smoke-gate.json"
+  echo '30-user subset-config real-LLM smoke passed; GPU cleanup follows.'
 else
-  timeout --signal=TERM --kill-after=120s 72h \
+  timeout --signal=TERM --kill-after=120s "$RUN_TIMEOUT" \
     "$PYTHON" scripts/run_train.py \
       --dataset instructrec-books \
-      --config configs/memrec_instructrec-books_full_benchmark.yaml \
-      --device cpu --eval-cohort dev --warmup-user-scope all \
+      --config "$CONFIG" \
+      --device cpu --eval-cohort dev --n_eval_users "$N_EVAL_USERS" \
+      --warmup-user-scope "$WARMUP_SCOPE" \
       --output_dir "$RUN_DIR"
-  "$PYTHON" scripts/check_books_memrec_full_dev.py --run-dir "$RUN_DIR" \
-    > "$RUN_DIR/full-dev-gate.json"
-  echo 'Full-dev output gate passed; GPU cleanup follows.'
+  if [[ "$MODE" == dev700 || "$MODE" == resume700 ]]; then
+    "$PYTHON" scripts/check_books_memrec_full_dev.py --run-dir "$RUN_DIR" \
+      --protocol dev700 > "$RUN_DIR/$GATE_FILE"
+  else
+    "$PYTHON" scripts/check_books_memrec_full_dev.py --run-dir "$RUN_DIR" \
+      --protocol full > "$RUN_DIR/$GATE_FILE"
+  fi
+  echo 'Books dev output gate passed; GPU cleanup follows.'
 fi

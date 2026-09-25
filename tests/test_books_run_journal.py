@@ -2,10 +2,22 @@ from types import SimpleNamespace
 
 import pytest
 
+from src.data.books_protocol import books_cohorts, books_dev_cost_subset, cohort_digest
 from src.memory.storage import MemoryStorage
 from src.models.llm_client import DurableRequestBudget, RequestBudgetExceeded
 from src.train.books_run_journal import BooksRunJournal
 from src.train.trainer_memrec import MemRecTrainer
+
+
+def test_books_cost_subset_is_fixed_and_all_scored_users_are_warmed():
+    cohorts, _ = books_cohorts(list(range(7377)))
+    warmup, evaluation = books_dev_cost_subset(cohorts['all'], cohorts['dev'])
+    assert len(warmup) == 700
+    assert len(evaluation) == 200
+    assert evaluation == cohorts['dev'][:200]
+    assert set(evaluation).issubset(warmup)
+    assert cohort_digest(warmup) == 'e8b9e14032df6e2ea8d0389c62de13d0e8fb087edac127aacbfba8b4062050c9'
+    assert cohort_digest(evaluation) == '5395ee7775d9e5d0add11ed386715c34a002138c282f4f910f775ea90871a837'
 
 
 def test_durable_request_budget_survives_restart(tmp_path):

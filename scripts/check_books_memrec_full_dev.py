@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail closed on denominator, journal and provenance of Books full-dev run."""
+"""Fail closed on denominator, journal and provenance of Books dev runs."""
 
 import argparse
 import json
@@ -9,10 +9,15 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src.data.books_protocol import books_cohorts
+from src.data.books_protocol import books_cohorts, books_dev_cost_subset, cohort_digest
 
 
-def check(run_dir: Path) -> dict:
+def check(run_dir: Path, expected_users: int = 2000,
+          warmup_users: int = 7377, warmup_scope: str = 'all') -> dict:
+    if (expected_users, warmup_users, warmup_scope) not in {
+        (2000, 7377, 'all'), (200, 700, 'subset')
+    }:
+        raise ValueError('Only locked 2,000-user full dev and 700/200 subset protocols are allowed')
     results = list(run_dir.glob('instructrec-books_memrec_agent_seed42_*.json'))
     if not results:
         raise ValueError('No final metrics file')
@@ -22,30 +27,47 @@ def check(run_dir: Path) -> dict:
            old['test_metrics'] != report['test_metrics'] for old in reports[:-1]):
         raise ValueError('Resumed metrics files disagree')
     config, metrics = report['config'], report['test_metrics']
-    if (config['eval_cohort'] != 'dev' or config['warmup_user_scope'] != 'all'
+    if (config['eval_cohort'] != 'dev' or config['warmup_user_scope'] != warmup_scope
             or config['eval_feedback'] != 'none'
             or not config['use_pregenerated_candidates']
             or config['memrec']['reranker_mode'] != 'llm'):
-        raise ValueError('Not the locked Books full-MemRec dev protocol')
+        raise ValueError('Not the locked Books MemRec dev protocol')
+    if warmup_scope == 'subset' and config.get('books_subset_users') != 700:
+        raise ValueError('Missing explicit 700-user subset configuration')
     manifest = json.loads((run_dir / 'manifest.json').read_text())
     if config['provider']['revision'] != manifest['model_revision']:
         raise ValueError('Model revision differs from full-run manifest')
-    if (metrics['n_eval_users'] != 2000 or metrics['n_rankings'] != 2000
-            or metrics['n_warmup_users'] != 7377
-            or metrics['n_stage_r_calls'] != 2000
-            or metrics['n_stage_rr_calls'] != 2000
+    if (manifest['eval_cohort'] != 'dev'
+            or manifest['n_eval_users'] != expected_users
+            or manifest['warmup_user_scope'] != warmup_scope):
+        raise ValueError('Run manifest differs from expected dev protocol')
+    if (metrics['n_eval_users'] != expected_users
+            or metrics['n_rankings'] != expected_users
+            or metrics['n_warmup_users'] != warmup_users
+            or metrics['n_stage_r_calls'] != expected_users
+            or metrics['n_stage_rr_calls'] != expected_users
             or metrics['n_stage_w_calls'] != 0):
         raise ValueError('Wrong evaluation/warm-up denominator or stages')
-    if (metrics['n_stage_r_warmup_calls'] != 7377
-            or metrics['n_stage_rr_warmup_calls'] != 7377):
-        raise ValueError('Full warm-up omitted Stage-R or ReRank for users')
+    if (metrics['n_stage_r_warmup_calls'] != warmup_users
+            or metrics['n_stage_rr_warmup_calls'] != warmup_users
+            or metrics['n_stage_w_warmup_calls'] != warmup_users):
+        raise ValueError('Warm-up omitted Stage-R, ReRank or Stage-W for users')
     if metrics['llm_physical_requests'] > metrics['llm_request_hard_cap']:
         raise ValueError('LLM hard cap exceeded')
 
     cohorts, _ = books_cohorts(list(range(7377)))
+    expected_user_ids = cohorts['dev'][:expected_users]
+    if warmup_scope == 'subset':
+        warmup_ids, subset_eval_ids = books_dev_cost_subset(
+            cohorts['all'], cohorts['dev'], 700, 200
+        )
+        if (subset_eval_ids != expected_user_ids
+                or manifest.get('subset_user_sha256') != cohort_digest(warmup_ids)
+                or manifest.get('subset_eval_sha256') != cohort_digest(subset_eval_ids)):
+            raise ValueError('700/200 subset cohort digests differ from manifest')
     predictions = [json.loads(line) for line in
                    (run_dir / 'test_predictions.jsonl').read_text().splitlines()]
-    if [row['user_id'] for row in predictions] != cohorts['dev']:
+    if [row['user_id'] for row in predictions] != expected_user_ids:
         raise ValueError('Dev predictions missing, duplicated or out of order')
     failures = 0
     for row in predictions:
@@ -68,7 +90,7 @@ def check(run_dir: Path) -> dict:
         counts = dict(connection.execute(
             'SELECT phase, COUNT(*) FROM entries GROUP BY phase'
         ).fetchall())
-    if counts != {'warmup': 7377, 'eval': 2000}:
+    if counts != {'warmup': warmup_users, 'eval': expected_users}:
         raise ValueError(f'Incomplete full-dev progress journal: {counts}')
     with sqlite3.connect(run_dir / 'request-budget.sqlite') as connection:
         limit, used = connection.execute(
@@ -80,7 +102,7 @@ def check(run_dir: Path) -> dict:
     for metric in ('NDCG@5', 'Hit@1'):
         if not math.isfinite(metrics[metric]):
             raise ValueError(f'Non-finite {metric}')
-    return {'status': 'pass', 'n_dev_users': 2000, 'n_warmup_users': 7377,
+    return {'status': 'pass', 'n_dev_users': expected_users, 'n_warmup_users': warmup_users,
             'n_failed_rankings': failures, 'physical_attempts_reserved': used,
             'ndcg_at_5': metrics['NDCG@5'], 'hit_at_1': metrics['Hit@1']}
 
@@ -88,8 +110,10 @@ def check(run_dir: Path) -> dict:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--run-dir', type=Path, required=True)
+    parser.add_argument('--protocol', choices=['full', 'dev700'], default='full')
     args = parser.parse_args()
-    print(json.dumps(check(args.run_dir), sort_keys=True))
+    expected = (200, 700, 'subset') if args.protocol == 'dev700' else (2000, 7377, 'all')
+    print(json.dumps(check(args.run_dir, *expected), sort_keys=True))
 
 
 if __name__ == '__main__':

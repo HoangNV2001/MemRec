@@ -105,8 +105,8 @@ class MemRecTrainer:
         self.warmup_rounds = warmup_config.get('rounds', 1)
         self.warmup_user_scope = config.get('warmup_user_scope', 'eval')
         self._books_run_journal = None
-        if self.warmup_user_scope not in ('eval', 'all'):
-            raise ValueError('warmup_user_scope must be eval or all')
+        if self.warmup_user_scope not in ('eval', 'all', 'subset'):
+            raise ValueError('warmup_user_scope must be eval, all or subset')
         
         # Debug settings
         self.debug = config.get('debug', False)
@@ -497,17 +497,29 @@ class MemRecTrainer:
             if self.eval_cohort == 'heldout' and self.n_eval_users is not None:
                 raise ValueError('Held-out benchmark must score the entire locked cohort')
             if self.warmup_user_scope == 'eval' and len(eval_user_ids) > 30:
-                raise ValueError('Partial warm-up is permitted only for a 20–30-user smoke')
+                raise ValueError('Partial warm-up is reserved for 20–30-user smoke')
             if self.warmup_user_scope == 'eval' and len(eval_user_ids) < 20:
                 raise ValueError('Fixed-list smoke must contain 20–30 users')
+            if self.warmup_user_scope == 'subset' and (
+                    self.eval_cohort != 'dev' or len(eval_user_ids) != 200
+                    or self.config.get('books_subset_users') != 700):
+                raise ValueError('Books subset requires 700 warm-up and 200 locked dev users')
             if self.warmup_user_scope == 'all' and self.eval_cohort == 'heldout' and len(eval_user_ids) != 5377:
                 raise ValueError('Held-out cohort size differs from the locked 5,377-user protocol')
 
         # ========== Training Phase ==========
         # Simulate memory construction and propagation before testing
-        warmup_user_ids = (
-            sorted(target_data) if self.warmup_user_scope == 'all' else eval_user_ids
-        )
+        if self.warmup_user_scope == 'all':
+            warmup_user_ids = sorted(target_data)
+        elif self.warmup_user_scope == 'subset':
+            from src.data.books_protocol import books_dev_cost_subset
+            warmup_user_ids, subset_eval_ids = books_dev_cost_subset(
+                target_data.keys(), cohorts['dev'], 700, 200
+            )
+            if eval_user_ids != subset_eval_ids:
+                raise ValueError('Books subset evaluation IDs differ from locked dev prefix')
+        else:
+            warmup_user_ids = eval_user_ids
         print(f'Warm-up scope: {self.warmup_user_scope}; {len(warmup_user_ids)} users')
         if self.use_pregenerated_candidates:
             if getattr(self.llm_client, 'sdk_max_retries', 0) != 0 or (
@@ -533,9 +545,9 @@ class MemRecTrainer:
             if bool(journal_path) != bool(budget_path):
                 raise ValueError('Books full-run journal and durable budget must be enabled together')
             if journal_path:
-                if (self.warmup_user_scope != 'all' or self.eval_cohort != 'dev'
-                        or parallel):
-                    raise ValueError('Resumable Books journal is only for serial full-dev evaluation')
+                if (self.warmup_user_scope not in ('all', 'eval', 'subset')
+                        or self.eval_cohort != 'dev' or parallel):
+                    raise ValueError('Resumable Books journal is only for serial Books dev evaluation')
                 run_id = os.getenv('MEMREC_BOOKS_FULL_RUN_ID')
                 commit = os.getenv('MEMREC_BOOKS_FULL_GIT_COMMIT')
                 if not run_id or not commit:

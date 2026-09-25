@@ -105,3 +105,10 @@ warm-up + 30 eval, 22.191 fake calls, 0 failure; chạy lại replay cho đúng
 prediction SHA-256 `cb365a1a…ba987a688ef`, bằng non-journal CPU run. Đây là
 kiểm tra tính đúng của resume, không phải metric nghiên cứu. Full-dev gate
 chỉ được báo sau 2.000 prediction, 7.377 warm-up journal row và GPU trả VRAM.
+
+Run full-dev đã khởi chạy nhưng **dừng theo yêu cầu người dùng do chi phí** ở
+129/7.377 warm-up user, 0/2.000 eval user; request ledger ghi 299/28.745
+physical attempts được reserve. Đây là dữ liệu dở dang, **không có metric
+full MemRec**. Session và các process MemRec/vLLM đã thoát; GPU 3 giảm từ
+1 MiB trước run về 4 MiB sau dừng. Journal và cache được giữ nguyên để audit,
+không tự động resume; đợi quyết định protocol/nguồn lực mới.

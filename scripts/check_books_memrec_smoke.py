@@ -2,11 +2,13 @@
 """Fail closed on the fixed-list, 30-user, real-LLM Books smoke artifacts."""
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
 
-def check(run_dir: Path, expected_users: int = 30) -> dict:
+def check(run_dir: Path, expected_users: int = 30, allow_cache: bool = False,
+          reference_predictions: Path | None = None) -> dict:
     result_files = list(run_dir.glob('instructrec-books_memrec_agent_seed42_*.json'))
     if len(result_files) != 1:
         raise ValueError(f'Expected exactly one metrics file, found {len(result_files)}')
@@ -38,8 +40,13 @@ def check(run_dir: Path, expected_users: int = 30) -> dict:
     if metrics['n_stage_w_calls'] != 0:
         raise ValueError('Test feedback unexpectedly invoked Stage-W')
     requests = metrics['llm_physical_requests']
-    if requests != expected_users * 5 or requests > metrics['llm_request_hard_cap']:
+    if (requests < 0 or requests > expected_users * 5
+            or requests > metrics['llm_request_hard_cap']
+            or (not allow_cache and requests != expected_users * 5)):
         raise ValueError('Unexpected physical LLM request count')
+    if allow_cache and (
+            config.get('books_subset_users') != 700 or reference_predictions is None):
+        raise ValueError('Cache-backed smoke needs the locked subset and reference predictions')
     predictions_file = run_dir / 'test_predictions.jsonl'
     predictions = [json.loads(line) for line in predictions_file.read_text().splitlines()]
     if len(predictions) != expected_users:
@@ -57,6 +64,11 @@ def check(run_dir: Path, expected_users: int = 30) -> dict:
             raise ValueError(f"Target position mismatch for user {row['user_id']}")
     if (run_dir / 'heldout_predictions.jsonl').exists():
         raise ValueError('Held-out predictions must remain sealed')
+    if allow_cache:
+        own_sha = hashlib.sha256(predictions_file.read_bytes()).hexdigest()
+        reference_sha = hashlib.sha256(reference_predictions.read_bytes()).hexdigest()
+        if own_sha != reference_sha:
+            raise ValueError('Cache-backed subset smoke differs from promoted 30-user smoke')
     return {'status': 'pass', 'n_users': expected_users, 'physical_requests': requests,
             'model_revision': config['provider']['revision']}
 
@@ -64,8 +76,11 @@ def check(run_dir: Path, expected_users: int = 30) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument('--run-dir', type=Path, required=True)
+    parser.add_argument('--allow-cache', action='store_true')
+    parser.add_argument('--reference-predictions', type=Path)
     args = parser.parse_args()
-    print(json.dumps(check(args.run_dir), sort_keys=True))
+    print(json.dumps(check(args.run_dir, allow_cache=args.allow_cache,
+                           reference_predictions=args.reference_predictions), sort_keys=True))
 
 
 if __name__ == '__main__':

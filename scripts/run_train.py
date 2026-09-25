@@ -185,9 +185,9 @@ def main():
     )
     parser.add_argument(
         '--warmup-user-scope',
-        choices=['eval', 'all'],
+        choices=['eval', 'all', 'subset'],
         default=None,
-        help='Warm up only evaluated users (smoke) or all users (final benchmark)'
+        help='Warm up evaluated users (smoke), all users, or locked 700-user subset'
     )
     parser.add_argument(
         '--max_workers',

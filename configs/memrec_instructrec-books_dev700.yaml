@@ -1,0 +1,7 @@
+# Cost-bounded exploratory Books dev subset; not the 2,000-user full-dev baseline.
+# 700 pre-test warm-up histories, 200 scored dev users (about 1/10 each phase).
+# All LLM/model/candidate settings inherit the promoted real-LLM smoke contract.
+inherit: configs/memrec_instructrec-books_full_benchmark.yaml
+n_eval_users: 200
+warmup_user_scope: subset
+books_subset_users: 700

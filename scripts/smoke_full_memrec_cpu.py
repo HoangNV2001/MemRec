@@ -81,12 +81,21 @@ def main():
     parser.add_argument('--users', type=int, default=30)
     parser.add_argument('--warmup-user-scope', choices=['eval', 'all'], default='eval')
     parser.add_argument('--journal', action='store_true',
-                        help='Exercise durable full-dev warm-up/eval resume with fake LLM')
+                        help='Exercise durable Books warm-up/eval resume with fake LLM')
+    parser.add_argument('--dev700', action='store_true',
+                        help='CPU-only 700 warm-up / 200 evaluation wiring test')
     args = parser.parse_args()
-    if not 20 <= args.users <= 30:
+    if args.dev700:
+        if args.users != 30 or args.warmup_user_scope != 'eval':
+            parser.error('--dev700 uses its fixed 700/200 cohort, not --users or --warmup-user-scope')
+        args.users = 200
+        args.warmup_user_scope = 'subset'
+    elif not 20 <= args.users <= 30:
         parser.error('CPU smoke is intentionally limited to 20–30 users')
 
-    config = load_config(str(ROOT / 'configs/memrec_instructrec-books_full_benchmark.yaml'))
+    config_name = ('memrec_instructrec-books_dev700.yaml' if args.dev700
+                   else 'memrec_instructrec-books_full_benchmark.yaml')
+    config = load_config(str(ROOT / 'configs' / config_name))
     config.update({
         'n_eval_users': args.users,
         'eval_cohort': 'dev',
@@ -100,9 +109,9 @@ def main():
     })
     output = ROOT / f'results/full_memrec_cpu_smoke_{args.users}_{args.warmup_user_scope}-hnv'
     if args.journal:
-        if args.warmup_user_scope != 'all':
-            parser.error('--journal requires --warmup-user-scope all')
-        output = ROOT / f'results/full_memrec_cpu_smoke_{args.users}_all_journal-hnv'
+        output = ROOT / f'results/full_memrec_cpu_smoke_{args.users}_{args.warmup_user_scope}_journal-hnv'
+        if args.warmup_user_scope == 'eval':
+            config['books_subset_users'] = 700
         output.mkdir(parents=True, exist_ok=True)
         os.environ['MEMREC_BOOKS_RUN_JOURNAL_DB'] = str(output / 'journal.sqlite')
         os.environ['MEMREC_BOOKS_REQUEST_BUDGET_DB'] = str(output / 'request-budget.sqlite')
@@ -124,7 +133,8 @@ def main():
     assert metrics['n_failed_rankings'] == 0
     assert metrics['n_stage_r_calls'] == args.users
     assert metrics['n_stage_rr_calls'] == args.users
-    expected_warmup = len(dataset.test_data) if args.warmup_user_scope == 'all' else args.users
+    expected_warmup = (len(dataset.test_data) if args.warmup_user_scope == 'all'
+                       else 700 if args.warmup_user_scope == 'subset' else args.users)
     assert metrics['n_warmup_users'] == expected_warmup
     assert metrics['n_stage_w_warmup_calls'] == expected_warmup
     assert trainer.agent.n_stage_w_calls == expected_warmup

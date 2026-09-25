@@ -81,3 +81,31 @@ def books_cohorts(user_ids: Collection[int]) -> tuple[dict[str, list[int]], dict
         'cohort_sha256': {name: cohort_digest(members) for name, members in cohorts.items()},
     }
     return cohorts, manifest
+
+
+def books_dev_cost_subset(user_ids: Collection[int], dev_ids: Collection[int],
+                          n_warmup: int = 700, n_eval: int = 200
+                          ) -> tuple[list[int], list[int]]:
+    """Deterministic reduced-cost cohort; no target labels enter selection.
+
+    Score the first n_eval locked dev users. Warm up the earliest n_warmup
+    original IDs, swapping out the highest non-eval IDs when needed so every
+    scored user has their permitted pre-test history in memory.
+    """
+    universe = sorted(int(uid) for uid in user_ids)
+    dev = sorted(int(uid) for uid in dev_ids)
+    if len(universe) != len(set(universe)) or len(dev) != len(set(dev)):
+        raise ValueError('Duplicate user in Books cost subset')
+    if not set(dev).issubset(universe) or not 0 < n_eval <= n_warmup <= len(universe):
+        raise ValueError('Invalid Books cost subset sizes or dev IDs')
+    eval_ids = dev[:n_eval]
+    if len(eval_ids) != n_eval:
+        raise ValueError('Not enough development users for cost subset')
+    selected = set(universe[:n_warmup]) | set(eval_ids)
+    removable = sorted(selected - set(eval_ids), reverse=True)
+    for user_id in removable[:len(selected) - n_warmup]:
+        selected.remove(user_id)
+    warmup_ids = sorted(selected)
+    if len(warmup_ids) != n_warmup or not set(eval_ids).issubset(warmup_ids):
+        raise AssertionError('Books cost subset construction failed')
+    return warmup_ids, eval_ids
