@@ -240,6 +240,9 @@ def gpu_smoke(data: BooksSASRecData, config: Mapping[str, Any], output_dir: Path
     output_dir.mkdir(parents=True, exist_ok=True)
     users = data.dev_users[:30]
     device = torch.device('cuda:0')
+    # On the cluster's torch 2.10 build, peak-stat reset requires an initialized
+    # CUDA context even when device_count() already reports one visible GPU.
+    torch.cuda.init()
     results = []
     for architecture in config['architectures']:
         seed = int(config['seed'])

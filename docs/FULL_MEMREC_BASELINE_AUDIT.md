@@ -202,8 +202,13 @@ process thoát và VRAM về 1 MiB. Repo trên node đã pull đúng `db56215`.
 Bốn file Books bắt buộc (`.pkl`, `.inter`, `.instruction`, `.meta`) đã đồng bộ
 vào root MemRec riêng; SHA-256 local/server khớp từng file. SASRec CPU smoke
 trên node pass 30/30, 5/5 adapter tests pass. Chưa chạy GPU smoke/training.
-Launcher `scripts/run_books_sasrec_gpu.sh` ghi snapshot/log, chọn GPU theo
-utilization rồi VRAM và từ chối nếu card được chọn đang bận/giữ nhiều VRAM.
+GPU smoke v1 dừng trước batch đầu do PyTorch 2.10 trên node cần khởi tạo CUDA
+context trước `reset_peak_memory_stats`; chưa có checkpoint/result, VRAM sau
+thoát đúng baseline 1 MiB/card tại thời điểm đó. Diagnostic tối thiểu xác
+nhận `torch.cuda.init()` giải quyết lỗi. Đã sửa code và chuyển run ID sang v2;
+v1 không được promote. Launcher `scripts/run_books_sasrec_gpu.sh` ghi
+snapshot/log, chọn GPU theo utilization rồi VRAM và từ chối nếu card được
+chọn đang bận/giữ nhiều VRAM.
 
 1. Kiểm thử sâu causal trace trên **LLM thật** 20–30 case, bao gồm schema
    100%, token/call counts, memory provenance và GPU release. Candidate/cohort

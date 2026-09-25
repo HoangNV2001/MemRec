@@ -13,7 +13,7 @@ fi
 
 MEMREC_ROOT=/mnt/data/users/anhnct/memrec-hnv
 REPO="$MEMREC_ROOT/repo/MemRec-hnv"
-RUN_ID=sasrec-books-dev-v1-hnv
+RUN_ID=sasrec-books-dev-v2-hnv
 RUN_DIR="$MEMREC_ROOT/runs/$RUN_ID"
 LOG_DIR="$MEMREC_ROOT/logs"
 PYTHON="$MEMREC_ROOT/envs/sasrec-hnv/bin/python"
