@@ -10,6 +10,7 @@ from typing import List, Dict, Optional, Tuple
 from pathlib import Path
 from datetime import datetime
 from openai import AzureOpenAI, OpenAI
+from src.models.llm_response_cache import ExactResponseCache
 
 # Model families that require 'max_completion_tokens' and refuse a custom
 # 'temperature'. Matched as a prefix on the lowercased model name so that
@@ -120,6 +121,16 @@ class LLMClient:
         self.fail_fast = False
         self.strict_schema_validation = False
         self.total_physical_requests = 0
+        self.total_cache_hits = 0
+        cache_path = os.getenv('MEMREC_LLM_CACHE_DB')
+        cache_namespace = os.getenv('MEMREC_LLM_CACHE_NAMESPACE')
+        self.response_cache = (
+            ExactResponseCache(cache_path, cache_namespace)
+            if cache_path else None
+        )
+        # First smoke run writes reusable entries but deliberately sends every
+        # planned request, so its physical-request gate remains interpretable.
+        self.response_cache_read = os.getenv('MEMREC_LLM_CACHE_READ', '1') != '0'
         
         # Get from env if not provided
         if not self.api_endpoint:
@@ -277,6 +288,23 @@ class LLMClient:
                 'type': 'json_schema',
                 'json_schema': json_schema
             }
+
+        response_cache = getattr(self, 'response_cache', None)
+        cache_key = response_cache.key(kwargs) if response_cache else None
+        if response_cache and getattr(self, 'response_cache_read', True):
+            cached = response_cache.get(cache_key)
+            if cached is not None:
+                response, prompt_tokens, completion_tokens, has_usage = cached
+                self.total_cache_hits += 1
+                if has_usage:
+                    self.total_input_tokens += prompt_tokens or 0
+                    self.total_output_tokens += completion_tokens or 0
+                    self.total_requests += 1
+                self._log_conversation(
+                    messages=messages, response=response,
+                    metadata={'cache_hit': True, 'cache_key': cache_key},
+                )
+                return response
         
         # Retry with exponential backoff for rate limit errors
         for attempt in range(max_retries):
@@ -321,6 +349,15 @@ class LLMClient:
                         } if hasattr(completion, 'usage') else None
                     }
                 )
+
+                if response_cache:
+                    usage = getattr(completion, 'usage', None)
+                    response_cache.put(
+                        cache_key, response,
+                        getattr(usage, 'prompt_tokens', None) if usage else None,
+                        getattr(usage, 'completion_tokens', None) if usage else None,
+                        bool(usage),
+                    )
                 
                 return response
             except Exception as e:
@@ -431,6 +468,7 @@ class LLMClient:
             'total_tokens': self.total_input_tokens + self.total_output_tokens,
             'total_requests': self.total_requests,
             'total_physical_requests': self.total_physical_requests,
+            'total_cache_hits': self.total_cache_hits,
             'avg_input_tokens': self.total_input_tokens / self.total_requests if self.total_requests > 0 else 0,
             'avg_output_tokens': self.total_output_tokens / self.total_requests if self.total_requests > 0 else 0,
         }

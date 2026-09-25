@@ -84,6 +84,9 @@ export MEMREC_SELFHOST_MODEL="$MODEL_NAME"
 export MEMREC_SELFHOST_REVISION="$MODEL_REVISION"
 export MEMREC_SELFHOST_BASE_URL="http://127.0.0.1:$PORT/v1"
 export MEMREC_SELFHOST_API_KEY=local-placeholder
+export MEMREC_LLM_CACHE_DB="$MEMREC_ROOT/cache/books-memrec-primary-hnv.sqlite"
+export MEMREC_LLM_CACHE_NAMESPACE="$MODEL_REVISION:vllm0.10.2:tp1:seed42:mem0.60:len16384"
+export MEMREC_LLM_CACHE_READ=0
 export PYTHONUNBUFFERED=1
 
 SERVER_PID=''
@@ -120,6 +123,28 @@ cleanup() {
       status=1
     fi
   fi
+  if [[ "$status" -eq 0 ]]; then
+    if ! "$PYTHON" - "$RUN_DIR" "$MEMREC_LLM_CACHE_NAMESPACE" <<'PY'
+import hashlib, json, sys
+from pathlib import Path
+run_dir = Path(sys.argv[1])
+names = ('manifest.json', 'source-hashes.sha256', 'test_predictions.jsonl',
+         'smoke-gate.json', 'gpu-before.csv', 'gpu-after.csv')
+hashes = {name: hashlib.sha256((run_dir / name).read_bytes()).hexdigest()
+          for name in names}
+manifest = json.loads((run_dir / 'manifest.json').read_text())
+promotion = {
+    'status': 'passed', 'run_id': manifest['run_id'],
+    'git_commit': manifest['git_commit'], 'model_revision': manifest['model_revision'],
+    'cache_namespace': sys.argv[2], 'smoke_user_sha256': manifest['smoke_user_sha256'],
+    'artifact_sha256': hashes,
+}
+(run_dir / 'promotion.json').write_text(json.dumps(promotion, indent=2) + '\n')
+PY
+    then
+      status=1
+    fi
+  fi
   printf 'run_id=%s exit_status=%s gpu=%s\n' "$RUN_ID" "$status" "$GPU_INDEX"
   exit "$status"
 }
@@ -132,7 +157,8 @@ echo "run_id=$RUN_ID job=$SLURM_JOB_ID gpu=$GPU_INDEX commit=$(git rev-parse HEA
 "$PYTHON" -c 'import vllm, transformers; print("vllm", vllm.__version__, "transformers", transformers.__version__)'
 "$PYTHON" -c 'import socket, sys; s=socket.socket(); e=s.connect_ex(("127.0.0.1", int(sys.argv[1]))); s.close(); sys.exit(0 if e else 1)' "$PORT"
 sha256sum configs/memrec_instructrec-books_full_benchmark.yaml \
-  src/models/llm_client.py src/models/reranker_llm.py src/models/memrec_agent.py \
+  src/models/llm_client.py src/models/llm_response_cache.py \
+  src/models/reranker_llm.py src/models/memrec_agent.py \
   "$MODEL_PATH/config.json" "$MODEL_PATH/tokenizer_config.json" > "$RUN_DIR/source-hashes.sha256"
 "$PYTHON" - "$RUN_DIR" "$MODEL_REVISION" "$SLURM_JOB_ID" "$GPU_INDEX" <<'PY'
 import json, subprocess, sys
@@ -148,6 +174,7 @@ record = {
     'backend': 'vllm==0.10.2', 'transformers': '4.55.4',
     'tensor_parallel': 1, 'gpu_memory_utilization': 0.60,
     'max_model_len': 16384, 'max_num_seqs': 1, 'seed': 42,
+    'response_cache': 'exact-input/write-only-in-smoke',
     'slurm_job_id': job_id, 'physical_gpu_index': int(gpu_index),
     'candidate_sha256': BOOKS_CANDIDATE_SHA256,
     'dev_cohort_sha256': manifest['cohort_sha256']['dev'],

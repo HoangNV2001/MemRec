@@ -46,12 +46,14 @@ numbers are only contextual because LLM conditions differ.
    outputs; refuse promotion on any malformed score, missing stage, request
    mismatch, invalid candidate permutation, or held-out output.
 4. Terminate only this run's server PID on success *or failure*, verify VRAM
-   returns to baseline, and retain before/after GPU snapshots, logs, metrics,
-   predictions, hashes and exit status. Pull/copy artifacts locally and verify
+   returns to baseline; only then write `promotion.json`. Retain before/after
+   GPU snapshots, logs, metrics, predictions, hashes and exit status. Pull/copy artifacts locally and verify
    hashes before interpretation. **A passing GPU/cleanup gate is required in
    addition to the Python smoke gate.**
-5. Before full dev, add an exact-input LLM-response cache/promotion manifest
-   so identical smoke calls are not billed again. Note that all-user warm-up
+5. The smoke **writes** to an exact-input LLM-response cache but does not read
+   from it, preserving the 150-physical-request gate. Full dev may read it
+   only under the same pinned namespace, so identical smoke calls are not
+   billed again. Full dev must verify `promotion.json` first. Note that all-user warm-up
    changes graph state/order, so the number of reusable calls may be small;
    never reuse an output if its input, schema, model or generation settings
    differ. Full dev must not start without a passing smoke and a fresh GPU
