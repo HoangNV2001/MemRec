@@ -318,9 +318,11 @@ def train_dev(data: BooksSASRecData, config: Mapping[str, Any], output_dir: Path
         raise ValueError('SASRec GPU smoke manifest does not match the full training contract')
 
     device = torch.device('cuda:0')
+    torch.cuda.init()
     seed = int(config['seed'])
     runs: list[dict[str, Any]] = []
     for architecture in config['architectures']:
+        torch.cuda.reset_peak_memory_stats(device)
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)
@@ -376,6 +378,7 @@ def train_dev(data: BooksSASRecData, config: Mapping[str, Any], output_dir: Path
             'architecture_id': architecture['id'],
             'best_epoch': best_epoch,
             'best_dev_ndcg_at_5': best,
+            'peak_vram_bytes': torch.cuda.max_memory_allocated(device),
             'training_log': history,
             'checkpoint': str(checkpoint),
         })
@@ -407,6 +410,11 @@ def train_dev(data: BooksSASRecData, config: Mapping[str, Any], output_dir: Path
         'dev_predictions': str(predictions_path),
         'dev_predictions_sha256': sha256_file(predictions_path),
         'dev_metrics': dev_metrics,
+        'peak_vram_bytes': max(
+            [run['peak_vram_bytes'] for run in runs]
+            + [torch.cuda.max_memory_allocated(device)]
+        ),
+        'gpu_total_vram_bytes': torch.cuda.get_device_properties(device).total_memory,
     }
     (output_dir / 'dev_selection-hnv.json').write_text(
         json.dumps(result, indent=2, ensure_ascii=False), encoding='utf-8'

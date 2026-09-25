@@ -13,7 +13,7 @@ fi
 
 MEMREC_ROOT=/mnt/data/users/anhnct/memrec-hnv
 REPO="$MEMREC_ROOT/repo/MemRec-hnv"
-RUN_ID=sasrec-books-dev-v2-hnv
+RUN_ID=sasrec-books-dev-v3-hnv
 RUN_DIR="$MEMREC_ROOT/runs/$RUN_ID"
 LOG_DIR="$MEMREC_ROOT/logs"
 PYTHON="$MEMREC_ROOT/envs/sasrec-hnv/bin/python"
@@ -65,6 +65,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "run_id=$RUN_ID action=$1 job=$SLURM_JOB_ID gpu=$GPU_INDEX commit=$(git rev-parse HEAD)"
+SECONDS=0
 "$PYTHON" -c 'import torch; assert torch.cuda.is_available() and torch.cuda.device_count() == 1; print("torch", torch.__version__, "cuda", torch.version.cuda, "visible_gpus", torch.cuda.device_count())'
 
 if [[ "$1" == smoke ]]; then
@@ -72,3 +73,4 @@ if [[ "$1" == smoke ]]; then
 else
   "$PYTHON" scripts/train_books_sasrec.py --train-dev --output-dir "$RUN_DIR"
 fi
+echo "elapsed_seconds=$SECONDS"
