@@ -1,9 +1,12 @@
 # Books reduced-cost full-architecture MemRec — 700/200 dev subset
 
-**Status (2026-09-25):** cohort and code committed; CPU fake-LLM wiring
+**Status (2026-09-26):** cohort and code committed; CPU fake-LLM wiring
 test passed. The new real-LLM 30-user smoke and 700/200 GPU run have not yet
-started: the first GPU preflight found all four cards busy (utilization
-99%, 99%, 98%, 97%), so no GPU task was launched. This is an
+started. The first GPU preflight found all four cards busy (utilization
+99%, 99%, 98%, 97%). The next check found utilization 0% but 1,972 MiB used
+on **each** card by a driver-listed PID shown as `[Not Found]` and absent from
+the visible process table. The processes could not be identified safely, so
+no GPU task was launched. This is an
 **exploratory, reduced-memory benchmark**, not the full
 7,377-warm-up/2,000-dev result or a replacement for it.
 
@@ -67,7 +70,7 @@ namespace; exact-input cache keys ensure only identical requests are reused.
 |---|---|---|
 | Original real-LLM smoke | Passed | 30/30 rankings, 150 physical calls, 0 failures; see [baseline contract](BOOKS_SELFHOST_LLM_BASELINE.md) |
 | Local 700/200 CPU fake-LLM wiring | Passed | 700 warm-up, 200 eval, 2,500 fake requests, cap 2,750, 0 failures; journal replay gives identical prediction SHA-256 `d5b5a43ac89dc53a0b12f5dd98408d0a81d7df5be0da2173974af1eebe937ebe` |
-| New real-LLM 30-user smoke | Waiting for an idle GPU | First preflight: all four H100s at 97–99% utilization; no launch |
+| New real-LLM 30-user smoke | Waiting for a verifiably idle GPU | 2026-09-25: all four H100s at 97–99% utilization. 2026-09-26: 0% utilization, but all four retain 1,972 MiB with unidentifiable GPU PIDs; no launch. |
 | 700/200 GPU run | Blocked on new smoke and fresh GPU preflight | No GPU resource held by MemRec |
 | Held-out | Sealed | No reduced-cost held-out evaluation planned |
 
