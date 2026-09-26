@@ -114,6 +114,7 @@ if [[ "$MODE" == smoke || "$MODE" == smoke700 ]]; then
   ATTEMPT=1
   RUN_LOG="$LOG_DIR/$RUN_ID.log"
   BEFORE="$RUN_DIR/gpu-before.csv"
+  APPS_BEFORE="$RUN_DIR/gpu-apps-before.csv"
   AFTER="$RUN_DIR/gpu-after.csv"
   SERVER_LOG="$RUN_DIR/vllm-server.log"
 else
@@ -124,13 +125,17 @@ else
   fi
   RUN_LOG="$LOG_DIR/$RUN_ID-attempt-$ATTEMPT.log"
   BEFORE="$RUN_DIR/gpu-before-attempt-$ATTEMPT.csv"
+  APPS_BEFORE="$RUN_DIR/gpu-apps-before-attempt-$ATTEMPT.csv"
   AFTER="$RUN_DIR/gpu-after-attempt-$ATTEMPT.csv"
   SERVER_LOG="$RUN_DIR/vllm-server-attempt-$ATTEMPT.log"
 fi
 PREFLIGHT_BEFORE="$LOG_DIR/$RUN_ID-preflight-attempt-$ATTEMPT.csv"
+PREFLIGHT_APPS="$LOG_DIR/$RUN_ID-gpu-apps-preflight-attempt-$ATTEMPT.csv"
 exec > >(tee "$RUN_LOG") 2>&1
-nvidia-smi --query-gpu=index,utilization.gpu,memory.used,memory.total \
+nvidia-smi --query-gpu=index,utilization.gpu,memory.used,memory.total,uuid \
   --format=csv,noheader,nounits > "$PREFLIGHT_BEFORE"
+nvidia-smi --query-compute-apps=pid,gpu_uuid --format=csv,noheader,nounits \
+  > "$PREFLIGHT_APPS"
 if [[ "$(wc -l < "$PREFLIGHT_BEFORE")" -ne 4 ]]; then
   echo 'Expected four GPUs in preflight snapshot' >&2
   exit 2
@@ -144,11 +149,15 @@ for candidate_index in 3 2 1 0; do
   fi
   candidate_util=$(printf '%s\n' "$candidate_row" | cut -d, -f2 | tr -d ' ')
   candidate_mem=$(printf '%s\n' "$candidate_row" | cut -d, -f3 | tr -d ' ')
-  if [[ ! "$candidate_util" =~ ^[0-9]+$ || ! "$candidate_mem" =~ ^[0-9]+$ ]]; then
+  candidate_uuid=$(printf '%s\n' "$candidate_row" | cut -d, -f5 | tr -d ' ')
+  if [[ ! "$candidate_util" =~ ^[0-9]+$ || ! "$candidate_mem" =~ ^[0-9]+$ || \
+        ! "$candidate_uuid" =~ ^GPU-[0-9a-f-]+$ ]]; then
     echo "Malformed GPU $candidate_index preflight snapshot" >&2
     exit 2
   fi
-  if (( candidate_util < 20 && candidate_mem < 2048 )); then
+  # A quiet card with a live/hidden CUDA context is not an empty card.
+  if (( candidate_util < 20 && candidate_mem < 512 )) && \
+      ! grep -Fq "$candidate_uuid" "$PREFLIGHT_APPS"; then
     GPU_INDEX=$candidate_index
     GPU_UTIL=$candidate_util
     GPU_MEM_BEFORE=$candidate_mem
@@ -156,7 +165,7 @@ for candidate_index in 3 2 1 0; do
   fi
 done
 if [[ -z "$GPU_INDEX" ]]; then
-  echo 'No sufficiently idle H100 for this run' >&2
+  echo 'No empty H100 (low utilization, <512 MiB and no compute process) for this run' >&2
   exit 2
 fi
 if [[ "$MODE" == resume || "$MODE" == resume700 ]]; then
@@ -165,6 +174,7 @@ else
   mkdir "$RUN_DIR"  # Atomic claim; refuse a concurrent start of this run ID.
 fi
 cp "$PREFLIGHT_BEFORE" "$BEFORE"
+cp "$PREFLIGHT_APPS" "$APPS_BEFORE"
 export CUDA_VISIBLE_DEVICES="$GPU_INDEX"
 export XDG_CACHE_HOME="$MEMREC_ROOT/cache"
 export HF_HOME="$MEMREC_ROOT/cache/huggingface"
@@ -236,7 +246,7 @@ import hashlib, json, sys
 from pathlib import Path
 run_dir = Path(sys.argv[1])
 names = ('manifest.json', 'source-hashes.sha256', 'test_predictions.jsonl',
-         'smoke-gate.json', 'gpu-before.csv', 'gpu-after.csv')
+         'smoke-gate.json', 'gpu-before.csv', 'gpu-apps-before.csv', 'gpu-after.csv')
 hashes = {name: hashlib.sha256((run_dir / name).read_bytes()).hexdigest()
           for name in names}
 manifest = json.loads((run_dir / 'manifest.json').read_text())
@@ -262,6 +272,8 @@ names = ('manifest.json', 'source-hashes.sha256', 'test_predictions.jsonl',
 hashes = {name: hashlib.sha256((run_dir / name).read_bytes()).hexdigest()
           for name in names}
 hashes[after.name] = hashlib.sha256(after.read_bytes()).hexdigest()
+apps = run_dir / f'gpu-apps-before-attempt-{attempt}.csv'
+hashes[apps.name] = hashlib.sha256(apps.read_bytes()).hexdigest()
 manifest = json.loads((run_dir / 'manifest.json').read_text())
 completion = {'status': 'passed', 'run_id': manifest['run_id'],
               'git_commit': manifest['git_commit'],

@@ -49,7 +49,8 @@ cleanup within roughly ten GPU-hours. An interrupted run is not a result.
    200/200 Stage-R/RR evaluation, original candidates, 2,500 budget charges,
    zero failures. Replaying the journal must leave predictions unchanged.
 2. On the authorized Slurm allocation, recheck all four GPUs, select one
-   sufficiently idle H100 with per-run priority **GPU 3 → 2 → 1 → 0** and run
+   **empty** H100 (low utilization, <512 MiB baseline memory, no driver-listed
+   compute process) with per-run priority **GPU 3 → 2 → 1 → 0** and run
    `smoke700` on 30 dev users with the new
    subset config. Its exact-input responses must match the earlier promoted
    30-user real-LLM smoke byte-for-byte; inspect format, stage counts and
