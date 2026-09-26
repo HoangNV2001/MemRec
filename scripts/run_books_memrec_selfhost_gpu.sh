@@ -135,15 +135,27 @@ if [[ "$(wc -l < "$PREFLIGHT_BEFORE")" -ne 4 ]]; then
   echo 'Expected four GPUs in preflight snapshot' >&2
   exit 2
 fi
-GPU_INDEX=$(sort -t, -k2,2n -k3,3n "$PREFLIGHT_BEFORE" | head -1 | cut -d, -f1 | tr -d ' ')
-GPU_ROW=$(grep "^$GPU_INDEX," "$PREFLIGHT_BEFORE")
-GPU_UTIL=$(printf '%s\n' "$GPU_ROW" | cut -d, -f2 | tr -d ' ')
-GPU_MEM_BEFORE=$(printf '%s\n' "$GPU_ROW" | cut -d, -f3 | tr -d ' ')
-if [[ ! "$GPU_INDEX" =~ ^[0-3]$ || ! "$GPU_UTIL" =~ ^[0-9]+$ || ! "$GPU_MEM_BEFORE" =~ ^[0-9]+$ ]]; then
-  echo 'Malformed selected-GPU snapshot' >&2
-  exit 2
-fi
-if (( GPU_UTIL >= 20 || GPU_MEM_BEFORE >= 2048 )); then
+GPU_INDEX=''
+for candidate_index in 3 2 1 0; do
+  candidate_row=$(grep "^$candidate_index," "$PREFLIGHT_BEFORE" || true)
+  if [[ -z "$candidate_row" ]]; then
+    echo "Missing GPU $candidate_index in preflight snapshot" >&2
+    exit 2
+  fi
+  candidate_util=$(printf '%s\n' "$candidate_row" | cut -d, -f2 | tr -d ' ')
+  candidate_mem=$(printf '%s\n' "$candidate_row" | cut -d, -f3 | tr -d ' ')
+  if [[ ! "$candidate_util" =~ ^[0-9]+$ || ! "$candidate_mem" =~ ^[0-9]+$ ]]; then
+    echo "Malformed GPU $candidate_index preflight snapshot" >&2
+    exit 2
+  fi
+  if (( candidate_util < 20 && candidate_mem < 2048 )); then
+    GPU_INDEX=$candidate_index
+    GPU_UTIL=$candidate_util
+    GPU_MEM_BEFORE=$candidate_mem
+    break
+  fi
+done
+if [[ -z "$GPU_INDEX" ]]; then
   echo 'No sufficiently idle H100 for this run' >&2
   exit 2
 fi
