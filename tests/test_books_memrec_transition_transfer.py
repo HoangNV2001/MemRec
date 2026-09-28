@@ -27,7 +27,8 @@ def test_transition_score_does_not_read_target_and_keeps_failure_miss(monkeypatc
     changed_label = {**row, 'target_item': 5}
     assert scored == transfer.score_row(changed_label, dataset, graph)
     transfer.validate_score_row(scored, row)
-    failed_source = {**row, 'target_position': 10, 'failure': 'malformed_ranking'}
+    failed_source = {**row, 'ranked_items': [5] * 10,
+                     'target_position': 10, 'failure': 'malformed_ranking'}
     failed = transfer.score_row(failed_source, dataset, graph)
     result = transfer.summarize([failed], [failed_source])
     assert result['predictions'][0]['target_positions'] == {

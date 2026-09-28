@@ -1,9 +1,13 @@
 # Temporal Transition augmentation of full MemRec — Books 200-user transfer
 
-**Status (2026-09-28):** implementation and unit tests ready; CPU smoke and
-200-user evaluation have **not** run. This protocol is frozen before reading
-method outcomes. [GraphWalk3](BOOKS_GRAPH_WALK3_EXPERIMENT.md) is retired and
-is **not** the method.
+**Status (2026-09-28):** v1 30-user CPU smoke passed. Its 200-user execution
+stopped before writing results at user 364 because the adapter incorrectly
+required even a baseline `malformed_ranking` row to be a permutation. No
+method metric was produced. v2 changes **only failure-row handling**: preserve
+the original malformed ranking and count it as a miss in every arm. Graph,
+seeds, walk count, restart, fusion and alpha are unchanged; v2 must repeat
+the 30-user smoke before full evaluation. [GraphWalk3](BOOKS_GRAPH_WALK3_EXPERIMENT.md)
+is retired and is **not** the method.
 
 ## Method identity and exact scope
 
@@ -76,8 +80,10 @@ needed because the full-MemRec 200-user predictions are already sealed.
    memory itself requires a separately pre-registered integration into
    Stage-R/Stage-W and evaluation, not relabeling this residual arm.
 
-Run ID: `books-memrec-transition-transfer-v1-hnv`. No manual tuning after
-smoke/full outcomes. No H100 is requested for this offline evaluation.
+Run IDs: `books-memrec-transition-transfer-v1-hnv` (smoke only; invalid full
+attempt) and `books-memrec-transition-transfer-v2-hnv` (corrected failure
+contract). No manual tuning after smoke/full outcomes. No H100 is requested
+for this offline evaluation.
 
 ## Progress and results
 
@@ -85,5 +91,7 @@ smoke/full outcomes. No H100 is requested for this offline evaluation.
 |---|---|---|
 | Baseline 700/200 | Passed | NDCG@5 `0.747918`, Hit@1 `0.595`, 2 failures counted as misses |
 | Transfer unit tests | Passed | Train-only directed edges; label-independent scoring; failure retention |
-| 30-user transition smoke | Not run | Required before 200-user result |
-| 200-user one-step/PPR transfer | Not run | No method score yet |
+| v1 30-user transition smoke | Passed | 30/30, deterministic replay, 0 LLM/GPU |
+| v1 200-user transfer | Aborted, no score | Failure-row validation bug at user 364; no full artifact |
+| v2 30-user transition smoke | Not run | Must pass before v2 full |
+| v2 200-user one-step/PPR transfer | Not run | No method score yet |

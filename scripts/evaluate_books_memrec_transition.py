@@ -29,7 +29,7 @@ from src.temporal_common.metrics import paired_bootstrap_ci, residual_ranking
 
 
 BASELINE = ROOT / 'results/full_memrec_books_baselines/books-memrec-llm-dev700-v1-hnv'
-OUTPUT = ROOT / 'results/full_memrec_books_baselines/books-memrec-transition-transfer-v1-hnv'
+OUTPUT = ROOT / 'results/full_memrec_books_baselines/books-memrec-transition-transfer-v2-hnv'
 DATA = ROOT / 'data/processed/instructrec-books/instructrec-books.inter'
 SMOKE_USERS = 30
 FULL_USERS = 200
@@ -78,7 +78,8 @@ def score_row(row: dict, dataset: RecDataset, graph: dict) -> dict:
     local = [str(item) for item in row['ranked_items']]
     if len(candidates) != 10 or len(set(candidates)) != 10:
         raise ValueError(f'Invalid original candidates for user {user_id}')
-    if len(local) != 10 or set(local) != set(candidates):
+    valid = row['failure'] is None
+    if valid and (len(local) != 10 or set(local) != set(candidates)):
         raise ValueError(f'Invalid baseline ranking for user {user_id}')
     pretest = [*dataset.train_data[user_id], dataset.valid_data[user_id]]
     if set(row['candidates']) & set(pretest):
@@ -95,7 +96,6 @@ def score_row(row: dict, dataset: RecDataset, graph: dict) -> dict:
         raise ValueError(f'Invalid transition score for user {user_id}')
     # Malformed baseline outputs remain misses; graph must not silently repair
     # LLM syntax failures and inflate the paired method score.
-    valid = row['failure'] is None
     one_rank = residual_ranking(candidates, local, one_step, alpha=ALPHA) if valid else local
     ppr_rank = residual_ranking(candidates, local, ppr, alpha=ALPHA) if valid else local
     return {
@@ -119,8 +119,11 @@ def validate_score_row(scored: dict, source: dict):
         if set(map(int, scored[key])) != candidates:
             raise ValueError(f'Incomplete {key}')
     for key in ('one_step_ranking', 'ppr_ranking'):
-        if len(scored[key]) != 10 or set(scored[key]) != candidates:
-            raise ValueError(f'Invalid {key}')
+        if source['failure'] is None:
+            if len(scored[key]) != 10 or set(scored[key]) != candidates:
+                raise ValueError(f'Invalid {key}')
+        elif scored[key] != source['ranked_items']:
+            raise ValueError(f'Failed MemRec ranking was silently repaired by {key}')
 
 
 def write_jsonl(path: Path, rows: list[dict]):
