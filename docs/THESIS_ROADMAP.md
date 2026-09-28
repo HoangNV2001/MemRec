@@ -174,7 +174,8 @@ không tự động áp dụng cho task này. Không chạy GPU từ turn lập 
 | SASRec one-GPU smoke 30 | Xong 2026-09-25 | [Books baseline progress](BOOKS_FULL_BASELINE_PROGRESS.md); run v3 | 4/4 architecture pass, 30/30 ranking/arm; card đã nhả |
 | SASRec development baseline | Xong 2026-09-25 | [Books baseline progress](BOOKS_FULL_BASELINE_PROGRESS.md); code `8758a22` | 2.000 dev user, NDCG@5 `0,321127`; held-out chưa mở |
 | Full MemRec self-host 700/200 | Xong 2026-09-28 | [Books 700/200 protocol](BOOKS_DEV700_PROTOCOL.md) | NDCG@5 `0,747918`, Hit@1 `0,595`, 2 failures; SASRec cùng 200 user `0,343320` |
-| GraphWalk3 inside full MemRec | Đang triển khai | [GraphWalk3 experiment](BOOKS_GRAPH_WALK3_EXPERIMENT.md) | CPU smoke pass; chưa chạy real-LLM smoke/200 |
+| GraphWalk3 co-preference walk | Đã loại | [Decision trail](BOOKS_GRAPH_WALK3_EXPERIMENT.md) | Sai method identity; chỉ CPU fake smoke, không có real-LLM score |
+| Directed Temporal Transition on full-MemRec output | Đang triển khai | [Transfer protocol](BOOKS_MEMREC_TRANSITION_TRANSFER.md) | One-step primary, PPR secondary; chưa chạy 30/200 |
 | Headroom/ablation dev | Chưa chạy | preregistered dev report | — |
 | Method smoke/full held-out | Chưa chạy | hashes, per-user predictions | — |
 | Independent replication | Chưa chạy | second seed/domain | — |

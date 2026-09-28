@@ -1,9 +1,14 @@
 # GraphWalk3 evidence for full MemRec — locked Books 700/200 experiment
 
-**Status (2026-09-28):** implementation and CPU wiring smoke passed, source
-commit `e3064e2` is on the server, but real-LLM 30-user smoke has **not** run.
-GPU preflight found both H100s busy (78,658 MiB each, compute contexts on both),
-so no MemRec GPU process was started. No method score exists yet.
+**Retired (2026-09-28):** this was an incorrect interpretation of the research
+method: it walks the undirected user–item co-preference graph, whereas the
+validated direction is the **directed temporal item-transition graph**. Only
+local unit tests and a fake-LLM CPU wiring smoke were run; **no real-LLM smoke,
+200-user evaluation or method score exists**. GPU preflight found both H100s
+busy, and no MemRec GPU process was started. The GPU wrapper now rejects all
+GraphWalk3 modes. This file is kept solely as a transparent decision trail;
+do not use its execution plan. The current experiment is
+[Books MemRec transition transfer](BOOKS_MEMREC_TRANSITION_TRANSFER.md).
 
 ## Evaluation contract
 

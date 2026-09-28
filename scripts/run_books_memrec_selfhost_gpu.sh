@@ -7,6 +7,10 @@ if [[ $# -gt 1 || -z "${SLURM_JOB_ID:-}" ]]; then
   exit 2
 fi
 MODE=${1:-smoke}
+if [[ "$MODE" == graphsmoke700 || "$MODE" == graphdev700 || "$MODE" == graphresume700 ]]; then
+  echo 'GraphWalk3 was retired: co-preference multi-hop is not the Temporal Transition method' >&2
+  exit 2
+fi
 if [[ "$MODE" != smoke && "$MODE" != smoke700 && "$MODE" != full && "$MODE" != resume && \
       "$MODE" != dev700 && "$MODE" != resume700 && "$MODE" != graphsmoke700 && \
       "$MODE" != graphdev700 && "$MODE" != graphresume700 ]]; then
