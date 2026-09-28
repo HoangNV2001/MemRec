@@ -9,7 +9,8 @@ def fixture_run(tmp_path):
     config = {
         'eval_cohort': 'dev', 'warmup_user_scope': 'eval', 'eval_feedback': 'none',
         'use_pregenerated_candidates': True,
-        'memrec': {'reranker_mode': 'llm'}, 'provider': {'revision': 'pinned-sha'},
+        'memrec': {'reranker_mode': 'llm', 'pruner': {'mode': 'llm_rules'}},
+        'provider': {'revision': 'pinned-sha'},
     }
     metrics = {
         'n_eval_users': 30, 'n_rankings': 30, 'n_warmup_users': 30,
@@ -17,6 +18,7 @@ def fixture_run(tmp_path):
         'n_stage_rr_warmup_calls': 30, 'n_stage_w_warmup_calls': 30,
         'n_stage_r_calls': 30, 'n_stage_rr_calls': 30, 'n_stage_w_calls': 0,
         'llm_physical_requests': 150, 'llm_request_hard_cap': 165,
+        'pruner_mode': 'llm_rules',
     }
     result = tmp_path / 'instructrec-books_memrec_agent_seed42_20000101_000000.json'
     result.write_text(json.dumps({'config': config, 'test_metrics': metrics}))
@@ -71,3 +73,15 @@ def test_cache_backed_subset_smoke_requires_matching_promoted_predictions(tmp_pa
                                                         '"target_position": 1', 1))
     with pytest.raises(ValueError, match='differs'):
         check(tmp_path, allow_cache=True, reference_predictions=reference)
+
+
+def test_graph_smoke_accepts_locked_subset_without_baseline_prediction_match(tmp_path):
+    result, _ = fixture_run(tmp_path)
+    payload = json.loads(result.read_text())
+    payload['config']['books_subset_users'] = 700
+    payload['config']['memrec']['pruner']['mode'] = 'graph_walk3'
+    payload['test_metrics']['pruner_mode'] = 'graph_walk3'
+    payload['test_metrics']['llm_physical_requests'] = 120
+    result.write_text(json.dumps(payload))
+    assert check(tmp_path, allow_cache=True,
+                 expected_pruner_mode='graph_walk3')['physical_requests'] == 120

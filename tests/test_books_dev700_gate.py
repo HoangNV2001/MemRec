@@ -1,6 +1,8 @@
 import json
 import sqlite3
 
+import pytest
+
 from scripts.check_books_memrec_full_dev import check
 from src.data.books_protocol import books_cohorts, books_dev_cost_subset, cohort_digest
 
@@ -11,7 +13,8 @@ def test_dev700_gate_requires_locked_cohorts_and_complete_journal(tmp_path):
     config = {
         'eval_cohort': 'dev', 'warmup_user_scope': 'subset', 'eval_feedback': 'none',
         'use_pregenerated_candidates': True, 'books_subset_users': 700,
-        'memrec': {'reranker_mode': 'llm'}, 'provider': {'revision': 'model-revision'},
+        'memrec': {'reranker_mode': 'llm', 'pruner': {'mode': 'llm_rules'}},
+        'provider': {'revision': 'model-revision'},
     }
     metrics = {
         'n_eval_users': 200, 'n_rankings': 200, 'n_warmup_users': 700,
@@ -20,6 +23,7 @@ def test_dev700_gate_requires_locked_cohorts_and_complete_journal(tmp_path):
         'n_stage_w_warmup_calls': 700, 'n_failed_rankings': 0,
         'llm_physical_requests': 2500, 'llm_request_hard_cap': 2750,
         'NDCG@5': 1.0, 'Hit@1': 1.0,
+        'pruner_mode': 'llm_rules',
     }
     (tmp_path / 'instructrec-books_memrec_agent_seed42_20000101_000000.json').write_text(
         json.dumps({'config': config, 'test_metrics': metrics})
@@ -45,3 +49,11 @@ def test_dev700_gate_requires_locked_cohorts_and_complete_journal(tmp_path):
         conn.execute('CREATE TABLE budget (id INTEGER, lim INTEGER, used INTEGER)')
         conn.execute('INSERT INTO budget VALUES (1, 2750, 2500)')
     assert check(tmp_path, 200, 700, 'subset')['status'] == 'pass'
+    result_file = next(tmp_path.glob('instructrec-books_memrec_agent_seed42_*.json'))
+    graph_payload = json.loads(result_file.read_text())
+    graph_payload['config']['memrec']['pruner']['mode'] = 'graph_walk3'
+    graph_payload['test_metrics']['pruner_mode'] = 'graph_walk3'
+    result_file.write_text(json.dumps(graph_payload))
+    assert check(tmp_path, 200, 700, 'subset', 'graph_walk3')['status'] == 'pass'
+    with pytest.raises(ValueError, match='pruner|protocol'):
+        check(tmp_path, 200, 700, 'subset')

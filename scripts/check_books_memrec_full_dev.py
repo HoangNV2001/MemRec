@@ -13,7 +13,8 @@ from src.data.books_protocol import books_cohorts, books_dev_cost_subset, cohort
 
 
 def check(run_dir: Path, expected_users: int = 2000,
-          warmup_users: int = 7377, warmup_scope: str = 'all') -> dict:
+          warmup_users: int = 7377, warmup_scope: str = 'all',
+          expected_pruner_mode: str = 'llm_rules') -> dict:
     if (expected_users, warmup_users, warmup_scope) not in {
         (2000, 7377, 'all'), (200, 700, 'subset')
     }:
@@ -30,7 +31,9 @@ def check(run_dir: Path, expected_users: int = 2000,
     if (config['eval_cohort'] != 'dev' or config['warmup_user_scope'] != warmup_scope
             or config['eval_feedback'] != 'none'
             or not config['use_pregenerated_candidates']
-            or config['memrec']['reranker_mode'] != 'llm'):
+            or config['memrec']['reranker_mode'] != 'llm'
+            or config['memrec']['pruner']['mode'] != expected_pruner_mode
+            or metrics['pruner_mode'] != expected_pruner_mode):
         raise ValueError('Not the locked Books MemRec dev protocol')
     if warmup_scope == 'subset' and config.get('books_subset_users') != 700:
         raise ValueError('Missing explicit 700-user subset configuration')
@@ -111,9 +114,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--run-dir', type=Path, required=True)
     parser.add_argument('--protocol', choices=['full', 'dev700'], default='full')
+    parser.add_argument('--expected-pruner-mode', default='llm_rules')
     args = parser.parse_args()
     expected = (200, 700, 'subset') if args.protocol == 'dev700' else (2000, 7377, 'all')
-    print(json.dumps(check(args.run_dir, *expected), sort_keys=True))
+    print(json.dumps(check(args.run_dir, *expected,
+                           expected_pruner_mode=args.expected_pruner_mode), sort_keys=True))
 
 
 if __name__ == '__main__':

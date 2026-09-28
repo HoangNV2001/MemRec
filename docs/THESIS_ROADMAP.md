@@ -1,14 +1,14 @@
 # Thesis roadmap — Cải tiến **full MemRec**
 
-**Cập nhật:** 2026-09-25
+**Cập nhật:** 2026-09-28
 
-**Trạng thái:** Books SASRec dev đã xong; full MemRec real-LLM smoke 30 user
-đã pass. Full-dev baseline đã dừng theo yêu cầu ở 129/7.377 warm-up user để
-đánh giá lại chi phí; không có full-dev result và không tự động resume.
-**Chưa có kết quả chứng minh cải tiến full MemRec.** Chi tiết tại
-[Books self-host LLM baseline](BOOKS_SELFHOST_LLM_BASELINE.md).
-Nhánh thử nghiệm chi phí thấp 700 warm-up/200 dev được khóa riêng ở
-[BOOKS_DEV700_PROTOCOL.md](BOOKS_DEV700_PROTOCOL.md); không thay thế full-dev.
+**Trạng thái:** Books SASRec dev 2.000 user đã xong; full MemRec self-host
+700 warm-up/200 dev đạt NDCG@5 `0,747918`. Đây là cohort cố định đầy đủ cho
+thí nghiệm GraphWalk3 hiện tại theo quyết định của người dùng, **không** phải
+paper-style full 7.377 user. Full-dev baseline cũ đã dừng ở 129/7.377
+warm-up và không tự động resume. **Chưa có kết quả chứng minh cải tiến full
+MemRec.** Baseline và method contract ở [BOOKS_DEV700_PROTOCOL.md](BOOKS_DEV700_PROTOCOL.md)
+và [BOOKS_GRAPH_WALK3_EXPERIMENT.md](BOOKS_GRAPH_WALK3_EXPERIMENT.md).
 
 **Nguồn benchmark:** [MemRec paper, ACL 2026](https://aclanthology.org/2026.acl-long.2061/)
 
@@ -170,10 +170,11 @@ không tự động áp dụng cho task này. Không chạy GPU từ turn lập 
 | Remote full-MemRec CPU all-user dry-run | Xong 2026-09-25 | [Books baseline progress](BOOKS_FULL_BASELINE_PROGRESS.md); commit `eb9e0f4` | 30/30 valid, 7.377 warm-up, peak RSS 1.342 MiB; fake LLM |
 | SASRec matched adapter + CPU smoke | Xong 2026-09-25 | `configs/books_sasrec_baseline.yaml`; [audit](FULL_MEMREC_BASELINE_AUDIT.md) | 30/30 valid Books rankings, finite one-batch loss; chưa có trained score |
 | Remote Books prep | Xong 2026-09-25 | job `17272` tại thời điểm preflight; 4 file SHA-256 local/server khớp; commit `db56215` | CPU smoke SASRec 30/30 valid; chưa có điểm model |
-| Self-host LLM smoke | Chưa chạy — chọn/pin checkpoint và backend | 20–30 user + GPU manifest | — |
+| Self-host LLM baseline smoke | Xong 2026-09-28 | [Books 700/200 protocol](BOOKS_DEV700_PROTOCOL.md) | 30/30 real-LLM; GPU đã nhả |
 | SASRec one-GPU smoke 30 | Xong 2026-09-25 | [Books baseline progress](BOOKS_FULL_BASELINE_PROGRESS.md); run v3 | 4/4 architecture pass, 30/30 ranking/arm; card đã nhả |
 | SASRec development baseline | Xong 2026-09-25 | [Books baseline progress](BOOKS_FULL_BASELINE_PROGRESS.md); code `8758a22` | 2.000 dev user, NDCG@5 `0,321127`; held-out chưa mở |
-| Full MemRec + SASRec paired baseline | Chưa chạy | same candidate/split | — |
+| Full MemRec self-host 700/200 | Xong 2026-09-28 | [Books 700/200 protocol](BOOKS_DEV700_PROTOCOL.md) | NDCG@5 `0,747918`, Hit@1 `0,595`, 2 failures; SASRec cùng 200 user `0,343320` |
+| GraphWalk3 inside full MemRec | Đang triển khai | [GraphWalk3 experiment](BOOKS_GRAPH_WALK3_EXPERIMENT.md) | CPU smoke pass; chưa chạy real-LLM smoke/200 |
 | Headroom/ablation dev | Chưa chạy | preregistered dev report | — |
 | Method smoke/full held-out | Chưa chạy | hashes, per-user predictions | — |
 | Independent replication | Chưa chạy | second seed/domain | — |

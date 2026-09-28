@@ -8,7 +8,8 @@ from pathlib import Path
 
 
 def check(run_dir: Path, expected_users: int = 30, allow_cache: bool = False,
-          reference_predictions: Path | None = None) -> dict:
+          reference_predictions: Path | None = None,
+          expected_pruner_mode: str = 'llm_rules') -> dict:
     result_files = list(run_dir.glob('instructrec-books_memrec_agent_seed42_*.json'))
     if len(result_files) != 1:
         raise ValueError(f'Expected exactly one metrics file, found {len(result_files)}')
@@ -21,6 +22,9 @@ def check(run_dir: Path, expected_users: int = 30, allow_cache: bool = False,
         raise ValueError('Test-label feedback or non-original candidates detected')
     if config['memrec']['reranker_mode'] != 'llm':
         raise ValueError('Full MemRec LLM reranker was not used')
+    if (config['memrec']['pruner']['mode'] != expected_pruner_mode
+            or metrics['pruner_mode'] != expected_pruner_mode):
+        raise ValueError('Unexpected MemRec evidence pruner')
     if not config['provider'].get('revision'):
         raise ValueError('Unpinned LLM checkpoint')
     if (metrics['n_eval_users'] != expected_users
@@ -44,9 +48,10 @@ def check(run_dir: Path, expected_users: int = 30, allow_cache: bool = False,
             or requests > metrics['llm_request_hard_cap']
             or (not allow_cache and requests != expected_users * 5)):
         raise ValueError('Unexpected physical LLM request count')
-    if allow_cache and (
-            config.get('books_subset_users') != 700 or reference_predictions is None):
-        raise ValueError('Cache-backed smoke needs the locked subset and reference predictions')
+    if allow_cache and config.get('books_subset_users') != 700:
+        raise ValueError('Cache-backed smoke needs the locked subset')
+    if allow_cache and expected_pruner_mode == 'llm_rules' and reference_predictions is None:
+        raise ValueError('Baseline cache-backed smoke needs reference predictions')
     predictions_file = run_dir / 'test_predictions.jsonl'
     predictions = [json.loads(line) for line in predictions_file.read_text().splitlines()]
     if len(predictions) != expected_users:
@@ -64,7 +69,7 @@ def check(run_dir: Path, expected_users: int = 30, allow_cache: bool = False,
             raise ValueError(f"Target position mismatch for user {row['user_id']}")
     if (run_dir / 'heldout_predictions.jsonl').exists():
         raise ValueError('Held-out predictions must remain sealed')
-    if allow_cache:
+    if reference_predictions is not None:
         own_sha = hashlib.sha256(predictions_file.read_bytes()).hexdigest()
         reference_sha = hashlib.sha256(reference_predictions.read_bytes()).hexdigest()
         if own_sha != reference_sha:
@@ -78,9 +83,11 @@ def main() -> None:
     parser.add_argument('--run-dir', type=Path, required=True)
     parser.add_argument('--allow-cache', action='store_true')
     parser.add_argument('--reference-predictions', type=Path)
+    parser.add_argument('--expected-pruner-mode', default='llm_rules')
     args = parser.parse_args()
     print(json.dumps(check(args.run_dir, allow_cache=args.allow_cache,
-                           reference_predictions=args.reference_predictions), sort_keys=True))
+                           reference_predictions=args.reference_predictions,
+                           expected_pruner_mode=args.expected_pruner_mode), sort_keys=True))
 
 
 if __name__ == '__main__':

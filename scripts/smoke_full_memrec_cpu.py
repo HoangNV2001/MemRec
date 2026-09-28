@@ -84,6 +84,8 @@ def main():
                         help='Exercise durable Books warm-up/eval resume with fake LLM')
     parser.add_argument('--dev700', action='store_true',
                         help='CPU-only 700 warm-up / 200 evaluation wiring test')
+    parser.add_argument('--graph-walk3', action='store_true',
+                        help='Use the frozen graph-walk evidence selector')
     args = parser.parse_args()
     if args.dev700:
         if args.users != 30 or args.warmup_user_scope != 'eval':
@@ -93,7 +95,9 @@ def main():
     elif not 20 <= args.users <= 30:
         parser.error('CPU smoke is intentionally limited to 20–30 users')
 
-    config_name = ('memrec_instructrec-books_dev700.yaml' if args.dev700
+    config_name = ('memrec_instructrec-books_dev700_graph_walk3.yaml'
+                   if args.graph_walk3 else
+                   'memrec_instructrec-books_dev700.yaml' if args.dev700
                    else 'memrec_instructrec-books_full_benchmark.yaml')
     config = load_config(str(ROOT / 'configs' / config_name))
     config.update({
@@ -107,9 +111,10 @@ def main():
             'endpoint': 'no-network', 'api_key': 'fake', 'sdk_max_retries': 0,
         },
     })
-    output = ROOT / f'results/full_memrec_cpu_smoke_{args.users}_{args.warmup_user_scope}-hnv'
+    variant = '_graph_walk3' if args.graph_walk3 else ''
+    output = ROOT / f'results/full_memrec_cpu_smoke_{args.users}_{args.warmup_user_scope}{variant}-hnv'
     if args.journal:
-        output = ROOT / f'results/full_memrec_cpu_smoke_{args.users}_{args.warmup_user_scope}_journal-hnv'
+        output = ROOT / f'results/full_memrec_cpu_smoke_{args.users}_{args.warmup_user_scope}{variant}_journal-hnv'
         if args.warmup_user_scope == 'eval':
             config['books_subset_users'] = 700
         output.mkdir(parents=True, exist_ok=True)

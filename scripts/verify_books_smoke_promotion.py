@@ -39,7 +39,8 @@ def semantic_ast(source: str, kind: str) -> str:
 
 
 def verify(smoke_dir: Path, repo: Path, revision: str, cache_namespace: str,
-           allow_cache: bool = False, reference_predictions: Path | None = None) -> dict:
+           allow_cache: bool = False, reference_predictions: Path | None = None,
+           expected_pruner_mode: str = 'llm_rules') -> dict:
     promotion = json.loads((smoke_dir / 'promotion.json').read_text())
     if promotion['status'] != 'passed' or promotion['model_revision'] != revision:
         raise ValueError('Unpromoted or wrong-revision smoke')
@@ -49,7 +50,8 @@ def verify(smoke_dir: Path, repo: Path, revision: str, cache_namespace: str,
         if digest(smoke_dir / name) != expected:
             raise ValueError(f'Smoke artifact changed: {name}')
     if check_smoke(smoke_dir, allow_cache=allow_cache,
-                   reference_predictions=reference_predictions)['status'] != 'pass':
+                   reference_predictions=reference_predictions,
+                   expected_pruner_mode=expected_pruner_mode)['status'] != 'pass':
         raise ValueError('Smoke output gate no longer passes')
 
     smoke_commit = promotion['git_commit']
@@ -93,10 +95,12 @@ def main():
     parser.add_argument('--cache-namespace', required=True)
     parser.add_argument('--allow-cache', action='store_true')
     parser.add_argument('--reference-predictions', type=Path)
+    parser.add_argument('--expected-pruner-mode', default='llm_rules')
     args = parser.parse_args()
     print(json.dumps(verify(args.smoke_dir, args.repo, args.revision,
                             args.cache_namespace, args.allow_cache,
-                            args.reference_predictions), sort_keys=True))
+                            args.reference_predictions,
+                            args.expected_pruner_mode), sort_keys=True))
 
 
 if __name__ == '__main__':

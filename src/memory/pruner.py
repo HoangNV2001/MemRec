@@ -71,6 +71,10 @@ class NeighborPruner:
         self.mix_min_items = mix_min_items
         self.mode = mode
         self.checkpoint = checkpoint
+        self.graph_walk3 = None
+        if mode == "graph_walk3":
+            from .graph_walk_pruner import GraphWalk3Pruner
+            self.graph_walk3 = GraphWalk3Pruner(k, mix_min_users, mix_min_items)
         
         # Initialize MLP (if using learned mode)
         self.mlp = None
@@ -289,6 +293,8 @@ class NeighborPruner:
                 'n_users': int
             }
         """
+        if self.graph_walk3 is not None:
+            return self.graph_walk3.prune(user_id, graph, candidates)
         # Score
         scored = self.score_neighbors(user_id, graph, candidates)
         

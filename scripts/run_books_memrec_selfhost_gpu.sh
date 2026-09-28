@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# Real-LLM Books smoke/full-dev/dev700. Invoke ONLY through authorized train_TTS step.
+# Real-LLM Books baseline and graph-walk smoke/dev. Invoke ONLY through authorized train_TTS step.
 set -euo pipefail
 
 if [[ $# -gt 1 || -z "${SLURM_JOB_ID:-}" ]]; then
-  echo 'Usage: run_books_memrec_selfhost_gpu.sh [smoke|smoke700|full|resume|dev700|resume700] inside Slurm' >&2
+  echo 'Usage: run_books_memrec_selfhost_gpu.sh [smoke|smoke700|full|resume|dev700|resume700|graphsmoke700|graphdev700|graphresume700] inside Slurm' >&2
   exit 2
 fi
 MODE=${1:-smoke}
 if [[ "$MODE" != smoke && "$MODE" != smoke700 && "$MODE" != full && "$MODE" != resume && \
-      "$MODE" != dev700 && "$MODE" != resume700 ]]; then
+      "$MODE" != dev700 && "$MODE" != resume700 && "$MODE" != graphsmoke700 && \
+      "$MODE" != graphdev700 && "$MODE" != graphresume700 ]]; then
   echo "Unknown mode: $MODE" >&2
   exit 2
 fi
@@ -21,6 +22,10 @@ elif [[ "$MODE" == smoke700 ]]; then
   RUN_ID=books-memrec-llm-dev700-smoke-v1-hnv
 elif [[ "$MODE" == dev700 || "$MODE" == resume700 ]]; then
   RUN_ID=books-memrec-llm-dev700-v1-hnv
+elif [[ "$MODE" == graphsmoke700 ]]; then
+  RUN_ID=books-memrec-graph-walk3-dev700-smoke-v1-hnv
+elif [[ "$MODE" == graphdev700 || "$MODE" == graphresume700 ]]; then
+  RUN_ID=books-memrec-graph-walk3-dev700-v1-hnv
 else
   RUN_ID=books-memrec-llm-dev-v1-hnv
 fi
@@ -29,16 +34,23 @@ GATE_FILE=full-dev-gate.json
 N_EVAL_USERS=2000
 WARMUP_SCOPE=all
 RUN_TIMEOUT=72h
-if [[ "$MODE" == dev700 || "$MODE" == resume700 || "$MODE" == smoke700 ]]; then
+if [[ "$MODE" == dev700 || "$MODE" == resume700 || "$MODE" == smoke700 || \
+      "$MODE" == graphsmoke700 || "$MODE" == graphdev700 || "$MODE" == graphresume700 ]]; then
   CONFIG=configs/memrec_instructrec-books_dev700.yaml
   GATE_FILE=dev700-gate.json
   N_EVAL_USERS=200
   WARMUP_SCOPE=subset
   RUN_TIMEOUT=570m  # 9.5h inference + bounded startup/cleanup: <=~10 GPU-hours.
 fi
+PRUNER_MODE=llm_rules
+if [[ "$MODE" == graphsmoke700 || "$MODE" == graphdev700 || "$MODE" == graphresume700 ]]; then
+  CONFIG=configs/memrec_instructrec-books_dev700_graph_walk3.yaml
+  PRUNER_MODE=graph_walk3
+fi
 RUN_DIR="$MEMREC_ROOT/runs/$RUN_ID"
 SMOKE_DIR="$MEMREC_ROOT/runs/books-memrec-llm-smoke-v2-hnv"
 SUBSET_SMOKE_DIR="$MEMREC_ROOT/runs/books-memrec-llm-dev700-smoke-v1-hnv"
+GRAPH_SMOKE_DIR="$MEMREC_ROOT/runs/books-memrec-graph-walk3-dev700-smoke-v1-hnv"
 LOG_DIR="$MEMREC_ROOT/logs"
 MODEL_NAME=Qwen/Qwen3-30B-A3B-Instruct-2507-FP8
 MODEL_REVISION=5a5a776300a41aaa681dd7ff0106608ef2bc90db
@@ -58,7 +70,7 @@ if [[ "$JOB_INFO" != 'anhntc2 RUNNING train_TTS' ]]; then
   echo "Unexpected allocation: $JOB_INFO" >&2
   exit 2
 fi
-if [[ "$MODE" == resume || "$MODE" == resume700 ]]; then
+if [[ "$MODE" == resume || "$MODE" == resume700 || "$MODE" == graphresume700 ]]; then
   if [[ ! -f "$RUN_DIR/manifest.json" || -f "$RUN_DIR/completion.json" ]]; then
     echo 'No incomplete Books dev run to resume' >&2
     exit 2
@@ -102,15 +114,21 @@ if [[ "$MODE" != smoke ]]; then
     --smoke-dir "$SMOKE_DIR" --repo "$REPO" \
     --revision "$MODEL_REVISION" --cache-namespace "$CACHE_NAMESPACE"
 fi
-if [[ "$MODE" == dev700 || "$MODE" == resume700 ]]; then
+if [[ "$MODE" == dev700 || "$MODE" == resume700 || "$MODE" == graphdev700 || "$MODE" == graphresume700 ]]; then
   "$PYTHON" scripts/verify_books_smoke_promotion.py \
     --smoke-dir "$SUBSET_SMOKE_DIR" --repo "$REPO" \
     --revision "$MODEL_REVISION" --cache-namespace "$CACHE_NAMESPACE" \
     --allow-cache --reference-predictions "$SMOKE_DIR/test_predictions.jsonl"
 fi
+if [[ "$MODE" == graphdev700 || "$MODE" == graphresume700 ]]; then
+  "$PYTHON" scripts/verify_books_smoke_promotion.py \
+    --smoke-dir "$GRAPH_SMOKE_DIR" --repo "$REPO" \
+    --revision "$MODEL_REVISION" --cache-namespace "$CACHE_NAMESPACE" \
+    --allow-cache --expected-pruner-mode graph_walk3
+fi
 
 mkdir -p "$LOG_DIR"
-if [[ "$MODE" == smoke || "$MODE" == smoke700 ]]; then
+if [[ "$MODE" == smoke || "$MODE" == smoke700 || "$MODE" == graphsmoke700 ]]; then
   ATTEMPT=1
   RUN_LOG="$LOG_DIR/$RUN_ID.log"
   BEFORE="$RUN_DIR/gpu-before.csv"
@@ -118,7 +136,7 @@ if [[ "$MODE" == smoke || "$MODE" == smoke700 ]]; then
   AFTER="$RUN_DIR/gpu-after.csv"
   SERVER_LOG="$RUN_DIR/vllm-server.log"
 else
-  if [[ "$MODE" == resume || "$MODE" == resume700 ]]; then
+  if [[ "$MODE" == resume || "$MODE" == resume700 || "$MODE" == graphresume700 ]]; then
     ATTEMPT=$(($(find "$RUN_DIR" -maxdepth 1 -name 'gpu-before-attempt-*.csv' | wc -l) + 1))
   else
     ATTEMPT=1
@@ -180,7 +198,7 @@ if [[ -z "$GPU_INDEX" ]]; then
   echo 'No empty H100 (low utilization, <512 MiB and no compute process) for this run' >&2
   exit 2
 fi
-if [[ "$MODE" == resume || "$MODE" == resume700 ]]; then
+if [[ "$MODE" == resume || "$MODE" == resume700 || "$MODE" == graphresume700 ]]; then
   test -d "$RUN_DIR"
 else
   mkdir "$RUN_DIR"  # Atomic claim; refuse a concurrent start of this run ID.
@@ -210,7 +228,7 @@ if [[ "$MODE" == smoke ]]; then
 else
   export MEMREC_LLM_CACHE_READ=1
 fi
-if [[ "$MODE" != smoke && "$MODE" != smoke700 ]]; then
+if [[ "$MODE" != smoke && "$MODE" != smoke700 && "$MODE" != graphsmoke700 ]]; then
   export MEMREC_BOOKS_RUN_JOURNAL_DB="$RUN_DIR/journal.sqlite"
   export MEMREC_BOOKS_REQUEST_BUDGET_DB="$RUN_DIR/request-budget.sqlite"
   export MEMREC_BOOKS_FULL_RUN_ID="$RUN_ID"
@@ -252,7 +270,7 @@ cleanup() {
       status=1
     fi
   fi
-  if [[ "$status" -eq 0 && ( "$MODE" == smoke || "$MODE" == smoke700 ) ]]; then
+  if [[ "$status" -eq 0 && ( "$MODE" == smoke || "$MODE" == smoke700 || "$MODE" == graphsmoke700 ) ]]; then
     if ! "$PYTHON" - "$RUN_DIR" "$MEMREC_LLM_CACHE_NAMESPACE" <<'PY'
 import hashlib, json, sys
 from pathlib import Path
@@ -274,7 +292,7 @@ PY
       status=1
     fi
   fi
-  if [[ "$status" -eq 0 && "$MODE" != smoke && "$MODE" != smoke700 ]]; then
+  if [[ "$status" -eq 0 && "$MODE" != smoke && "$MODE" != smoke700 && "$MODE" != graphsmoke700 ]]; then
     if ! "$PYTHON" - "$RUN_DIR" "$ATTEMPT" "$AFTER" "$GATE_FILE" <<'PY'
 import hashlib, json, sys
 from pathlib import Path
@@ -308,12 +326,16 @@ echo "run_id=$RUN_ID job=$SLURM_JOB_ID gpu=$GPU_INDEX commit=$(git rev-parse HEA
 "$PYTHON" -c 'import torch; assert torch.cuda.is_available() and torch.cuda.device_count() == 1; print("torch", torch.__version__, "cuda", torch.version.cuda)'
 "$PYTHON" -c 'import vllm, transformers; print("vllm", vllm.__version__, "transformers", transformers.__version__)'
 "$PYTHON" -c 'import socket, sys; s=socket.socket(); e=s.connect_ex(("127.0.0.1", int(sys.argv[1]))); s.close(); sys.exit(0 if e else 1)' "$PORT"
-if [[ "$MODE" != resume && "$MODE" != resume700 ]]; then
-  sha256sum configs/memrec_instructrec-books_full_benchmark.yaml "$CONFIG" \
-    src/models/llm_client.py src/models/llm_response_cache.py \
-    src/models/reranker_llm.py src/models/memrec_agent.py \
-    src/train/trainer_memrec.py src/train/books_run_journal.py \
-    src/memory/storage.py src/data/books_protocol.py \
+if [[ "$MODE" != resume && "$MODE" != resume700 && "$MODE" != graphresume700 ]]; then
+  SOURCE_FILES=(configs/memrec_instructrec-books_full_benchmark.yaml "$CONFIG"
+    src/models/llm_client.py src/models/llm_response_cache.py
+    src/models/reranker_llm.py src/models/memrec_agent.py
+    src/train/trainer_memrec.py src/train/books_run_journal.py
+    src/memory/storage.py src/data/books_protocol.py)
+  if [[ "$PRUNER_MODE" == graph_walk3 ]]; then
+    SOURCE_FILES+=(src/memory/pruner.py src/memory/graph_walk_pruner.py)
+  fi
+  sha256sum "${SOURCE_FILES[@]}" \
     "$MODEL_PATH/config.json" "$MODEL_PATH/tokenizer_config.json" > "$RUN_DIR/source-hashes.sha256"
   "$PYTHON" - "$RUN_DIR" "$MODEL_REVISION" "$SLURM_JOB_ID" "$GPU_INDEX" "$MODE" <<'PY'
 import json, subprocess, sys
@@ -339,12 +361,13 @@ record = {
     'slurm_job_id': job_id, 'physical_gpu_index': int(gpu_index),
     'candidate_sha256': BOOKS_CANDIDATE_SHA256,
     'dev_cohort_sha256': manifest['cohort_sha256']['dev'],
-    'warmup_user_scope': 'subset' if mode == 'dev700' else 'eval' if mode in ('smoke', 'smoke700') else 'all',
-    'eval_cohort': 'dev', 'n_eval_users': 30 if mode in ('smoke', 'smoke700') else 200 if mode == 'dev700' else 2000,
-    'subset_user_sha256': cohort_digest(subset_warmup) if mode in ('dev700', 'smoke700') else None,
-    'subset_eval_sha256': cohort_digest(subset_eval) if mode in ('dev700', 'smoke700') else None,
-    'smoke_user_sha256': cohort_digest(cohorts['dev'][:30]) if mode in ('smoke', 'smoke700') else None,
-    'smoke_user_ids': cohorts['dev'][:30] if mode in ('smoke', 'smoke700') else None,
+    'pruner_mode': 'graph_walk3' if mode in ('graphsmoke700', 'graphdev700') else 'llm_rules',
+    'warmup_user_scope': 'subset' if mode in ('dev700', 'graphdev700') else 'eval' if mode in ('smoke', 'smoke700', 'graphsmoke700') else 'all',
+    'eval_cohort': 'dev', 'n_eval_users': 30 if mode in ('smoke', 'smoke700', 'graphsmoke700') else 200 if mode in ('dev700', 'graphdev700') else 2000,
+    'subset_user_sha256': cohort_digest(subset_warmup) if mode in ('dev700', 'smoke700', 'graphdev700', 'graphsmoke700') else None,
+    'subset_eval_sha256': cohort_digest(subset_eval) if mode in ('dev700', 'smoke700', 'graphdev700', 'graphsmoke700') else None,
+    'smoke_user_sha256': cohort_digest(cohorts['dev'][:30]) if mode in ('smoke', 'smoke700', 'graphsmoke700') else None,
+    'smoke_user_ids': cohorts['dev'][:30] if mode in ('smoke', 'smoke700', 'graphsmoke700') else None,
 }
 (Path(run_dir) / 'manifest.json').write_text(json.dumps(record, indent=2) + '\n')
 PY
@@ -397,6 +420,15 @@ elif [[ "$MODE" == smoke700 ]]; then
     --allow-cache --reference-predictions "$SMOKE_DIR/test_predictions.jsonl" \
     > "$RUN_DIR/smoke-gate.json"
   echo '30-user subset-config real-LLM smoke passed; GPU cleanup follows.'
+elif [[ "$MODE" == graphsmoke700 ]]; then
+  "$PYTHON" scripts/run_train.py \
+    --dataset instructrec-books --config "$CONFIG" \
+    --device cpu --eval-cohort dev --n_eval_users 30 --warmup-user-scope eval \
+    --output_dir "$RUN_DIR"
+  "$PYTHON" scripts/check_books_memrec_smoke.py --run-dir "$RUN_DIR" \
+    --allow-cache --expected-pruner-mode graph_walk3 \
+    > "$RUN_DIR/smoke-gate.json"
+  echo '30-user graph-walk real-LLM smoke passed; GPU cleanup follows.'
 else
   timeout --signal=TERM --kill-after=120s "$RUN_TIMEOUT" \
     "$PYTHON" scripts/run_train.py \
@@ -405,9 +437,9 @@ else
       --device cpu --eval-cohort dev --n_eval_users "$N_EVAL_USERS" \
       --warmup-user-scope "$WARMUP_SCOPE" \
       --output_dir "$RUN_DIR"
-  if [[ "$MODE" == dev700 || "$MODE" == resume700 ]]; then
+  if [[ "$MODE" == dev700 || "$MODE" == resume700 || "$MODE" == graphdev700 || "$MODE" == graphresume700 ]]; then
     "$PYTHON" scripts/check_books_memrec_full_dev.py --run-dir "$RUN_DIR" \
-      --protocol dev700 > "$RUN_DIR/$GATE_FILE"
+      --protocol dev700 --expected-pruner-mode "$PRUNER_MODE" > "$RUN_DIR/$GATE_FILE"
   else
     "$PYTHON" scripts/check_books_memrec_full_dev.py --run-dir "$RUN_DIR" \
       --protocol full > "$RUN_DIR/$GATE_FILE"
