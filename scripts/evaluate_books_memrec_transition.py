@@ -10,7 +10,11 @@ import argparse
 import hashlib
 import json
 import math
+import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 from scripts.check_books_memrec_full_dev import check as check_baseline
 from src.data import RecDataset
@@ -24,7 +28,6 @@ from src.temporal_common.graph import (
 from src.temporal_common.metrics import paired_bootstrap_ci, residual_ranking
 
 
-ROOT = Path(__file__).resolve().parents[1]
 BASELINE = ROOT / 'results/full_memrec_books_baselines/books-memrec-llm-dev700-v1-hnv'
 OUTPUT = ROOT / 'results/full_memrec_books_baselines/books-memrec-transition-transfer-v1-hnv'
 DATA = ROOT / 'data/processed/instructrec-books/instructrec-books.inter'
