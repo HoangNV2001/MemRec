@@ -48,7 +48,7 @@ cleanup within roughly ten GPU-hours. An interrupted run is not a result.
 1. Local tests and CPU fake-LLM integration: 700/700 Stage-R/RR/W warm-up,
    200/200 Stage-R/RR evaluation, original candidates, 2,500 budget charges,
    zero failures. Replaying the journal must leave predictions unchanged.
-2. On the authorized Slurm allocation, recheck all four GPUs, select one
+2. On the authorized Slurm allocation, recheck all visible H100s, select one
    **empty** H100 (low utilization, <512 MiB baseline memory, no driver-listed
    compute process) with per-run priority **GPU 3 → 2 → 1 → 0** and run
    `smoke700` on 30 dev users with the new

@@ -132,27 +132,39 @@ fi
 PREFLIGHT_BEFORE="$LOG_DIR/$RUN_ID-preflight-attempt-$ATTEMPT.csv"
 PREFLIGHT_APPS="$LOG_DIR/$RUN_ID-gpu-apps-preflight-attempt-$ATTEMPT.csv"
 exec > >(tee "$RUN_LOG") 2>&1
-nvidia-smi --query-gpu=index,utilization.gpu,memory.used,memory.total,uuid \
+nvidia-smi --query-gpu=index,utilization.gpu,memory.used,memory.total,uuid,name \
   --format=csv,noheader,nounits > "$PREFLIGHT_BEFORE"
 nvidia-smi --query-compute-apps=pid,gpu_uuid --format=csv,noheader,nounits \
   > "$PREFLIGHT_APPS"
-if [[ "$(wc -l < "$PREFLIGHT_BEFORE")" -ne 4 ]]; then
-  echo 'Expected four GPUs in preflight snapshot' >&2
+VISIBLE_GPU_COUNT=$(wc -l < "$PREFLIGHT_BEFORE")
+if (( VISIBLE_GPU_COUNT < 1 || VISIBLE_GPU_COUNT > 4 )); then
+  echo "Unexpected number of visible GPUs: $VISIBLE_GPU_COUNT" >&2
+  exit 2
+fi
+UNIQUE_GPU_COUNT=$(cut -d, -f1 "$PREFLIGHT_BEFORE" | tr -d ' ' | sort -u | wc -l)
+if (( UNIQUE_GPU_COUNT != VISIBLE_GPU_COUNT )); then
+  echo 'Duplicate GPU index in preflight snapshot' >&2
   exit 2
 fi
 GPU_INDEX=''
 for candidate_index in 3 2 1 0; do
   candidate_row=$(grep "^$candidate_index," "$PREFLIGHT_BEFORE" || true)
   if [[ -z "$candidate_row" ]]; then
-    echo "Missing GPU $candidate_index in preflight snapshot" >&2
-    exit 2
+    continue  # This allocation/node may expose fewer than four H100s.
   fi
   candidate_util=$(printf '%s\n' "$candidate_row" | cut -d, -f2 | tr -d ' ')
   candidate_mem=$(printf '%s\n' "$candidate_row" | cut -d, -f3 | tr -d ' ')
+  candidate_total=$(printf '%s\n' "$candidate_row" | cut -d, -f4 | tr -d ' ')
   candidate_uuid=$(printf '%s\n' "$candidate_row" | cut -d, -f5 | tr -d ' ')
+  candidate_name=$(printf '%s\n' "$candidate_row" | cut -d, -f6 | sed 's/^ *//')
   if [[ ! "$candidate_util" =~ ^[0-9]+$ || ! "$candidate_mem" =~ ^[0-9]+$ || \
-        ! "$candidate_uuid" =~ ^GPU-[0-9a-f-]+$ ]]; then
+        ! "$candidate_total" =~ ^[0-9]+$ || ! "$candidate_uuid" =~ ^GPU-[0-9a-f-]+$ || \
+        "$candidate_name" != *H100* ]]; then
     echo "Malformed GPU $candidate_index preflight snapshot" >&2
+    exit 2
+  fi
+  if (( candidate_total < 80000 )); then
+    echo "GPU $candidate_index is not an 80 GB H100" >&2
     exit 2
   fi
   # A quiet card with a live/hidden CUDA context is not an empty card.
