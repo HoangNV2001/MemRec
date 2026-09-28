@@ -1,7 +1,9 @@
 # GraphWalk3 evidence for full MemRec — locked Books 700/200 experiment
 
-**Status (2026-09-28):** implementation and CPU wiring smoke passed; real-LLM
-30-user smoke has **not** run. No method score exists yet.
+**Status (2026-09-28):** implementation and CPU wiring smoke passed, source
+commit `e3064e2` is on the server, but real-LLM 30-user smoke has **not** run.
+GPU preflight found both H100s busy (78,658 MiB each, compute contexts on both),
+so no MemRec GPU process was started. No method score exists yet.
 
 ## Evaluation contract
 
@@ -79,6 +81,6 @@ requires smoke promotion before the 200-user run.
 | Baseline 700/200 | Pass | NDCG@5 0.747918; Hit@1 0.595; 2/200 malformed, counted as misses |
 | GraphWalk3 unit/regression tests | Pass | 97/97 local tests; config differs only at `memrec.pruner.mode` |
 | GraphWalk3 CPU wiring smoke | Pass | 30/30 rankings, 30 Stage-W warm-up calls, 0 failures; fake LLM only |
-| Real-LLM graph smoke | Waiting | Must run on an empty authorized H100 |
+| Real-LLM graph smoke | Blocked by GPU occupancy | 2026-09-28 preflight: both visible H100s busy with compute contexts; no MemRec GPU process started |
 | GraphWalk3 700/200 | Blocked on real-LLM smoke | No method metric yet |
 | Paired result | Waiting | No conclusion yet |
