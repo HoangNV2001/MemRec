@@ -1,14 +1,14 @@
 # Thesis roadmap — Cải tiến **full MemRec**
 
-**Cập nhật:** 2026-09-28
+**Cập nhật:** 2026-09-29
 
 **Trạng thái:** Books SASRec dev 2.000 user đã xong; full MemRec self-host
 700 warm-up/200 dev đạt NDCG@5 `0,747918`. Đây là cohort cố định đầy đủ cho
-thí nghiệm GraphWalk3 hiện tại theo quyết định của người dùng, **không** phải
+thí nghiệm Stage-R transition hiện tại theo quyết định của người dùng, **không** phải
 paper-style full 7.377 user. Full-dev baseline cũ đã dừng ở 129/7.377
 warm-up và không tự động resume. **Chưa có kết quả chứng minh cải tiến full
 MemRec.** Baseline và method contract ở [BOOKS_DEV700_PROTOCOL.md](BOOKS_DEV700_PROTOCOL.md)
-và [BOOKS_GRAPH_WALK3_EXPERIMENT.md](BOOKS_GRAPH_WALK3_EXPERIMENT.md).
+và [BOOKS_MEMREC_TRANSITION_STAGE_R.md](BOOKS_MEMREC_TRANSITION_STAGE_R.md).
 
 **Nguồn benchmark:** [MemRec paper, ACL 2026](https://aclanthology.org/2026.acl-long.2061/)
 
@@ -175,7 +175,8 @@ không tự động áp dụng cho task này. Không chạy GPU từ turn lập 
 | SASRec development baseline | Xong 2026-09-25 | [Books baseline progress](BOOKS_FULL_BASELINE_PROGRESS.md); code `8758a22` | 2.000 dev user, NDCG@5 `0,321127`; held-out chưa mở |
 | Full MemRec self-host 700/200 | Xong 2026-09-28 | [Books 700/200 protocol](BOOKS_DEV700_PROTOCOL.md) | NDCG@5 `0,747918`, Hit@1 `0,595`, 2 failures; SASRec cùng 200 user `0,343320` |
 | GraphWalk3 co-preference walk | Đã loại | [Decision trail](BOOKS_GRAPH_WALK3_EXPERIMENT.md) | Sai method identity; chỉ CPU fake smoke, không có real-LLM score |
-| Directed Temporal Transition on full-MemRec output | Đang triển khai | [Transfer protocol](BOOKS_MEMREC_TRANSITION_TRANSFER.md) | One-step primary, PPR secondary; chưa chạy 30/200 |
+| Directed Temporal Transition on full-MemRec output | Xong, không đạt gate | [Transfer protocol and result](BOOKS_MEMREC_TRANSITION_TRANSFER.md) | 200 user: one-step `+0,001001` CI cắt 0; PPR `−0,014129`; 0 LLM/GPU mới |
+| Directed one-step evidence in full-MemRec Stage-R | CPU smoke xong; chờ LLM smoke | [Pre-registered method/progress](BOOKS_MEMREC_TRANSITION_STAGE_R.md) | 102 tests pass; 30/30 fake full-agent và 700/200 fake journal; 22/30 có transition evidence trong context; chưa có score LLM |
 | Headroom/ablation dev | Chưa chạy | preregistered dev report | — |
 | Method smoke/full held-out | Chưa chạy | hashes, per-user predictions | — |
 | Independent replication | Chưa chạy | second seed/domain | — |
@@ -183,10 +184,9 @@ không tự động áp dụng cho task này. Không chạy GPU từ turn lập 
 Các số M7/transition giữ trong historical protocol documents, **không chuyển
 vào bảng kết quả full MemRec**.
 
-Allocation mới đã được xác nhận tại thời điểm preflight; phải resolve lại
-`train_TTS` trước mỗi task, không tái dùng ID nếu job đổi. SASRec dev đã xong;
-thứ tự tiếp theo: (1) pin checkpoint/backend LLM và chạy self-host full MemRec
-smoke 20–30 user với 100% schema hợp lệ, (2) chạy full MemRec dev với all-user
-warm-up, (3) phân tích headroom và
-thiết kế method chỉ trên dev. Held-out giữ kín đến khi method/config khóa.
-Mỗi task GPU thoát process và xác nhận VRAM về baseline trước task kế.
+Allocation phải được resolve lại trước mỗi task, không tái dùng ID nếu job
+đổi. Baseline 700/200 đã xong. Bước tiếp: real-LLM 30-user smoke cho method
+Stage-R transition; chỉ nếu pass mới chạy 700/200 cùng cohort và paired
+analysis. Đây là kết quả exploratory trên cohort đã xem nhãn qua residual;
+held-out giữ kín đến khi method/config được khóa độc lập. Mỗi task GPU thoát
+process và xác nhận VRAM về baseline trước task kế.

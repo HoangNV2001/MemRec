@@ -3,7 +3,7 @@
 set -euo pipefail
 
 if [[ $# -gt 1 || -z "${SLURM_JOB_ID:-}" ]]; then
-  echo 'Usage: run_books_memrec_selfhost_gpu.sh [smoke|smoke700|full|resume|dev700|resume700|graphsmoke700|graphdev700|graphresume700] inside Slurm' >&2
+  echo 'Usage: run_books_memrec_selfhost_gpu.sh [smoke|smoke700|full|resume|dev700|resume700|transitionsmoke700|transitiondev700] inside Slurm' >&2
   exit 2
 fi
 MODE=${1:-smoke}
@@ -13,7 +13,8 @@ if [[ "$MODE" == graphsmoke700 || "$MODE" == graphdev700 || "$MODE" == graphresu
 fi
 if [[ "$MODE" != smoke && "$MODE" != smoke700 && "$MODE" != full && "$MODE" != resume && \
       "$MODE" != dev700 && "$MODE" != resume700 && "$MODE" != graphsmoke700 && \
-      "$MODE" != graphdev700 && "$MODE" != graphresume700 ]]; then
+      "$MODE" != graphdev700 && "$MODE" != graphresume700 && \
+      "$MODE" != transitionsmoke700 && "$MODE" != transitiondev700 ]]; then
   echo "Unknown mode: $MODE" >&2
   exit 2
 fi
@@ -30,6 +31,10 @@ elif [[ "$MODE" == graphsmoke700 ]]; then
   RUN_ID=books-memrec-graph-walk3-dev700-smoke-v1-hnv
 elif [[ "$MODE" == graphdev700 || "$MODE" == graphresume700 ]]; then
   RUN_ID=books-memrec-graph-walk3-dev700-v1-hnv
+elif [[ "$MODE" == transitionsmoke700 ]]; then
+  RUN_ID=books-memrec-transition-stage-r-smoke-v1-hnv
+elif [[ "$MODE" == transitiondev700 ]]; then
+  RUN_ID=books-memrec-transition-stage-r-dev700-v1-hnv
 else
   RUN_ID=books-memrec-llm-dev-v1-hnv
 fi
@@ -39,7 +44,8 @@ N_EVAL_USERS=2000
 WARMUP_SCOPE=all
 RUN_TIMEOUT=72h
 if [[ "$MODE" == dev700 || "$MODE" == resume700 || "$MODE" == smoke700 || \
-      "$MODE" == graphsmoke700 || "$MODE" == graphdev700 || "$MODE" == graphresume700 ]]; then
+      "$MODE" == graphsmoke700 || "$MODE" == graphdev700 || "$MODE" == graphresume700 || \
+      "$MODE" == transitionsmoke700 || "$MODE" == transitiondev700 ]]; then
   CONFIG=configs/memrec_instructrec-books_dev700.yaml
   GATE_FILE=dev700-gate.json
   N_EVAL_USERS=200
@@ -51,10 +57,15 @@ if [[ "$MODE" == graphsmoke700 || "$MODE" == graphdev700 || "$MODE" == graphresu
   CONFIG=configs/memrec_instructrec-books_dev700_graph_walk3.yaml
   PRUNER_MODE=graph_walk3
 fi
+if [[ "$MODE" == transitionsmoke700 || "$MODE" == transitiondev700 ]]; then
+  CONFIG=configs/memrec_instructrec-books_dev700_transition_stage_r.yaml
+  PRUNER_MODE=transition_one_step
+fi
 RUN_DIR="$MEMREC_ROOT/runs/$RUN_ID"
 SMOKE_DIR="$MEMREC_ROOT/runs/books-memrec-llm-smoke-v2-hnv"
 SUBSET_SMOKE_DIR="$MEMREC_ROOT/runs/books-memrec-llm-dev700-smoke-v1-hnv"
 GRAPH_SMOKE_DIR="$MEMREC_ROOT/runs/books-memrec-graph-walk3-dev700-smoke-v1-hnv"
+TRANSITION_SMOKE_DIR="$MEMREC_ROOT/runs/books-memrec-transition-stage-r-smoke-v1-hnv"
 LOG_DIR="$MEMREC_ROOT/logs"
 MODEL_NAME=Qwen/Qwen3-30B-A3B-Instruct-2507-FP8
 MODEL_REVISION=5a5a776300a41aaa681dd7ff0106608ef2bc90db
@@ -113,7 +124,7 @@ if [[ ! -x "$PYTHON" || ! -x "$VLLM" ]]; then
   echo 'Dedicated vLLM environment is incomplete' >&2
   exit 2
 fi
-if [[ "$MODE" != smoke ]]; then
+if [[ "$MODE" != smoke && "$MODE" != transitionsmoke700 && "$MODE" != transitiondev700 ]]; then
   "$PYTHON" scripts/verify_books_smoke_promotion.py \
     --smoke-dir "$SMOKE_DIR" --repo "$REPO" \
     --revision "$MODEL_REVISION" --cache-namespace "$CACHE_NAMESPACE"
@@ -130,9 +141,15 @@ if [[ "$MODE" == graphdev700 || "$MODE" == graphresume700 ]]; then
     --revision "$MODEL_REVISION" --cache-namespace "$CACHE_NAMESPACE" \
     --allow-cache --expected-pruner-mode graph_walk3
 fi
+if [[ "$MODE" == transitiondev700 ]]; then
+  "$PYTHON" scripts/verify_books_smoke_promotion.py \
+    --smoke-dir "$TRANSITION_SMOKE_DIR" --repo "$REPO" \
+    --revision "$MODEL_REVISION" --cache-namespace "$CACHE_NAMESPACE" \
+    --allow-cache --expected-pruner-mode transition_one_step
+fi
 
 mkdir -p "$LOG_DIR"
-if [[ "$MODE" == smoke || "$MODE" == smoke700 || "$MODE" == graphsmoke700 ]]; then
+if [[ "$MODE" == smoke || "$MODE" == smoke700 || "$MODE" == graphsmoke700 || "$MODE" == transitionsmoke700 ]]; then
   ATTEMPT=1
   RUN_LOG="$LOG_DIR/$RUN_ID.log"
   BEFORE="$RUN_DIR/gpu-before.csv"
@@ -232,7 +249,7 @@ if [[ "$MODE" == smoke ]]; then
 else
   export MEMREC_LLM_CACHE_READ=1
 fi
-if [[ "$MODE" != smoke && "$MODE" != smoke700 && "$MODE" != graphsmoke700 ]]; then
+if [[ "$MODE" != smoke && "$MODE" != smoke700 && "$MODE" != graphsmoke700 && "$MODE" != transitionsmoke700 ]]; then
   export MEMREC_BOOKS_RUN_JOURNAL_DB="$RUN_DIR/journal.sqlite"
   export MEMREC_BOOKS_REQUEST_BUDGET_DB="$RUN_DIR/request-budget.sqlite"
   export MEMREC_BOOKS_FULL_RUN_ID="$RUN_ID"
@@ -274,7 +291,7 @@ cleanup() {
       status=1
     fi
   fi
-  if [[ "$status" -eq 0 && ( "$MODE" == smoke || "$MODE" == smoke700 || "$MODE" == graphsmoke700 ) ]]; then
+  if [[ "$status" -eq 0 && ( "$MODE" == smoke || "$MODE" == smoke700 || "$MODE" == graphsmoke700 || "$MODE" == transitionsmoke700 ) ]]; then
     if ! "$PYTHON" - "$RUN_DIR" "$MEMREC_LLM_CACHE_NAMESPACE" <<'PY'
 import hashlib, json, sys
 from pathlib import Path
@@ -296,7 +313,7 @@ PY
       status=1
     fi
   fi
-  if [[ "$status" -eq 0 && "$MODE" != smoke && "$MODE" != smoke700 && "$MODE" != graphsmoke700 ]]; then
+  if [[ "$status" -eq 0 && "$MODE" != smoke && "$MODE" != smoke700 && "$MODE" != graphsmoke700 && "$MODE" != transitionsmoke700 ]]; then
     if ! "$PYTHON" - "$RUN_DIR" "$ATTEMPT" "$AFTER" "$GATE_FILE" <<'PY'
 import hashlib, json, sys
 from pathlib import Path
@@ -339,6 +356,12 @@ if [[ "$MODE" != resume && "$MODE" != resume700 && "$MODE" != graphresume700 ]];
   if [[ "$PRUNER_MODE" == graph_walk3 ]]; then
     SOURCE_FILES+=(src/memory/pruner.py src/memory/graph_walk_pruner.py)
   fi
+  if [[ "$PRUNER_MODE" == transition_one_step ]]; then
+    SOURCE_FILES+=(configs/memrec_instructrec-books_dev700.yaml
+      src/memory/transition_pruner.py src/memory/packer.py src/memory/graph.py
+      src/memory/pruner_llm_rules.py src/memory/domain_rules/books_rules.py
+      src/temporal_common/graph.py)
+  fi
   sha256sum "${SOURCE_FILES[@]}" \
     "$MODEL_PATH/config.json" "$MODEL_PATH/tokenizer_config.json" > "$RUN_DIR/source-hashes.sha256"
   "$PYTHON" - "$RUN_DIR" "$MODEL_REVISION" "$SLURM_JOB_ID" "$GPU_INDEX" "$MODE" <<'PY'
@@ -365,13 +388,13 @@ record = {
     'slurm_job_id': job_id, 'physical_gpu_index': int(gpu_index),
     'candidate_sha256': BOOKS_CANDIDATE_SHA256,
     'dev_cohort_sha256': manifest['cohort_sha256']['dev'],
-    'pruner_mode': 'graph_walk3' if mode in ('graphsmoke700', 'graphdev700') else 'llm_rules',
-    'warmup_user_scope': 'subset' if mode in ('dev700', 'graphdev700') else 'eval' if mode in ('smoke', 'smoke700', 'graphsmoke700') else 'all',
-    'eval_cohort': 'dev', 'n_eval_users': 30 if mode in ('smoke', 'smoke700', 'graphsmoke700') else 200 if mode in ('dev700', 'graphdev700') else 2000,
-    'subset_user_sha256': cohort_digest(subset_warmup) if mode in ('dev700', 'smoke700', 'graphdev700', 'graphsmoke700') else None,
-    'subset_eval_sha256': cohort_digest(subset_eval) if mode in ('dev700', 'smoke700', 'graphdev700', 'graphsmoke700') else None,
-    'smoke_user_sha256': cohort_digest(cohorts['dev'][:30]) if mode in ('smoke', 'smoke700', 'graphsmoke700') else None,
-    'smoke_user_ids': cohorts['dev'][:30] if mode in ('smoke', 'smoke700', 'graphsmoke700') else None,
+    'pruner_mode': 'graph_walk3' if mode in ('graphsmoke700', 'graphdev700') else 'transition_one_step' if mode in ('transitionsmoke700', 'transitiondev700') else 'llm_rules',
+    'warmup_user_scope': 'subset' if mode in ('dev700', 'graphdev700', 'transitiondev700') else 'eval' if mode in ('smoke', 'smoke700', 'graphsmoke700', 'transitionsmoke700') else 'all',
+    'eval_cohort': 'dev', 'n_eval_users': 30 if mode in ('smoke', 'smoke700', 'graphsmoke700', 'transitionsmoke700') else 200 if mode in ('dev700', 'graphdev700', 'transitiondev700') else 2000,
+    'subset_user_sha256': cohort_digest(subset_warmup) if mode in ('dev700', 'smoke700', 'graphdev700', 'graphsmoke700', 'transitionsmoke700', 'transitiondev700') else None,
+    'subset_eval_sha256': cohort_digest(subset_eval) if mode in ('dev700', 'smoke700', 'graphdev700', 'graphsmoke700', 'transitionsmoke700', 'transitiondev700') else None,
+    'smoke_user_sha256': cohort_digest(cohorts['dev'][:30]) if mode in ('smoke', 'smoke700', 'graphsmoke700', 'transitionsmoke700') else None,
+    'smoke_user_ids': cohorts['dev'][:30] if mode in ('smoke', 'smoke700', 'graphsmoke700', 'transitionsmoke700') else None,
 }
 (Path(run_dir) / 'manifest.json').write_text(json.dumps(record, indent=2) + '\n')
 PY
@@ -433,6 +456,15 @@ elif [[ "$MODE" == graphsmoke700 ]]; then
     --allow-cache --expected-pruner-mode graph_walk3 \
     > "$RUN_DIR/smoke-gate.json"
   echo '30-user graph-walk real-LLM smoke passed; GPU cleanup follows.'
+elif [[ "$MODE" == transitionsmoke700 ]]; then
+  "$PYTHON" scripts/run_train.py \
+    --dataset instructrec-books --config "$CONFIG" \
+    --device cpu --eval-cohort dev --n_eval_users 30 --warmup-user-scope eval \
+    --output_dir "$RUN_DIR"
+  "$PYTHON" scripts/check_books_memrec_smoke.py --run-dir "$RUN_DIR" \
+    --allow-cache --expected-pruner-mode transition_one_step \
+    > "$RUN_DIR/smoke-gate.json"
+  echo '30-user transition Stage-R smoke passed; GPU cleanup follows.'
 else
   timeout --signal=TERM --kill-after=120s "$RUN_TIMEOUT" \
     "$PYTHON" scripts/run_train.py \
@@ -441,7 +473,7 @@ else
       --device cpu --eval-cohort dev --n_eval_users "$N_EVAL_USERS" \
       --warmup-user-scope "$WARMUP_SCOPE" \
       --output_dir "$RUN_DIR"
-  if [[ "$MODE" == dev700 || "$MODE" == resume700 || "$MODE" == graphdev700 || "$MODE" == graphresume700 ]]; then
+  if [[ "$MODE" == dev700 || "$MODE" == resume700 || "$MODE" == graphdev700 || "$MODE" == graphresume700 || "$MODE" == transitiondev700 ]]; then
     "$PYTHON" scripts/check_books_memrec_full_dev.py --run-dir "$RUN_DIR" \
       --protocol dev700 --expected-pruner-mode "$PRUNER_MODE" > "$RUN_DIR/$GATE_FILE"
   else

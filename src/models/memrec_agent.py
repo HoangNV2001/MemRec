@@ -15,6 +15,7 @@ from src.memory import (
     MemoryStorage
 )
 from src.memory.pruner_llm_rules import LLMRulePruner
+from src.memory.transition_pruner import TransitionEvidencePruner
 from src.models.reranker_llm import LLMReranker
 from src.models.reranker_vector import VectorReranker
 
@@ -95,7 +96,13 @@ class MemRecAgent:
         print(self.graph)
         
         # Initialize components
-        if pruner_mode == "llm_rules":
+        if pruner_mode == "transition_one_step":
+            self.pruner = TransitionEvidencePruner(
+                dataset=dataset, k=k,
+                mix_min_users=mix_min_users, mix_min_items=mix_min_items,
+            )
+            print('  Using train-only directed one-step transition evidence in Stage-R')
+        elif pruner_mode == "llm_rules":
             # Use LLM-generated domain-specific rules
             self.pruner = LLMRulePruner(
                 dataset_name=dataset.name if hasattr(dataset, 'name') else 'instructrec-books',

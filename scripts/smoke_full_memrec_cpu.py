@@ -86,7 +86,11 @@ def main():
                         help='CPU-only 700 warm-up / 200 evaluation wiring test')
     parser.add_argument('--graph-walk3', action='store_true',
                         help='Use the frozen graph-walk evidence selector')
+    parser.add_argument('--transition-stage-r', action='store_true',
+                        help='Use train-only directed one-step evidence in Stage-R')
     args = parser.parse_args()
+    if args.graph_walk3 and args.transition_stage_r:
+        parser.error('Choose only one evidence selector')
     if args.dev700:
         if args.users != 30 or args.warmup_user_scope != 'eval':
             parser.error('--dev700 uses its fixed 700/200 cohort, not --users or --warmup-user-scope')
@@ -95,7 +99,9 @@ def main():
     elif not 20 <= args.users <= 30:
         parser.error('CPU smoke is intentionally limited to 20–30 users')
 
-    config_name = ('memrec_instructrec-books_dev700_graph_walk3.yaml'
+    config_name = ('memrec_instructrec-books_dev700_transition_stage_r.yaml'
+                   if args.transition_stage_r else
+                   'memrec_instructrec-books_dev700_graph_walk3.yaml'
                    if args.graph_walk3 else
                    'memrec_instructrec-books_dev700.yaml' if args.dev700
                    else 'memrec_instructrec-books_full_benchmark.yaml')
@@ -111,7 +117,7 @@ def main():
             'endpoint': 'no-network', 'api_key': 'fake', 'sdk_max_retries': 0,
         },
     })
-    variant = '_graph_walk3' if args.graph_walk3 else ''
+    variant = '_transition_stage_r' if args.transition_stage_r else '_graph_walk3' if args.graph_walk3 else ''
     output = ROOT / f'results/full_memrec_cpu_smoke_{args.users}_{args.warmup_user_scope}{variant}-hnv'
     if args.journal:
         output = ROOT / f'results/full_memrec_cpu_smoke_{args.users}_{args.warmup_user_scope}{variant}_journal-hnv'

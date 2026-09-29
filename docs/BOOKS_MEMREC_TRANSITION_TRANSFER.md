@@ -1,13 +1,11 @@
 # Temporal Transition augmentation of full MemRec — Books 200-user transfer
 
-**Status (2026-09-28):** v1 30-user CPU smoke passed. Its 200-user execution
-stopped before writing results at user 364 because the adapter incorrectly
-required even a baseline `malformed_ranking` row to be a permutation. No
-method metric was produced. v2 changes **only failure-row handling**: preserve
-the original malformed ranking and count it as a miss in every arm. Graph,
-seeds, walk count, restart, fusion and alpha are unchanged; v2 must repeat
-the 30-user smoke before full evaluation. [GraphWalk3](BOOKS_GRAPH_WALK3_EXPERIMENT.md)
-is retired and is **not** the method.
+**Status (2026-09-28):** v2 completed on the locked 200-user Books set after
+its 30-user smoke. The primary one-step arm **did not establish improvement**:
+ΔNDCG@5 `+0.001001`, paired CI95% `[−0.005536,+0.008540]`. Secondary PPR
+was worse by `−0.014129`. No new LLM request or GPU was used.
+[GraphWalk3](BOOKS_GRAPH_WALK3_EXPERIMENT.md) is retired and is **not** the
+method. Do not retune alpha/restart/depth on these 200 outcomes.
 
 ## Method identity and exact scope
 
@@ -93,5 +91,38 @@ for this offline evaluation.
 | Transfer unit tests | Passed | Train-only directed edges; label-independent scoring; failure retention |
 | v1 30-user transition smoke | Passed | 30/30, deterministic replay, 0 LLM/GPU |
 | v1 200-user transfer | Aborted, no score | Failure-row validation bug at user 364; no full artifact |
-| v2 30-user transition smoke | Not run | Must pass before v2 full |
-| v2 200-user one-step/PPR transfer | Not run | No method score yet |
+| v2 30-user transition smoke | Passed | 30/30, identical smoke-score SHA-256 to v1, deterministic replay, 0 LLM/GPU |
+| v2 200-user one-step/PPR transfer | Complete; primary gate failed | 200/200 rows, baseline's 2 malformed rankings retained as misses, 0 LLM/GPU |
+
+### Frozen transfer result (v2)
+
+| Arm | NDCG@5 | Hit@1 | ΔNDCG@5 vs full MemRec | Paired bootstrap CI95% |
+|---|---:|---:|---:|---:|
+| Full MemRec baseline | 0.747918 | 0.595 | — | — |
+| **One-step transition residual (primary)** | **0.748919** | **0.595** | **+0.001001** | **[−0.005536,+0.008540]** |
+| Transition-PPR residual (secondary) | 0.733789 | 0.550 | −0.014129 | [−0.036241,+0.009521] |
+
+Primary improved/worsened/unchanged users: **1/1/198**; PPR: **6/20/174**.
+One-step had nonzero score for at least one candidate in only **8/200 users**
+(8/2,000 candidate slots; gold reachable in 7 users), changing just two
+rankings. PPR reached at least one candidate in **53/200 users** (68 slots;
+gold in 25 users) and changed 32 rankings, but worsened more cases than it
+improved. This sparse/mixed candidate support is a plausible explanation for
+the failed transfer, not proof of a single causal mechanism. The original
+Kaggle/MovieLens results remain valid in their own timestamped protocols;
+they do **not** imply transfer to these InstructRec candidates.
+
+Result artifacts are in ignored local directory
+`results/full_memrec_books_baselines/books-memrec-transition-transfer-v2-hnv/`.
+`full_predictions.jsonl` SHA-256 is
+`7e92ea4896da40023c4e84526e7cf555b7fbdc0a6c199cd4d4f8c8481cc524bd`;
+`full_result.json` SHA-256 is
+`4c57c5a9218395c72ac2532b152ac26343050f3841d65481ed61428e42d6f2d3`.
+The manifest pins the baseline prediction/data/scoring-source hashes and
+frozen parameters; the saved smoke hash was verified before scoring the
+remaining 170 users. NDCG@5/Hit@1 were recomputed independently from all
+200 per-user target positions and matched the report. This result **does not
+meet** the paired-improvement gate and is not a thesis claim of improved full
+MemRec. Stop this residual transfer on this cohort; any new integration
+hypothesis needs a fresh preregistered evaluation rather than adjustments to
+these 200 labels.

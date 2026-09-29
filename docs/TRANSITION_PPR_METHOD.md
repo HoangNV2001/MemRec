@@ -357,3 +357,24 @@ P7-v2 discovery record:
   PPR failed to beat one-step reliably. The subsequent preregistered OOF depth
   router also failed; its positive oracle remains non-deployable and further
   feature/model/threshold changes on these labels are prohibited.
+
+## 16. InstructRec Books full-MemRec output transfer — negative result
+
+A later transfer used the completed self-host **full MemRec** 700-warm-up/
+200-user Books run as the frozen local ranking, then applied the same directed
+transition one-step/PPR scoring and frozen residual alpha `0.80`. The Books
+`.inter` timestamp is only a within-user sequence index; train-only adjacent
+item pairs supplied directed edges, and pre-test history supplied seeds. This
+is not the strict global-time protocol of the Amazon/MovieLens studies and
+does not alter MemRec's Stage-R or Stage-W. A 30-user smoke passed before the
+200-user evaluation; no additional LLM/GPU resources were used.
+
+On the same 200 candidate lists, baseline NDCG@5 `0.747918`, primary one-step
+residual `0.748919` (Δ `+0.001001`, paired CI95%
+`[−0.005536,+0.008540]`), secondary PPR residual `0.733789`
+(Δ `−0.014129`). One-step scored any candidate for only 8/200 users; PPR for
+53/200. The primary gate failed. This does not invalidate the earlier
+timestamped-domain results, but it rules out claiming an improvement of
+full MemRec on the locked Books 200-user task from this direct residual
+transfer. Detailed contract, failure-row handling and artifact hashes:
+[BOOKS_MEMREC_TRANSITION_TRANSFER.md](BOOKS_MEMREC_TRANSITION_TRANSFER.md).

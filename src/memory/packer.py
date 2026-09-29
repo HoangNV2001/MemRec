@@ -66,7 +66,16 @@ class SnippetPacker:
                 snippet = f"[Item-{neighbor_id}] {title}"
                 if desc:
                     snippet += f" | {desc}"
-                snippet += f" (score={score:.3f})"
+                if 'transition_from' in neighbor:
+                    snippet = (
+                        f"[Item-{neighbor_id}] Observed next after Item-"
+                        f"{neighbor['transition_from']} in train histories "
+                        f"(p={neighbor['transition_probability']:.3f}): {title}"
+                    )
+                    if desc:
+                        snippet += f" | {desc}"
+                else:
+                    snippet += f" (score={score:.3f})"
             else:
                 snippet = f"[Item-{neighbor_id}] (score={score:.3f})"
         
@@ -126,7 +135,7 @@ class SnippetPacker:
             neighbor_snippets.append({
                 'text': snippet,
                 'tokens': estimated,
-                'score': neighbor['score']
+                'score': neighbor.get('pack_priority', neighbor['score'])
             })
         
         # 2. Greedy selection: sort by score, add incrementally until budget exceeded
