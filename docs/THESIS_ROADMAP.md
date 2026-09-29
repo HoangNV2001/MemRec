@@ -4,7 +4,7 @@
 
 **Trạng thái:** Books SASRec dev 2.000 user đã xong; full MemRec self-host
 700 warm-up/200 dev đạt NDCG@5 `0,747918`. Đây là cohort cố định đầy đủ cho
-thí nghiệm Stage-R transition hiện tại theo quyết định của người dùng, **không** phải
+thí nghiệm Stage-R transition vừa kết thúc theo quyết định của người dùng, **không** phải
 paper-style full 7.377 user. Full-dev baseline cũ đã dừng ở 129/7.377
 warm-up và không tự động resume. **Chưa có kết quả chứng minh cải tiến full
 MemRec.** Baseline và method contract ở [BOOKS_DEV700_PROTOCOL.md](BOOKS_DEV700_PROTOCOL.md)
@@ -176,7 +176,7 @@ không tự động áp dụng cho task này. Không chạy GPU từ turn lập 
 | Full MemRec self-host 700/200 | Xong 2026-09-28 | [Books 700/200 protocol](BOOKS_DEV700_PROTOCOL.md) | NDCG@5 `0,747918`, Hit@1 `0,595`, 2 failures; SASRec cùng 200 user `0,343320` |
 | GraphWalk3 co-preference walk | Đã loại | [Decision trail](BOOKS_GRAPH_WALK3_EXPERIMENT.md) | Sai method identity; chỉ CPU fake smoke, không có real-LLM score |
 | Directed Temporal Transition on full-MemRec output | Xong, không đạt gate | [Transfer protocol and result](BOOKS_MEMREC_TRANSITION_TRANSFER.md) | 200 user: one-step `+0,001001` CI cắt 0; PPR `−0,014129`; 0 LLM/GPU mới |
-| Directed one-step evidence in full-MemRec Stage-R | LLM smoke pass; 700/200 đang chạy | [Pre-registered method/progress](BOOKS_MEMREC_TRANSITION_STAGE_R.md) | 102 tests pass; fake 700/200 pass; real LLM 30/30 valid, 88 physical requests; full run đang dùng đúng một GPU, chưa có score full |
+| Directed one-step evidence in full-MemRec Stage-R | Xong, không đạt gate | [Method, provenance, paired result](BOOKS_MEMREC_TRANSITION_STAGE_R.md) | 200 user: NDCG@5 `0,742968` vs full MemRec `0,747918`, Δ `−0,004950`, CI95% `[−0,032974,+0,023356]`; 1.504 requests, GPU đã nhả |
 | Headroom/ablation dev | Chưa chạy | preregistered dev report | — |
 | Method smoke/full held-out | Chưa chạy | hashes, per-user predictions | — |
 | Independent replication | Chưa chạy | second seed/domain | — |
@@ -185,8 +185,9 @@ Các số M7/transition giữ trong historical protocol documents, **không chuy
 vào bảng kết quả full MemRec**.
 
 Allocation phải được resolve lại trước mỗi task, không tái dùng ID nếu job
-đổi. Baseline 700/200 và real-LLM smoke 30 user của method Stage-R transition
-đã xong. Bước tiếp: chạy 700/200 cùng cohort và paired
-analysis. Đây là kết quả exploratory trên cohort đã xem nhãn qua residual;
-held-out giữ kín đến khi method/config được khóa độc lập. Mỗi task GPU thoát
-process và xác nhận VRAM về baseline trước task kế.
+đổi. Baseline và method Stage-R transition đã hoàn tất trên cùng 700/200;
+method không đạt primary improvement gate. Bước tiếp là phân tích headroom
+của full MemRec và đề xuất một cơ chế mới có lý do độc lập, **không** retune
+quota/seed/prompt theo 200 nhãn đã xem. Đây là kết quả exploratory; held-out
+giữ kín đến khi method/config mới được khóa độc lập. Sau mỗi task GPU, process
+phải thoát và VRAM trở về baseline.

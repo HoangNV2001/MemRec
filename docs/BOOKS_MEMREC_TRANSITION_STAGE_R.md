@@ -1,6 +1,6 @@
 # Directed transition evidence inside full MemRec Stage-R — Books 700/200
 
-**Preregistered 2026-09-29; real-LLM 30-user smoke passed, 700/200 run in progress.** This is a bounded integration
+**Completed 2026-09-29; primary improvement gate failed.** This is a bounded integration
 experiment, not a retune of the negative [post-ranking residual transfer](BOOKS_MEMREC_TRANSITION_TRANSFER.md).
 The primary arm is full MemRec with one-step directed transition evidence in
 Stage-R. No PPR, graph-walk, hand-selected case, or search over weights/prompts
@@ -89,11 +89,47 @@ local-only `internal_docs/H100_RESOURCE_RULES.md`.
 | GPU preflight | Passed | Slurm job `17729`, worker-5; GPU 0 idle at 1 MiB, GPU 1 occupied and untouched; exact source commit `89e0d0d` |
 | Real-LLM 30-user smoke | Passed | 30/30 valid rankings, 0 failures, 88 physical requests (exact-input cache allowed), cap 165; promotion/source gate passed, 7/7 artifact hashes verified after local pull; prediction SHA-256 `f13c1e0eb61199cd46e45b2d1feeac295998863f0fcee1ddeb4c4c22e1ed9bee` |
 | Post-smoke GPU release | Passed | GPU 0 returned from 1 MiB baseline to 1 MiB after runner exit; session ended; GPU 1 process was not touched |
-| 700/200 full run | Running | Started under Slurm job `17729` on worker-5, one H100 GPU 1, source commit `d0026f5`; GPU 0 remained free at startup. Same promoted model/config, 2,750-request cap and 570-minute timeout. No result yet. |
-| Paired analysis | Pending | — |
+| 700/200 full run | Passed output gate | Slurm job `17729`, worker-5, one H100 GPU 1, source commit `d0026f5`; 700 warm-up/200 eval, all Stage-R/ReRank/W warm-up calls present, 1 malformed output retained as a miss, 1,504 physical reservations of 2,750 cap. Runtime from GPU snapshots: 3h 19m 09s. |
+| Post-full GPU release | Passed | GPU 1 returned to 1 MiB; process/session ended. GPU 0 occupancy after the run belongs to other activity and was not touched. |
+| Artifact provenance | Passed | 8/8 completion hashes match local copies; independent local `check_books_memrec_full_dev.py --protocol dev700 --expected-pruner-mode transition_one_step` passed. Prediction SHA-256 `ec61dd656303624cfa34fa94875f08c44b34169cd2786f2f43c6606cdfc8dcd4`. |
+| Paired analysis | Complete; improvement gate failed | Method NDCG@5 `0.742968`, full MemRec `0.747918`; delta `−0.004950`, CI95% `[−0.032974,+0.023356]`. |
 
 Smoke artifacts are retained locally under ignored
 `results/full_memrec_books_baselines/books-memrec-transition-stage-r-smoke-v1-hnv/`.
 The real-LLM smoke score is **not** used for method selection or tuning;
 promotion checks schema, cohort, stage counts, request budget, source hash and
-GPU cleanup. The full 700/200 run still requires a fresh idle-card preflight.
+GPU cleanup. The full run artifacts are under ignored
+`results/full_memrec_books_baselines/books-memrec-transition-stage-r-dev700-v1-hnv/`.
+The copied metrics JSON and run log additionally match remote SHA-256 values
+`2e4c3e71123023f9d857ffde5b3501700e7475cf24cdefb4c38c0bf2c3acf25f`
+and `756038ece2f0b48600ce5ae9ceff743193720cedbcf3ab1c4862f895ab9b371c`.
+
+### Paired 200-user result
+
+| Arm | NDCG@5 | Hit@1 | Hit@5 | Malformed rankings |
+|---|---:|---:|---:|---:|
+| Full MemRec baseline | 0.747918 | 0.595 | 0.890 | 2 |
+| **Transition evidence in full MemRec Stage-R** | **0.742968** | **0.575** | **0.900** | **1** |
+
+The primary paired ΔNDCG@5 (method − baseline) is `−0.004950` with 10,000
+paired-bootstrap resamples and seed `20260928`, CI95%
+`[−0.032974,+0.023356]`. Hit@1 delta is `−0.020` (CI95%
+`[−0.060,+0.020]`); Hit@5 delta is `+0.010`. Target NDCG@5 improved for
+19 users, worsened for 23 and was unchanged for 158; 163 full permutations
+changed. Both arms use exactly the same 200 user IDs, 10 candidate IDs per
+user, target IDs, model revision and 700-user warm-up scope. The baseline's
+two malformed outputs and method's one were retained as misses. The method
+successfully ranked one baseline-failed user, but still had lower overall
+NDCG@5. Per-user ranking validation and metric recomputation agree with the
+saved result JSON.
+
+Thus this specific integration **did not improve full MemRec** on the locked
+Books task. The CI includes zero: the observed negative delta is not evidence
+of a reliably harmful effect either. The baseline is already strong, and
+transition successors may displace useful baseline context or add weakly
+related facets; these are hypotheses, not established causes. The method
+remains numerically above SASRec `0.343320` on this cohort, but the thesis
+gate requires beating full MemRec too and is not met. Do not retune neighbor
+quota, seed count, priority or prompt against these now-exposed 200 labels,
+and do not promote this variant to held-out. A new conceptual mechanism needs
+a separately frozen development/evaluation protocol.

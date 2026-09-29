@@ -378,3 +378,16 @@ timestamped-domain results, but it rules out claiming an improvement of
 full MemRec on the locked Books 200-user task from this direct residual
 transfer. Detailed contract, failure-row handling and artifact hashes:
 [BOOKS_MEMREC_TRANSITION_TRANSFER.md](BOOKS_MEMREC_TRANSITION_TRANSFER.md).
+
+## 17. Full-MemRec Stage-R integration — no paired improvement
+
+A subsequent, separately pre-registered Books 700-warm-up/200-user run put
+train-only directed one-step successors into Stage-R's fixed `k=16`,
+`tau=1800` neighbor context and reran all full-MemRec stages. It passed a
+30-user real-LLM smoke and the 200-user output/provenance gate, using the
+same self-host checkpoint and candidates as baseline. NDCG@5 was `0.742968`
+versus full MemRec `0.747918`: paired delta `−0.004950`, CI95%
+`[−0.032974,+0.023356]`. This does not establish improvement. The card was
+released after completion; no held-out run or outcome-based retuning was
+performed. Detailed method, cost, per-user comparison and hashes:
+[BOOKS_MEMREC_TRANSITION_STAGE_R.md](BOOKS_MEMREC_TRANSITION_STAGE_R.md).
