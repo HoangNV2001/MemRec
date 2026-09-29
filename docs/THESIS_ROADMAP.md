@@ -176,7 +176,7 @@ không tự động áp dụng cho task này. Không chạy GPU từ turn lập 
 | Full MemRec self-host 700/200 | Xong 2026-09-28 | [Books 700/200 protocol](BOOKS_DEV700_PROTOCOL.md) | NDCG@5 `0,747918`, Hit@1 `0,595`, 2 failures; SASRec cùng 200 user `0,343320` |
 | GraphWalk3 co-preference walk | Đã loại | [Decision trail](BOOKS_GRAPH_WALK3_EXPERIMENT.md) | Sai method identity; chỉ CPU fake smoke, không có real-LLM score |
 | Directed Temporal Transition on full-MemRec output | Xong, không đạt gate | [Transfer protocol and result](BOOKS_MEMREC_TRANSITION_TRANSFER.md) | 200 user: one-step `+0,001001` CI cắt 0; PPR `−0,014129`; 0 LLM/GPU mới |
-| Directed one-step evidence in full-MemRec Stage-R | LLM smoke pass; chờ 700/200 | [Pre-registered method/progress](BOOKS_MEMREC_TRANSITION_STAGE_R.md) | 102 tests pass; fake 700/200 pass; real LLM 30/30 valid, 88 physical requests, GPU 0 đã nhả; chưa có score full |
+| Directed one-step evidence in full-MemRec Stage-R | LLM smoke pass; 700/200 đang chạy | [Pre-registered method/progress](BOOKS_MEMREC_TRANSITION_STAGE_R.md) | 102 tests pass; fake 700/200 pass; real LLM 30/30 valid, 88 physical requests; full run đang dùng đúng một GPU, chưa có score full |
 | Headroom/ablation dev | Chưa chạy | preregistered dev report | — |
 | Method smoke/full held-out | Chưa chạy | hashes, per-user predictions | — |
 | Independent replication | Chưa chạy | second seed/domain | — |

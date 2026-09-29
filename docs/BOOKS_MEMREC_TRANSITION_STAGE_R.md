@@ -1,6 +1,6 @@
 # Directed transition evidence inside full MemRec Stage-R — Books 700/200
 
-**Preregistered 2026-09-29; real-LLM 30-user smoke passed, 200-user result pending.** This is a bounded integration
+**Preregistered 2026-09-29; real-LLM 30-user smoke passed, 700/200 run in progress.** This is a bounded integration
 experiment, not a retune of the negative [post-ranking residual transfer](BOOKS_MEMREC_TRANSITION_TRANSFER.md).
 The primary arm is full MemRec with one-step directed transition evidence in
 Stage-R. No PPR, graph-walk, hand-selected case, or search over weights/prompts
@@ -89,7 +89,7 @@ local-only `internal_docs/H100_RESOURCE_RULES.md`.
 | GPU preflight | Passed | Slurm job `17729`, worker-5; GPU 0 idle at 1 MiB, GPU 1 occupied and untouched; exact source commit `89e0d0d` |
 | Real-LLM 30-user smoke | Passed | 30/30 valid rankings, 0 failures, 88 physical requests (exact-input cache allowed), cap 165; promotion/source gate passed, 7/7 artifact hashes verified after local pull; prediction SHA-256 `f13c1e0eb61199cd46e45b2d1feeac295998863f0fcee1ddeb4c4c22e1ed9bee` |
 | Post-smoke GPU release | Passed | GPU 0 returned from 1 MiB baseline to 1 MiB after runner exit; session ended; GPU 1 process was not touched |
-| 700/200 full run | Pending | — |
+| 700/200 full run | Running | Started under Slurm job `17729` on worker-5, one H100 GPU 1, source commit `d0026f5`; GPU 0 remained free at startup. Same promoted model/config, 2,750-request cap and 570-minute timeout. No result yet. |
 | Paired analysis | Pending | — |
 
 Smoke artifacts are retained locally under ignored
