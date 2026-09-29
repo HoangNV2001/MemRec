@@ -176,7 +176,7 @@ không tự động áp dụng cho task này. Không chạy GPU từ turn lập 
 | Full MemRec self-host 700/200 | Xong 2026-09-28 | [Books 700/200 protocol](BOOKS_DEV700_PROTOCOL.md) | NDCG@5 `0,747918`, Hit@1 `0,595`, 2 failures; SASRec cùng 200 user `0,343320` |
 | GraphWalk3 co-preference walk | Đã loại | [Decision trail](BOOKS_GRAPH_WALK3_EXPERIMENT.md) | Sai method identity; chỉ CPU fake smoke, không có real-LLM score |
 | Directed Temporal Transition on full-MemRec output | Xong, không đạt gate | [Transfer protocol and result](BOOKS_MEMREC_TRANSITION_TRANSFER.md) | 200 user: one-step `+0,001001` CI cắt 0; PPR `−0,014129`; 0 LLM/GPU mới |
-| Directed one-step evidence in full-MemRec Stage-R | CPU smoke xong; chờ LLM smoke | [Pre-registered method/progress](BOOKS_MEMREC_TRANSITION_STAGE_R.md) | 102 tests pass; 30/30 fake full-agent và 700/200 fake journal; 22/30 có transition evidence trong context; chưa có score LLM |
+| Directed one-step evidence in full-MemRec Stage-R | LLM smoke pass; chờ 700/200 | [Pre-registered method/progress](BOOKS_MEMREC_TRANSITION_STAGE_R.md) | 102 tests pass; fake 700/200 pass; real LLM 30/30 valid, 88 physical requests, GPU 0 đã nhả; chưa có score full |
 | Headroom/ablation dev | Chưa chạy | preregistered dev report | — |
 | Method smoke/full held-out | Chưa chạy | hashes, per-user predictions | — |
 | Independent replication | Chưa chạy | second seed/domain | — |
@@ -185,8 +185,8 @@ Các số M7/transition giữ trong historical protocol documents, **không chuy
 vào bảng kết quả full MemRec**.
 
 Allocation phải được resolve lại trước mỗi task, không tái dùng ID nếu job
-đổi. Baseline 700/200 đã xong. Bước tiếp: real-LLM 30-user smoke cho method
-Stage-R transition; chỉ nếu pass mới chạy 700/200 cùng cohort và paired
+đổi. Baseline 700/200 và real-LLM smoke 30 user của method Stage-R transition
+đã xong. Bước tiếp: chạy 700/200 cùng cohort và paired
 analysis. Đây là kết quả exploratory trên cohort đã xem nhãn qua residual;
 held-out giữ kín đến khi method/config được khóa độc lập. Mỗi task GPU thoát
 process và xác nhận VRAM về baseline trước task kế.

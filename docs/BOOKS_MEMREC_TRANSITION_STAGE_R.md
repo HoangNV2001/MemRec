@@ -1,6 +1,6 @@
 # Directed transition evidence inside full MemRec Stage-R — Books 700/200
 
-**Preregistered 2026-09-29; GPU result pending.** This is a bounded integration
+**Preregistered 2026-09-29; real-LLM 30-user smoke passed, 200-user result pending.** This is a bounded integration
 experiment, not a retune of the negative [post-ranking residual transfer](BOOKS_MEMREC_TRANSITION_TRANSFER.md).
 The primary arm is full MemRec with one-step directed transition evidence in
 Stage-R. No PPR, graph-walk, hand-selected case, or search over weights/prompts
@@ -86,7 +86,14 @@ local-only `internal_docs/H100_RESOURCE_RULES.md`.
 | Fake-LLM full-agent smoke | Passed | 30 warm-up and 30 eval; Stage-R/ReRank/W active, 0 failures, 150 fake requests; not a ranking result |
 | Fake-LLM 700/200 journal dry-run | Passed | 700 warm-up/200 eval, 0 failures, 2,500 fake requests, hard cap 2,750; not a ranking result |
 | Packed evidence check | Passed | 22/30 have transition evidence selected and packed; `k<=16`, estimated context `<=1800` |
-| GPU preflight | Pending | — |
-| Real-LLM 30-user smoke | Pending | — |
+| GPU preflight | Passed | Slurm job `17729`, worker-5; GPU 0 idle at 1 MiB, GPU 1 occupied and untouched; exact source commit `89e0d0d` |
+| Real-LLM 30-user smoke | Passed | 30/30 valid rankings, 0 failures, 88 physical requests (exact-input cache allowed), cap 165; promotion/source gate passed, 7/7 artifact hashes verified after local pull; prediction SHA-256 `f13c1e0eb61199cd46e45b2d1feeac295998863f0fcee1ddeb4c4c22e1ed9bee` |
+| Post-smoke GPU release | Passed | GPU 0 returned from 1 MiB baseline to 1 MiB after runner exit; session ended; GPU 1 process was not touched |
 | 700/200 full run | Pending | — |
 | Paired analysis | Pending | — |
+
+Smoke artifacts are retained locally under ignored
+`results/full_memrec_books_baselines/books-memrec-transition-stage-r-smoke-v1-hnv/`.
+The real-LLM smoke score is **not** used for method selection or tuning;
+promotion checks schema, cohort, stage counts, request budget, source hash and
+GPU cleanup. The full 700/200 run still requires a fresh idle-card preflight.
