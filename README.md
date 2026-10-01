@@ -11,7 +11,9 @@ chính sách Stage-ReRank loại dần candidate và MPSS reward. Chính sách c
 chốt là **Qwen/Qwen3.5-4B fine-tune bằng PPO**; G0 có interface, reward/parser
 tests, split policy khóa, snapshot graph và Stage-W wiring được smoke bằng CPU.
 **Stage-W pseudo-memory với LLM thật chưa được chứng minh sạch, chưa fine-tune,
-chưa chạy SLM/GPU và chưa có score method**.
+chưa có score method**. Ngày 2026-10-01 đã khởi chạy bước chuẩn bị CPU cho smoke
+Qwen3.5-4B; task sẽ kiểm tra card trống rồi chạy 20 mẫu và backward trên một H100.
+Chưa có kết quả smoke/PPO; ledger nằm trong CM-IRank design §0.5.
 
 ## Bản đồ tài liệu — chỉ 5 tài liệu dự án
 
