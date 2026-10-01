@@ -31,16 +31,19 @@ def parse_gpu_snapshot(raw: str) -> list[GPUCard]:
     return cards
 
 
-def compute_gpu_uuids(raw: str) -> set[str]:
-    result = set()
+def compute_gpu_processes(raw: str) -> dict[str, set[int]]:
+    result: dict[str, set[int]] = {}
     for row in csv.reader(StringIO(raw)):
         if not row:
             continue
         if len(row) != 2 or not row[0].strip().startswith("GPU-"):
             raise ValueError("Cannot establish compute-process ownership by GPU")
-        int(row[1].strip())
-        result.add(row[0].strip())
+        result.setdefault(row[0].strip(), set()).add(int(row[1].strip()))
     return result
+
+
+def compute_gpu_uuids(raw: str) -> set[str]:
+    return set(compute_gpu_processes(raw))
 
 
 def select_idle_h100(cards: list[GPUCard], occupied: set[str]) -> GPUCard:
@@ -52,3 +55,33 @@ def select_idle_h100(cards: list[GPUCard], occupied: set[str]) -> GPUCard:
                 and card.uuid not in occupied):
             return card
     raise ValueError("No empty H100: require <20% utilization, <512 MiB and no process")
+
+
+def select_qwen_smoke_gpu(cards: list[GPUCard], occupied: set[str], config: dict) -> GPUCard:
+    """One researcher-approved shared-card exception, never a default policy."""
+    policy = config.get("gpu_policy", "idle_only")
+    if policy == "idle_only":
+        return select_idle_h100(cards, occupied)
+    if (policy != "shared_gpu1_single_smoke_20261001"
+            or config.get("run_id") != "cmirank-qwen35-g0-smoke-v3-sharedgpu1-20261001-hnv"
+            or config.get("scope") != "synthetic_infrastructure_only"
+            or config.get("examples") != 20
+            or config.get("cuda_memory_fraction") != 0.60
+            or config.get("timeout_minutes") != 10):
+        raise ValueError("Shared-GPU exception is limited to the approved single smoke")
+    for card in cards:
+        if (card.index == 1 and card.uuid.startswith("GPU-") and "H100" in card.name
+                and card.total_mib >= 80000 and card.utilization == 0
+                and 0 <= card.used_mib <= 4096):
+            return card
+    raise ValueError("Shared smoke requires GPU 1 at 0% utilization and baseline <=4 GiB")
+
+
+def gpu_release_verified(card: GPUCard, baseline: GPUCard, before: set[int],
+                         after: set[int], *, shared: bool = False) -> bool:
+    """After our child exits, check release without requiring others to exit."""
+    if card.uuid != baseline.uuid:
+        raise ValueError("Release snapshot differs from the selected GPU")
+    if shared:
+        return not (after - before) and card.used_mib <= baseline.used_mib + 128
+    return card.used_mib < 512 and not after

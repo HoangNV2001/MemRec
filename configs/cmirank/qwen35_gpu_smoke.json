@@ -1,7 +1,9 @@
 {
-  "run_id": "cmirank-qwen35-g0-smoke-v3-20261001-hnv",
-  "supersedes_run_id": "cmirank-qwen35-g0-smoke-v2-20261001-hnv",
-  "change_reason": "Clarify that candidate-list square brackets are display delimiters, not part of the bare answer label; no parser, evidence, model, decoding or optimizer change.",
+  "run_id": "cmirank-qwen35-g0-smoke-v3-sharedgpu1-20261001-hnv",
+  "supersedes_run_id": "cmirank-qwen35-g0-smoke-v3-20261001-hnv",
+  "change_reason": "User-approved one-off shared GPU 1 smoke; lower memory cap and timeout. Same v3 prompt, strict parser, evidence, model, decoding and optimizer.",
+  "gpu_policy": "shared_gpu1_single_smoke_20261001",
+  "resource_exception": "Approved by user confirmation on 2026-10-01; this single 20-example infrastructure smoke only. Preserve all pre-existing processes; not permission for shared full runs or PPO.",
   "action_schema_version": "bare-label-clarification-v1",
   "scope": "synthetic_infrastructure_only",
   "model_contract": "configs/cmirank/policy_model_v1.json",
@@ -14,10 +16,10 @@
   "do_sample": false,
   "dtype": "bfloat16",
   "attn_implementation": "sdpa",
-  "cuda_memory_fraction": 0.90,
+  "cuda_memory_fraction": 0.60,
   "backward_examples": 1,
   "optimizer_smoke": "AdamW_one_discarded_format_update",
   "optimizer_lr": 0.000001,
-  "timeout_minutes": 45,
+  "timeout_minutes": 10,
   "notes": "Checks official-model load, 20 synthetic elimination actions, text-backbone backward and one optimizer update. Synthetic update is discarded; no research checkpoint, PPO claim, Books quality result or held-out access."
 }

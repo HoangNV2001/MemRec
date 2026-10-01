@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Authorized train_TTS Slurm step only; select one empty H100 immediately before load.
+# Authorized train_TTS step; default idle-only, with one explicitly approved smoke exception.
 set -euo pipefail
 if [[ -z "${SLURM_JOB_ID:-}" || \
       "$(squeue -j "$SLURM_JOB_ID" -h -o '%u %T %j')" != 'anhntc2 RUNNING train_TTS' ]]; then
@@ -33,11 +33,13 @@ nvidia-smi --query-gpu=index,uuid,name,utilization.gpu,memory.used,memory.total 
   --format=csv,noheader,nounits > "$PREFLIGHT"
 nvidia-smi --query-compute-apps=gpu_uuid,pid --format=csv,noheader,nounits > "$PREFLIGHT_APPS"
 GPU_UUID=$("$MEMREC_PYTHON" - "$PREFLIGHT" "$PREFLIGHT_APPS" <<'PY'
+import json
 from pathlib import Path
 import sys
-from src.cmirank.gpu_resources import parse_gpu_snapshot, compute_gpu_uuids, select_idle_h100
-card = select_idle_h100(parse_gpu_snapshot(Path(sys.argv[1]).read_text()),
-                        compute_gpu_uuids(Path(sys.argv[2]).read_text()))
+from src.cmirank.gpu_resources import parse_gpu_snapshot, compute_gpu_uuids, select_qwen_smoke_gpu
+config = json.loads(Path("configs/cmirank/qwen35_gpu_smoke.json").read_text())
+card = select_qwen_smoke_gpu(parse_gpu_snapshot(Path(sys.argv[1]).read_text()),
+                             compute_gpu_uuids(Path(sys.argv[2]).read_text()), config)
 print(card.uuid)
 PY
 )
@@ -73,14 +75,25 @@ finish() {
 import json
 from pathlib import Path
 import sys
-from src.cmirank.gpu_resources import parse_gpu_snapshot, compute_gpu_uuids
+from src.cmirank.gpu_resources import parse_gpu_snapshot, compute_gpu_processes, gpu_release_verified
 run = Path(sys.argv[1])
 cards = parse_gpu_snapshot((run / "gpus-after.csv").read_text())
-occupied = compute_gpu_uuids((run / "apps-after.csv").read_text())
+before_cards = parse_gpu_snapshot((run / "gpus-before.csv").read_text())
+before = compute_gpu_processes((run / "apps-before.csv").read_text()).get(sys.argv[2], set())
+after = compute_gpu_processes((run / "apps-after.csv").read_text()).get(sys.argv[2], set())
 card = next(value for value in cards if value.uuid == sys.argv[2])
-released = card.used_mib < 512 and card.uuid not in occupied
+baseline = next(value for value in before_cards if value.uuid == sys.argv[2])
+config = json.loads(Path("configs/cmirank/qwen35_gpu_smoke.json").read_text())
+shared = config.get("gpu_policy") == "shared_gpu1_single_smoke_20261001"
+# The launcher has already waited for its own child. Never require another
+# workload to disappear, and never kill baseline or newly observed processes.
+released = gpu_release_verified(card, baseline, before, after, shared=shared)
 record = {"process_exit_code": int(sys.argv[3]), "gpu_uuid": card.uuid,
-          "gpu_used_mib_after": card.used_mib, "gpu_released": released}
+          "gpu_used_mib_after": card.used_mib, "gpu_released": released,
+          "release_scope": "memrec_workload_only" if shared else "whole_card_idle",
+          "baseline_used_mib": baseline.used_mib,
+          "baseline_gpu_pids": sorted(before), "gpu_pids_after": sorted(after),
+          "baseline_processes_still_present": before <= after}
 (run / "cleanup.json").write_text(json.dumps(record, indent=2) + "\n")
 print(json.dumps(record), flush=True)
 if not released:
@@ -94,7 +107,8 @@ PY
 }
 trap finish EXIT
 trap 'exit 130' INT TERM
-timeout --signal=TERM --kill-after=30s 45m "$MEMREC_PYTHON" -u \
+SMOKE_TIMEOUT_MINUTES=$("$MEMREC_PYTHON" -c 'import json; print(json.load(open("configs/cmirank/qwen35_gpu_smoke.json"))["timeout_minutes"])')
+timeout --signal=TERM --kill-after=30s "${SMOKE_TIMEOUT_MINUTES}m" "$MEMREC_PYTHON" -u \
   scripts/cmirank/06_smoke_qwen35_gpu.py --run-dir "$RUN_DIR" \
   > "$RUN_DIR/smoke.log" 2>&1 &
 TASK_PID=$!
