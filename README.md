@@ -16,6 +16,8 @@ nhưng dừng do lỗi serialize log trước inference/backward; GPU đã nhả
 Lỗi log đã được sửa (129 tests pass). Smoke v2 load/backward/optimizer chạy được,
 nhưng chỉ 4/20 output đúng schema; GPU đã nhả sạch. Chưa train PPO hoặc đo ranking
 Books; ledger và bước tiếp theo nằm trong CM-IRank design §0.5.
+Schema đã được làm rõ cho v3 (133 tests pass), nhưng preflight lúc launch không
+còn GPU trống nên dừng trước model load; chưa có kết quả v3.
 
 ## Bản đồ tài liệu — chỉ 5 tài liệu dự án
 
