@@ -1,0 +1,4 @@
+# Isolated Transformers infrastructure smoke. The PPO/VeRL environment is separate.
+torch==2.8.0
+transformers==5.13.0
+accelerate==1.12.0

@@ -1,0 +1,20 @@
+{
+  "run_id": "cmirank-qwen35-g0-smoke-v1-20261001-hnv",
+  "scope": "synthetic_infrastructure_only",
+  "model_contract": "configs/cmirank/policy_model_v1.json",
+  "examples": 20,
+  "seed": 42,
+  "enable_thinking": false,
+  "max_input_tokens": 2048,
+  "max_new_tokens": 128,
+  "batch_size": 1,
+  "do_sample": false,
+  "dtype": "bfloat16",
+  "attn_implementation": "sdpa",
+  "cuda_memory_fraction": 0.90,
+  "backward_examples": 1,
+  "optimizer_smoke": "AdamW_one_discarded_format_update",
+  "optimizer_lr": 0.000001,
+  "timeout_minutes": 45,
+  "notes": "Checks official-model load, 20 synthetic elimination actions, text-backbone backward and one optimizer update. Synthetic update is discarded; no research checkpoint, PPO claim, Books quality result or held-out access."
+}

@@ -6,6 +6,7 @@ Fake scores are NOT research results and do not replace the H100 LLM smoke.
 """
 
 import argparse
+import json
 import os
 import re
 import resource
@@ -88,6 +89,8 @@ def main():
                         help='Use the frozen graph-walk evidence selector')
     parser.add_argument('--transition-stage-r', action='store_true',
                         help='Use train-only directed one-step evidence in Stage-R')
+    parser.add_argument('--cmirank-fidelity-trace', action='store_true',
+                        help='Aggregate target-blind pruner/packer behavior on 20–30 users')
     args = parser.parse_args()
     if args.graph_walk3 and args.transition_stage_r:
         parser.error('Choose only one evidence selector')
@@ -98,6 +101,8 @@ def main():
         args.warmup_user_scope = 'subset'
     elif not 20 <= args.users <= 30:
         parser.error('CPU smoke is intentionally limited to 20–30 users')
+    if args.cmirank_fidelity_trace and (args.dev700 or args.warmup_user_scope != 'eval'):
+        parser.error('CM-IRank fidelity trace requires a 20–30-user eval-scope smoke')
 
     config_name = ('memrec_instructrec-books_dev700_transition_stage_r.yaml'
                    if args.transition_stage_r else
@@ -138,6 +143,38 @@ def main():
         precompute_negatives=False,
     )
     trainer = trainer_module.MemRecTrainer(None, dataset, config, torch.device('cpu'))
+    prune_rows = []
+    pack_rows = []
+    if args.cmirank_fidelity_trace:
+        original_prune = trainer.agent.pruner.prune
+        original_pack = trainer.agent.packer.pack
+
+        def traced_prune(*prune_args, **prune_kwargs):
+            result = original_prune(*prune_args, **prune_kwargs)
+            neighbors = result.get('neighbors', [])
+            items = [row for row in neighbors if row['type'] == 'item']
+            prune_rows.append({
+                'selected': len(neighbors),
+                'items': len(items),
+                'users': len(neighbors) - len(items),
+                'item_metadata_overlap_placeholder': sum(
+                    row.get('metadata_overlap') == 0.5 for row in items),
+                'zero_memory_similarity': sum(
+                    row.get('memory_sim') == 0.0 for row in neighbors),
+            })
+            return result
+
+        def traced_pack(*pack_args, **pack_kwargs):
+            result = original_pack(*pack_args, **pack_kwargs)
+            pack_rows.append({
+                'packed': result['n_neighbors'],
+                'estimated_tokens': result['estimated_tokens'],
+                'has_user_memory_summary': bool(pack_kwargs.get('user_memory_summary')),
+            })
+            return result
+
+        trainer.agent.pruner.prune = traced_prune
+        trainer.agent.packer.pack = traced_pack
     metrics = trainer.evaluate(split='test', save_dir=str(output), parallel=False)
     assert metrics['n_eval_users'] == args.users
     assert metrics['n_rankings'] == args.users
@@ -149,6 +186,35 @@ def main():
     assert metrics['n_warmup_users'] == expected_warmup
     assert metrics['n_stage_w_warmup_calls'] == expected_warmup
     assert trainer.agent.n_stage_w_calls == expected_warmup
+    if args.cmirank_fidelity_trace:
+        if len(prune_rows) != 2 * args.users or len(pack_rows) != len(prune_rows):
+            raise AssertionError('Unexpected CM-IRank trace call count')
+        def summarize(start, end):
+            selected = prune_rows[start:end]
+            packed = pack_rows[start:end]
+            return {
+                'calls': len(selected),
+                'selected_neighbors_total': sum(row['selected'] for row in selected),
+                'packed_neighbors_total': sum(row['packed'] for row in packed),
+                'item_neighbors_total': sum(row['items'] for row in selected),
+                'item_metadata_overlap_placeholder_total': sum(
+                    row['item_metadata_overlap_placeholder'] for row in selected),
+                'zero_memory_similarity_total': sum(
+                    row['zero_memory_similarity'] for row in selected),
+                'has_user_memory_summary_calls': sum(
+                    row['has_user_memory_summary'] for row in packed),
+                'estimated_tokens_max': max(row['estimated_tokens'] for row in packed),
+            }
+        report = {
+            'status': 'CPU_FAKE_LLM_FIDELITY_TRACE_NOT_RANKING_RESULT',
+            'warmup': summarize(0, args.users),
+            'evaluation': summarize(args.users, 2 * args.users),
+            'test_label_stage_w_calls': 0,
+        }
+        output.mkdir(parents=True, exist_ok=True)
+        (output / 'cmirank_fidelity_trace.json').write_text(
+            json.dumps(report, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+        print('CM-IRANK G0 TRACE: ' + json.dumps(report, sort_keys=True))
     print(
         f'CPU WIRING SMOKE PASS: {args.users} ranked / {expected_warmup} warmed; '
         'results are not model performance'

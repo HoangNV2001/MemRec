@@ -206,6 +206,23 @@ Your response should be a JSON object with a single field:
                 }
             }
         }
+
+    def rerank_captured(self, rank_request, *, temperature: float = 0.0,
+                        max_tokens: int = 4000, debug_logger=None) -> List[Dict]:
+        """Replay a target-blind CM-IRank RankRequest through the unchanged path."""
+        kwargs = rank_request.baseline_prompt_kwargs()
+        return self.rerank(
+            user_id=kwargs['user_id'],
+            retrieval_bundle={'facets': kwargs['facets']},
+            candidates=kwargs['candidates'],
+            item_mems=kwargs['item_mems'],
+            instruction=kwargs['instruction'],
+            vanilla_mode=kwargs['vanilla_mode'],
+            upstream_empty_facets_prompt=kwargs['upstream_empty_facets_prompt'],
+            temperature=temperature,
+            max_tokens=max_tokens,
+            debug_logger=debug_logger,
+        )
     
     def rerank(
         self,

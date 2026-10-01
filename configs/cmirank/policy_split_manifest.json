@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "approval_status": "researcher_approved_2026-09-30",
+  "seed": "cmirank-books-v1-draft-20260930",
+  "source_inter_sha256": "891d4007af3e63eef40493520218f644478250ec35d4443faa1d2b96384efc24",
+  "locked_dev_sha256": "ee83fe12d61df57c5678337458c8a2b556d5bb01c2d39542a52832fb4118f2b0",
+  "exposed200_sha256": "5395ee7775d9e5d0add11ed386715c34a002138c282f4f910f775ea90871a837",
+  "split_sha256": {
+    "policy_train": "fd3d1573d7be98e9fbee236c9d317506da509aa40e947ce409448d7680b240d7",
+    "policy_val": "7817f0d6b2de27f84efac0eea91b70560b90c6ccaa1a4de4b3de6123eb18c83d",
+    "integration_exposed": "5395ee7775d9e5d0add11ed386715c34a002138c282f4f910f775ea90871a837"
+  },
+  "pseudo_target_rule": "last_train_interaction_novel_to_prefix",
+  "min_prefix_length": 5,
+  "ineligible_user_ids": {
+    "policy_train": [4704, 4907, 7279],
+    "policy_val": []
+  },
+  "eligible_sha256": {
+    "policy_train": "1f8cacb19f5648ccacd2a5936be89b825519a119cae77c874f9a00dc429d0a22",
+    "policy_val": "7817f0d6b2de27f84efac0eea91b70560b90c6ccaa1a4de4b3de6123eb18c83d"
+  },
+  "counts": {
+    "policy_train": {"users": 1500, "eligible_pseudo_targets": 1497},
+    "policy_val": {"users": 300, "eligible_pseudo_targets": 300}
+  },
+  "training_instruction": "Rank the candidate books by how likely they are to match the user's current preferences.",
+  "notes": "Hash-based split from the locked 2,000-user dev cohort, excluding the exposed 200. Three train users fail only the frozen prefix-length criterion and are excluded without replacement. No final test target or candidate list was used."
+}

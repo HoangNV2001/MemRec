@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "researcher_approved_on": "2026-09-30",
+  "model_id": "Qwen/Qwen3.5-4B",
+  "model_revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+  "source": "https://huggingface.co/Qwen/Qwen3.5-4B",
+  "primary_algorithm": "ppo",
+  "policy_modality": "text_only",
+  "primary_parameterization_target": "full_text_backbone_subject_to_one_h100_t0_gate",
+  "thinking_mode": "unlocked_pending_pre_outcome_format_audit",
+  "trainer_backend": "unlocked_pending_compatibility_audit",
+  "rollout_backend": "unlocked_pending_compatibility_audit",
+  "training_ready": false,
+  "notes": "User-approved model choice. Same official base revision for direct, iterative no-RL, R1-binary PPO, terminal-only PPO, and MPSS PPO arms. No GPU model load, tokenizer check, PPO compatibility test, or VRAM feasibility result yet."
+}

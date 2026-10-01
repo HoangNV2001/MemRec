@@ -152,7 +152,9 @@ class MemRecAgent:
         candidates: List[int],
         instruction: str = None,  # User instruction (like iAgent)
         return_details: bool = False,
-        debug_logger = None
+        debug_logger = None,
+        capture_rank_request: bool = False,
+        rank_snapshot_id: Optional[str] = None,
     ) -> Tuple[List[int], Dict]:
         """
         Rerank candidate items for user (three stages: Pruning → Stage-R → Stage-ReRank)
@@ -163,12 +165,15 @@ class MemRecAgent:
             instruction: User instruction/intent (optional, from dataset)
             return_details: Whether to return detailed information
             debug_logger: Optional debug logger
+            rank_snapshot_id: Provenance hash for opt-in RankRequest capture only
             
         Returns:
             (ranked_items, details)
             - ranked_items: Reranked list of item IDs (descending order)
             - details: Contains facets, scores, retrieval_bundle, etc.
         """
+        if rank_snapshot_id is not None and not capture_rank_request:
+            raise ValueError("rank_snapshot_id requires RankRequest capture")
         # 1. Pruning: Select top-k neighbors (mixing constraint)
         t0 = time.time()
         pruned_subgraph = self.pruner.prune(user_id, self.graph, candidates)
@@ -221,6 +226,26 @@ class MemRecAgent:
         t0 = time.time()
         candidate_list = self._prepare_candidate_list(candidates)
         item_mems = self._get_item_mems(candidates)
+
+        # Opt-in G0 capture at the exact Stage-ReRank boundary.  Normal MemRec
+        # runs do not import CM-IRank or serialize any extra data.  A captured
+        # request contains only what the baseline ranker actually receives,
+        # never a target label or evaluation feedback.
+        rank_request = None
+        if capture_rank_request:
+            if not return_details or self.reranker_mode != "llm":
+                raise ValueError("RankRequest capture requires LLM mode and return_details")
+            from src.cmirank.request import RankRequest
+            rank_request = RankRequest.from_stage_rr_inputs(
+                user_id=user_id,
+                retrieval_bundle=retrieval_bundle,
+                candidates=candidate_list,
+                item_mems=item_mems,
+                instruction=instruction,
+                vanilla_mode=self.vanilla_mode,
+                upstream_empty_facets_prompt=self.upstream_empty_facets_prompt,
+                snapshot_id=rank_snapshot_id,
+            )
         
         # Call different methods based on reranker mode
         if self.reranker_mode == "llm":
@@ -270,6 +295,9 @@ class MemRecAgent:
                 'stage_rr': stage_rr_time
             }
         }
+        if rank_request is not None:
+            details['rank_request'] = rank_request.to_dict()
+            details['rank_request_sha256'] = rank_request.sha256()
         
         if return_details:
             return ranked_items, details
