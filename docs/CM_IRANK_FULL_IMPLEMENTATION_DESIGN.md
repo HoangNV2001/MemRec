@@ -103,6 +103,8 @@ Preparation has its own 40-minute timeout and holds no GPU. The earlier provisio
 
 **V2 follow-up, authorized by the subsequent “làm tiếp đi” request:** the diagnostic serializer now converts only `set`/`frozenset` to sorted JSON arrays; unknown objects and nonfinite numbers still fail rather than being silently stringified. Three CPU regression tests cover deterministic/nested collections, non-mutation and fail-closed behavior. The new run ID is `cmirank-qwen35-g0-smoke-v2-20261001-hnv`; model revision, fixtures, prompt, decoding, context/output caps, optimizer, dtype and memory cap are unchanged. The existing prepared environment and checkpoint will be reused. Preflight found one empty H100 (1 MiB, 0% utilization, no compute process), but the launcher must check again immediately before model load. V2 has not yet reported an outcome; G0 is not promoted.
 
+**V2 launched:** source commit `55f53e8b2e0b9c8d4eb2a4b54843e9216856ca05`. The one status check found `manifest.json` recording RUNNING on the selected single H100, with no summary/failure yet. The original checkpoint hashes and environment versions were preserved. Provisional ETA is 5–15 minutes (no setup/download required), with the unchanged 45-minute timeout and automatic release. The next continuation must inspect the terminal artifacts and verify cleanup before proceeding to any new GPU task; this launch is not a PPO or Books performance result.
+
 ---
 
 # 1. Executive decision

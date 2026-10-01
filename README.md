@@ -13,7 +13,8 @@ tests, split policy khóa, snapshot graph và Stage-W wiring được smoke bằ
 **Stage-W pseudo-memory với LLM thật chưa được chứng minh sạch, chưa fine-tune,
 chưa có score method**. Smoke Qwen3.5-4B ngày 2026-10-01 đã tải/load checkpoint
 nhưng dừng do lỗi serialize log trước inference/backward; GPU đã nhả sạch.
-Chưa pass smoke/PPO; ledger và bước tiếp theo nằm trong CM-IRank design §0.5.
+Lỗi log đã được sửa (129 tests pass) và smoke v2 đã khởi chạy trên một H100.
+Chưa có kết quả v2/PPO; ledger và bước tiếp theo nằm trong CM-IRank design §0.5.
 
 ## Bản đồ tài liệu — chỉ 5 tài liệu dự án
 
