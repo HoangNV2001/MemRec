@@ -51,6 +51,10 @@ def render_step_prompt(request: RankRequest, active_labels: Sequence[str]) -> st
         parts.append(f"[{label}] Title: {title}\nItem memory: {memory}\n")
     parts.append(
         "Choose the single LEAST suitable remaining candidate. "
-        "Return exactly one active label inside <answer>...</answer>.\n"
+        "Return exactly one active label inside <answer>...</answer>. "
+        "Write the bare label (C followed by two digits) between the tags, "
+        "with no square brackets, quotes, spaces, or extra text. "
+        "The square brackets around labels in the candidate list are display "
+        "delimiters, not part of the label.\n"
     )
     return "".join(parts)

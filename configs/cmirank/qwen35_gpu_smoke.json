@@ -1,7 +1,8 @@
 {
-  "run_id": "cmirank-qwen35-g0-smoke-v2-20261001-hnv",
-  "supersedes_run_id": "cmirank-qwen35-g0-smoke-v1-20261001-hnv",
-  "change_reason": "Serialize set-valued Transformers loading diagnostics as deterministic arrays; no prompt, model, decoding or optimizer contract change.",
+  "run_id": "cmirank-qwen35-g0-smoke-v3-20261001-hnv",
+  "supersedes_run_id": "cmirank-qwen35-g0-smoke-v2-20261001-hnv",
+  "change_reason": "Clarify that candidate-list square brackets are display delimiters, not part of the bare answer label; no parser, evidence, model, decoding or optimizer change.",
+  "action_schema_version": "bare-label-clarification-v1",
   "scope": "synthetic_infrastructure_only",
   "model_contract": "configs/cmirank/policy_model_v1.json",
   "examples": 20,
