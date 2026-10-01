@@ -20,11 +20,12 @@ sys.path.insert(0, str(ROOT))
 from src.cmirank.labels import make_labels
 from src.cmirank.parser import parse_action
 from src.cmirank.prompts import render_step_prompt
+from src.cmirank.provenance import artifact_json_dumps
 from src.cmirank.smoke_fixtures import synthetic_rank_requests
 
 
 def save_json(path: Path, value: object) -> None:
-    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
+    path.write_text(artifact_json_dumps(value))
 
 
 def main() -> None:
