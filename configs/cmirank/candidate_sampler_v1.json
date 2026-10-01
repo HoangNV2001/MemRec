@@ -6,6 +6,7 @@
   "selection_order": ["uniform", "popularity_matched", "semantic_hard"],
   "eligible_pool": "static_metadata_with_nonempty_title",
   "metadata_sha256": "69b46870c62e207fca11b6d695d203efef5ee1925f33428f43c1e6eb6ccec88c",
+  "metadata_duplicate_policy": "collapse_identical_asin_title_description_fail_on_conflict",
   "popularity": "interaction_count_in_common_1797_query_prefix_snapshot",
   "popularity_bucket": "floor_log2_count_plus_one",
   "popularity_fallback": "nearest_available_bucket_then_lower_bucket",
@@ -24,7 +25,7 @@
     "device": "cpu"
   },
   "index_build": {
-    "run_id": "cmirank-minilm-candidate-index-v1-20261001-hnv",
+    "run_id": "cmirank-minilm-candidate-index-v2-20261001-hnv",
     "smoke_items": 20,
     "batch_size": 32,
     "cpu_threads": 8,

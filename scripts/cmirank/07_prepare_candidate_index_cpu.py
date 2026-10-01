@@ -8,7 +8,6 @@ Output is a sampler index, not a MemRec memory cache or ranking result.
 from __future__ import annotations
 
 import argparse
-import csv
 import hashlib
 import json
 import os
@@ -21,7 +20,8 @@ import time
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from src.cmirank.candidates import digest_key, item_text, validate_candidate_contract
+from src.cmirank.candidates import digest_key, validate_candidate_contract
+from src.cmirank.metadata import read_metadata_texts
 from src.cmirank.provenance import artifact_json_dumps, file_sha256
 
 CLUSTER_ROOT = Path("/mnt/data/users/anhnct/memrec-hnv")
@@ -71,30 +71,14 @@ def main() -> None:
     source = ROOT / "data/processed/instructrec-books/instructrec-books.meta"
     if file_sha256(source) != config["metadata_sha256"]:
         raise RuntimeError("Metadata hash differs from frozen input")
-    csv.field_size_limit(16 * 1024 * 1024)
-    texts: dict[int, str] = {}
-    seen_ids: set[int] = set()
-    with source.open(encoding="utf-8", newline="") as handle:
-        reader = csv.DictReader(handle, delimiter="\t")
-        if not {"item_id", "title", "description"}.issubset(reader.fieldnames or []):
-            raise ValueError("Unexpected static metadata schema")
-        for row in reader:
-            item_id = int(row["item_id"])
-            if item_id < 0 or item_id in seen_ids:
-                raise ValueError("Duplicate or negative metadata item identity")
-            seen_ids.add(item_id)
-            if row["title"].strip():
-                texts[item_id] = item_text(
-                    row["title"], row["description"],
-                    max_characters=config["encoder"]["max_text_characters"])
+    texts, metadata_audit = read_metadata_texts(
+        source, max_characters=config["encoder"]["max_text_characters"])
     ids = sorted(texts)
     if len(ids) < 20:
         raise RuntimeError("Need at least 20 catalog items")
     smoke_ids = sorted(ids, key=lambda item: (
         digest_key(config["seed"], "encoder-smoke", "catalog_item", item), item))[:20]
-    manifest.update({"metadata_sha256": config["metadata_sha256"],
-                     "metadata_rows": len(seen_ids), "eligible_catalog_items": len(ids),
-                     "empty_title_items_excluded": len(seen_ids) - len(ids)})
+    manifest.update({"metadata_sha256": config["metadata_sha256"], **metadata_audit})
     (run / "manifest.json").write_text(artifact_json_dumps(manifest))
     print(json.dumps({"phase": "metadata_validated", "catalog_items": len(ids)}), flush=True)
 

@@ -22,6 +22,7 @@ def validate_candidate_contract(config: Mapping) -> None:
         "composition": {"uniform": 3, "popularity_matched": 3, "semantic_hard": 3},
         "selection_order": ["uniform", "popularity_matched", "semantic_hard"],
         "eligible_pool": "static_metadata_with_nonempty_title",
+        "metadata_duplicate_policy": "collapse_identical_asin_title_description_fail_on_conflict",
         "popularity": "interaction_count_in_common_1797_query_prefix_snapshot",
         "popularity_bucket": "floor_log2_count_plus_one",
         "popularity_fallback": "nearest_available_bucket_then_lower_bucket",

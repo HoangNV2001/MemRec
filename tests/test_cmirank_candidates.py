@@ -1,4 +1,5 @@
 import json
+import csv
 from pathlib import Path
 
 import numpy as np
@@ -10,6 +11,7 @@ from src.cmirank.candidates import (
     validate_candidate_contract,
 )
 from src.cmirank.policy_inputs import read_train_histories
+from src.cmirank.metadata import read_metadata_texts
 
 
 def sampler():
@@ -139,3 +141,28 @@ def test_train_adapter_rejects_ambiguous_order(tmp_path):
     source.write_text("user_id\titem_id\ttimestamp\n1\t5\t1\n1\t6\t1\n1\t7\t2\n")
     with pytest.raises(ValueError, match="Ambiguous"):
         read_train_histories(source)
+
+
+def test_identical_metadata_duplicates_collapse_without_changing_text(tmp_path):
+    source = tmp_path / "fixture.meta"
+    source.write_text("item_id\tasin\ttitle\tdescription\n1\tA1\tBook\tSummary\n"
+                      "1\tA1\tBook\tSummary\n2\tA2\t\tNo title\n")
+    texts, audit = read_metadata_texts(source, max_characters=100)
+    assert texts == {1: "Title: Book\nDescription: Summary"}
+    assert audit["metadata_rows"] == 3
+    assert audit["metadata_unique_ids"] == 2
+    assert audit["identical_duplicate_rows_collapsed"] == 1
+    assert audit["empty_title_items_excluded"] == 1
+
+
+@pytest.mark.parametrize("field", ["asin", "title", "description"])
+def test_conflicting_metadata_is_not_silently_last_row_wins(tmp_path, field):
+    source = tmp_path / "fixture.meta"
+    first = {"item_id": 1, "asin": "A1", "title": "Book", "description": "Summary"}
+    second = {**first, field: "Different"}
+    with source.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(first), delimiter="\t")
+        writer.writeheader()
+        writer.writerows([first, second])
+    with pytest.raises(ValueError, match="Conflicting"):
+        read_metadata_texts(source, max_characters=100)
