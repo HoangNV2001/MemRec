@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "status": "pre_outcome_implementation_contract_not_training_promotion",
+  "seed": "cmirank-books-candidates-v1-20261001",
+  "composition": {"uniform": 3, "popularity_matched": 3, "semantic_hard": 3},
+  "selection_order": ["uniform", "popularity_matched", "semantic_hard"],
+  "eligible_pool": "static_metadata_with_nonempty_title",
+  "metadata_sha256": "69b46870c62e207fca11b6d695d203efef5ee1925f33428f43c1e6eb6ccec88c",
+  "popularity": "interaction_count_in_common_1797_query_prefix_snapshot",
+  "popularity_bucket": "floor_log2_count_plus_one",
+  "popularity_fallback": "nearest_available_bucket_then_lower_bucket",
+  "shuffle": "sha256_seed_episode_id_slot_not_target_identity_or_component",
+  "encoder": {
+    "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+    "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+    "source": "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2",
+    "dimension": 384,
+    "pooling": "attention_mask_mean_then_l2_normalization",
+    "text_template": "Title: {title}\nDescription: {description}",
+    "whitespace": "collapse",
+    "max_text_characters": 16384,
+    "max_tokens": 256,
+    "dtype": "float32",
+    "device": "cpu"
+  },
+  "index_build": {
+    "run_id": "cmirank-minilm-candidate-index-v1-20261001-hnv",
+    "smoke_items": 20,
+    "batch_size": 32,
+    "cpu_threads": 8,
+    "timeout_minutes": 180
+  },
+  "training_ready": false,
+  "notes": "Training-only positive-anchored negative sampling; never applied to original evaluation candidates. Target, sampling component and similarity stay outside the model input. Full-catalog index follows a 20-item real-encoder technical smoke. Candidate-integrity smoke is 20 real policy users; full shortcut audit and real memory/PPO gates remain required."
+}

@@ -10,6 +10,7 @@
   "thinking_mode": "unlocked_pending_pre_outcome_format_audit",
   "trainer_backend": "unlocked_pending_compatibility_audit",
   "rollout_backend": "unlocked_pending_compatibility_audit",
+  "backend_audit_contract": "configs/cmirank/ppo_backend_audit_v1.json",
   "training_ready": false,
   "notes": "User-approved model choice. Same official base revision for direct, iterative no-RL, R1-binary PPO, terminal-only PPO, and MPSS PPO arms. Synthetic infrastructure v3 passed 20 single-action format checks and one discarded text-backbone AdamW update on 2026-10-01; full N-minus-1 real-memory behavior, PPO compatibility/memory and Books quality remain unverified. See design section 0.5."
 }

@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "audit_date": "2026-10-01",
+  "primary_algorithm": "ppo_with_gae",
+  "training_ready": false,
+  "sources": {
+    "r1_ranker": {"repository": "https://github.com/ulab-uiuc/R1-Ranker", "commit": "d165b7590421eaa54ce11e9d9c86352cca1cfb18"},
+    "verl": {"repository": "https://github.com/verl-project/verl", "commit": "fbb4b3a8bf636f290c9c59fc346f756849e9c241"}
+  },
+  "observations": [
+    "R1's historical Python 3.9 / torch 2.4 / vLLM 0.6 stack is not a demonstrated Qwen3.5 runtime.",
+    "Pinned VeRL supplies a Qwen3.5 FSDP2/vLLM example, but that example uses GRPO, a 35B policy and multiple GPUs: not proof of our PPO actor/critic on one H100.",
+    "Pinned VeRL requires transformers >=5.5.3, !=5.6.0, <5.13; the existing isolated Transformers 5.13.0 infrastructure-smoke environment must not be reused or upgraded into a VeRL training environment."
+  ],
+  "required_next_gates": [
+    "Resolve and freeze an isolated VeRL dependency lock supporting Qwen3.5 text-only actor, reference and value head.",
+    "Verify generation/trainer log-probability parity at identical weights, tokens, masks, dtype and decoding settings.",
+    "Verify full N-minus-1 trajectories, gamma=1 reward placement on each action's final response token, and actor/reference/critic forward/backward.",
+    "Run bounded 20-30 episode PPO smoke including checkpoint save/reload on one genuinely idle H100; record actual peak VRAM and release immediately.",
+    "Do not replace PPO with GRPO or alter model/parameterization/GPU topology without an explicit design amendment."
+  ]
+}
