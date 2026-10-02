@@ -4,7 +4,7 @@
 > **Short name:** **CM-IRank**\
 > **Document role:** source-of-truth implementation/research specification for agents and human reviewers\
 > **Status:** design v1.1 — user-approved model/snapshot amendment; method not yet validated\
-> **Date:** 2026-09-30; execution ledger updated 2026-10-01\
+> **Date:** 2026-09-30; execution ledger updated 2026-10-02\
 > **Primary benchmark:** InstructRec Books unless the thesis scope is explicitly changed by the human researcher\
 > **Primary metric:** NDCG@5\
 > **Compute assumption:** self-hosted LLM/SLM and fine-tuning/RL are in scope. The existing internal GPU runbook allows **one H100 concurrently**; a two-H100 PPO run requires separate human approval and a runbook amendment. No GPU work is authorized by this design alone.
@@ -75,7 +75,7 @@ The method must have a falsifiable research question, a clear formulation, stron
 | Baseline-parity pseudo-graph snapshot | CPU graph audit done; **Stage-W memory not yet proven safe** | Approved roles `train[:-2]` / `train[-2]` / `train[-1]`; smoke 20 first, then all 1,797 eligible query users. Exactly 3,594 query edges removed; full graph hash `22c78a5b483e137f2b0cfff23c6027471c6c553f7313b4c1aa51ec67d9a37921`. No global clock or Stage-W memory state built yet |
 | Pseudo-memory CPU wiring smoke | 20 users passed with fake LLM; **not quality/leakage proof for real LLM** | 20 warm-up Stage-W calls on `train[-2]`, 0 pseudo-target Stage-W writes, 20 target-blind RankRequests; 100 fake logical requests, 0 real requests; smoke-only uniform candidates, not the final sampler |
 | Qwen3.5-4B model contract | Revision pinned; **v3 infrastructure smoke passed: 20/20 valid + backward/one discarded AdamW update** | Target-free single-action synthetic requests only. Peak reserved 34.66 GiB under memory fraction 0.60; GPU released. Full N−1/real-memory smoke, PPO runtime/memory and Books ranking quality remain untested. See §0.5 |
-| Mixed-hardness candidates | CPU implementation + real 20-item encoder smoke passed; full index running | Frozen 3 uniform + 3 popularity-matched + 3 semantic-hard; full common graph for popularity. Reward/component fields separated from policy inputs; no original evaluation lists used. 20-user real-vector candidate audit awaits complete index. See §0.6 |
+| Episode candidates | Full index and older 20-user audit complete; approved uniform-warmup recipe implemented, new smoke/full preparation next | PPO keeps frozen 3+3+3; every warm-up uses nine uniform negatives. Full graph/split unchanged. No original evaluation lists used. See §0.7 |
 | R1/VeRL compatibility audit | Pinned source inspection done; runtime/PPO smoke **not done** | Historical R1 stack cannot be assumed compatible with Qwen3.5; upstream VeRL example is GRPO/multi-GPU, not our one-card PPO gate. G0 not passed |
 
 **Pre-outcome researcher decisions, 2026-09-30:** The primary policy base is now **`Qwen/Qwen3.5-4B`**, replacing the proposed Qwen2.5-3B; the R1 binary-reward, terminal-only, direct/no-RL and MPSS arms must all use the same Qwen3.5-4B base for attribution. The official Hub revision `851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a` is pinned in `configs/cmirank/policy_model_v1.json`; at the time of this decision no weights had been downloaded or loaded. See §0.5 for the subsequent failed infrastructure smoke. Qwen2.5-3B remains a *fact about the R1-Ranker paper*, not this project's primary model. For each eligible policy user with `train=[..., warmup, target]`, the approved pseudo-episode roles are `graph=train[:-2]`, `Stage-W feedback=train[-2]`, and reward-only `pseudo-target=train[-1]`. This changes the earlier one-edge graph-only audit; the superseding audit is recorded below. Neither decision was based on CM-IRank ranking outcomes, which do not yet exist. PPO/backend compatibility remains to be verified before training.
@@ -158,7 +158,21 @@ The bounded launcher `run_candidate_index_cpu.sh` uses eight CPUs inside the aut
 
 **V2 single status check:** the real encoder smoke **passed 20/20 items** in **3.78 s**; finite FP32 384-dimensional unit vectors, batch-order max absolute difference **0.0**, pinned weight/tokenizer/loading hashes recorded. Metadata audit confirms all 234,074 repeated rows are identical; 42 unique items have empty titles and are excluded under the pre-outcome eligibility rule, leaving **190,714 catalog items**. Full indexing started only after the smoke pass. First full batch: 32 items in **1.72 s**, implying roughly **171 minutes** for the whole index if sustained. Provisional ETA **about 3 hours CPU-only**, not GPU time; first-batch extrapolation is uncertain, and the 180-minute hard stop remains unchanged. No repeated polling, GPU reservation, trained checkpoint or ranking outcome. The downstream 20-user candidate smoke has not yet run.
 
-**Additional train-side metadata boundary check:** all **1,797 pseudo-targets** belong to the nonempty-title pool. Two warm-up positives (users **4671 and 7065**) do not. The original test/validation suffix identities were not used. The current 20-user smoke does not include those two users and therefore must not be promoted as proof that all warm-up sets can use mixed semantic negatives. No user was dropped/replaced, no title imputed, and no outcome-informed setting changed. A pre-outcome researcher question is pending: use **uniform nine negatives for every warm-up set**, retaining 3+3+3 only for actual PPO pseudo-episodes, or first resolve missing-title warm-up metadata under a new contract. Uniform warm-up would be a single global policy, not a special-case rule for those two users. This choice does not block the outcome-free catalog index, but must be locked before full real Stage-W/Stage-R cache generation. The v2 smoke and loading diagnostics were retrieved and both SHA-256 verified; full index/audit/cleanup artifacts remain pending.
+**Additional train-side metadata boundary check:** all **1,797 pseudo-targets** belong to the nonempty-title pool. Two warm-up positives (users **4671 and 7065**) do not. The original test/validation suffix identities were not used. The old 20-user smoke does not include those two users and cannot prove full warm-up coverage. No user was dropped/replaced, no title imputed, and no outcome-informed setting changed. The uniform-warm-up proposal was awaiting signoff here; it was **approved 2026-10-02**, as recorded in §0.7 below.
+
+### 0.7 Approved warm-up policy and continued data preparation — 2026-10-02
+
+**Researcher decision locked:** use **one positive + nine uniform negatives for every warm-up event**, not a per-user fallback; retain **3 uniform + 3 popularity-matched + 3 semantic-hard negatives for PPO pseudo-episodes**. Keep all **1,497 train + 300 validation** eligible users, the original snapshot/split, and original evaluation candidates. No missing-title imputation or silent user exclusion. `configs/cmirank/episode_candidates_v1.json` pins this decision separately from the unchanged pseudo sampler/index contract. Warm-up negatives use the same existing nonempty-title eligible pool; the positive must have a static metadata identity but need not have a title or an encoder vector. The positive identity is never treated as a negative, and the user's graph prefix and own pseudo-target are excluded from warm-up negatives.
+
+**Completed index inspected:** v2 produced all **190,714 × 384** FP32 vectors, total elapsed **6,410.80 s (~107 min)**, indexing **6,382.38 s**. Its older mixed/mixed 20-user integrity audit passed **40 sets** in **50.78 s**. Cleanup exit **0**, child exited, no GPU requested. All **17** remote artifacts, including vectors, were copied locally and SHA-256 verified. This is a successful metadata index, **not** a real-memory cache or a PPO/quality result. Keep the older audit immutable; it does not certify the newly approved uniform/mixed episode recipe.
+
+**New execution contract:** `UniformWarmupSampler` needs no semantic embedding for the positive and applies the same rule to every user. Both phases return the same target-free candidate allowlist and keep reward/component annotations separate. Heap-based selection replaces full sorting without changing SHA-256 keys or order; regression tests establish selection equivalence, not a tuned sampler. The common graph remains hash `22c78a5b483e137f2b0cfff23c6027471c6c553f7313b4c1aa51ec67d9a37921`.
+
+The updated `08_audit_candidates_cpu.py` first smokes **20 real users**, deliberately including users 4671/7065 plus the smallest remaining eligible IDs. This is boundary-test coverage, not method/user selection by ranking quality. It validates **40** phase-specific candidate sets, exact component counts, replay equality, metadata identity, prefix/gold exclusion and policy/reward separation. A full **1,797-user / 3,594-set** candidate preparation is allowed only with the matching successful smoke report, source commit, config/index/snapshot/split hashes and intact smoke rows. Full reuses all 40 smoke sets byte-for-byte. All other policy users remain in the same frozen train/validation groups.
+
+`run_policy_candidates_cpu.sh` is CPU-only (eight CPUs inside Slurm, GPU visibility empty), with five-minute smoke and 60-minute full timeouts and a task-owned lock/run/PID/cleanup. It neither rebuilds the index nor installs packages nor touches other workloads. Scope is **preparing training inputs**, not full policy training; the statistical shortcut audit, fresh real Stage-W/Stage-R provenance, matched controls and one-card PPO gates remain open. Real memory generation must use the approved episode artifacts rather than the old mixed warm-up cache.
+
+**Verification before launch:** **179 CPU tests passed**, including uniform warm-up with a known positive outside the text index, unchanged hash-order selection, approved-recipe/coverage validation and fail-closed smoke promotion for changed source, graph, recipe, cohort or rows. Shell syntax, Python compilation and whitespace checks passed. No model/API call, outcome metric, new user exclusion or GPU task was introduced by this implementation.
 
 ---
 
@@ -964,11 +978,13 @@ Do not train only on 20-candidate R1 format and then silently transfer; that may
 
 ## 13.2 Deterministic mixed-hardness sampler
 
-Default v1 composition per episode:
+Default v1 composition per **PPO pseudo-target episode** (not Stage-W warm-up):
 
 - 3 uniform eligible negatives;
 - 3 popularity-matched negatives;
 - 3 text-semantic hard negatives.
+
+**Researcher-approved 2026-10-02 amendment:** every Stage-W warm-up candidate set instead uses nine uniform negatives, with no per-user fallback or title imputation. The canonical episode contract is `configs/cmirank/episode_candidates_v1.json`; the mixed sampler/index contract remains unchanged. See §0.7 for the missing-title boundary and required smoke coverage.
 
 Constraints for every negative:
 

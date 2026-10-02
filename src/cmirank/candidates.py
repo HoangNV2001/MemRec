@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 import hashlib
+import heapq
 from typing import Collection, Mapping, Sequence
 
 import numpy as np
@@ -86,6 +87,47 @@ class CandidateSet:
                                         for key, value in self.negative_components.items()}}
 
 
+def shuffle_candidates(items: Sequence[int], *, seed: str, episode_id: str) -> tuple[int, ...]:
+    """Shuffle all identities identically, independently of target/component."""
+    canonical = sorted(items)
+    if len(canonical) != 10 or len(set(canonical)) != 10:
+        raise ValueError("Need exactly ten unique candidate identities")
+    slots = sorted(range(10), key=lambda slot: (
+        digest_key(seed, episode_id, "shuffle_slot", slot), slot))
+    return tuple(canonical[slot] for slot in slots)
+
+
+class UniformWarmupSampler:
+    """One uniform-nine policy for *all* warm-up events; no encoder/labels.
+
+    A positive may have an empty title, but must have a known metadata identity.
+    The negative pool remains the same frozen eligible catalog as PPO sampling.
+    """
+
+    def __init__(self, item_ids: Sequence[int], catalog_ids: Collection[int], *, seed: str):
+        ids = tuple(int(item) for item in item_ids)
+        catalog = frozenset(int(item) for item in catalog_ids)
+        if (not seed or len(ids) < 10 or ids != tuple(sorted(set(ids)))
+                or any(item < 0 for item in catalog) or not set(ids) <= catalog):
+            raise ValueError("Need a sorted unique catalog subset and explicit seed")
+        self.item_ids, self.catalog_ids, self.seed = ids, catalog, seed
+
+    def sample(self, episode_id: str, positive: int, allowed_prefix: Collection[int], *,
+               additionally_forbidden: Collection[int] = ()) -> CandidateSet:
+        if not episode_id or positive not in self.catalog_ids:
+            raise ValueError("Warm-up positive lacks a known static metadata identity")
+        if positive in allowed_prefix:
+            raise ValueError("Warm-up positive is not novel to its graph prefix")
+        blocked = {positive, *allowed_prefix, *additionally_forbidden}
+        eligible = (item for item in self.item_ids if item not in blocked)
+        uniform = heapq.nsmallest(9, eligible, key=lambda item: (
+            digest_key(self.seed, episode_id, "uniform", item), item))
+        if len(uniform) != 9:
+            raise ValueError("Not enough eligible unique warm-up negatives")
+        ordered = shuffle_candidates([positive, *uniform], seed=self.seed, episode_id=episode_id)
+        return CandidateSet(episode_id, ordered, positive, {"uniform": tuple(uniform)})
+
+
 class MixedCandidateSampler:
     """Frozen catalog vectors must align with sorted, unique item IDs.
 
@@ -130,15 +172,15 @@ class MixedCandidateSampler:
         if len(eligible) < 9:
             raise ValueError("Not enough eligible unique negatives")
 
-        uniform = sorted(eligible, key=lambda item: (
-            digest_key(self.seed, episode_id, "uniform", item), item))[:3]
+        uniform = heapq.nsmallest(3, eligible, key=lambda item: (
+            digest_key(self.seed, episode_id, "uniform", item), item))
         blocked.update(uniform)
         bucket = popularity_bucket(self.popularity.get(positive, 0))
-        popular = sorted((item for item in eligible if item not in blocked),
+        popular = heapq.nsmallest(3, (item for item in eligible if item not in blocked),
                          key=lambda item: (
                              abs(int(self.buckets[self.positions[item]]) - bucket),
                              int(self.buckets[self.positions[item]]),
-                             digest_key(self.seed, episode_id, "popularity", item), item))[:3]
+                             digest_key(self.seed, episode_id, "popularity", item), item))
         blocked.update(popular)
         scores = self.vectors @ self.vectors[self.positions[positive]]
         # Stable score ordering; hash-break exact ties. O(pool) argpartition
@@ -154,10 +196,8 @@ class MixedCandidateSampler:
                               digest_key(self.seed, episode_id, "semantic_tie", item), item))[:3]
         # Shuffle slot numbers after canonically sorting *all* IDs: no positive
         # marker, target identity, or negative-component label enters this key.
-        all_items = sorted([positive, *uniform, *popular, *semantic])
-        slots = sorted(range(10), key=lambda slot: (
-            digest_key(self.seed, episode_id, "shuffle_slot", slot), slot))
-        ordered = tuple(all_items[slot] for slot in slots)
+        ordered = shuffle_candidates([positive, *uniform, *popular, *semantic],
+                                     seed=self.seed, episode_id=episode_id)
         return CandidateSet(episode_id, ordered, positive,
                             {"uniform": tuple(uniform),
                              "popularity_matched": tuple(popular),

@@ -6,12 +6,13 @@ import numpy as np
 import pytest
 
 from src.cmirank.candidates import (
-    MixedCandidateSampler, digest_key, item_text, popularity_bucket,
+    MixedCandidateSampler, UniformWarmupSampler, digest_key, item_text, popularity_bucket,
     popularity_from_snapshot,
     validate_candidate_contract,
 )
 from src.cmirank.policy_inputs import read_train_histories
 from src.cmirank.metadata import read_metadata_texts
+from src.cmirank.candidate_artifacts import validate_episode_contract, smoke_user_ids
 
 
 def sampler():
@@ -166,3 +167,55 @@ def test_conflicting_metadata_is_not_silently_last_row_wins(tmp_path, field):
         writer.writerows([first, second])
     with pytest.raises(ValueError, match="Conflicting"):
         read_metadata_texts(source, max_characters=100)
+
+
+def test_uniform_warmup_accepts_known_positive_outside_text_index_without_imputation():
+    model = UniformWarmupSampler(range(30), range(31), seed="uniform-test")
+    row = model.sample("blank-title-user", 30, [0, 1], additionally_forbidden=[2])
+    assert len(set(row.candidate_ids)) == 10 and 30 in row.candidate_ids
+    assert set(row.negative_components) == {"uniform"}
+    assert len(row.negative_components["uniform"]) == 9
+    assert not set(row.candidate_ids) & {0, 1, 2}
+    assert row == model.sample("blank-title-user", 30, [1, 0], additionally_forbidden=[2])
+    assert set(row.policy_input()) == {"episode_id", "candidate_ids"}
+    with pytest.raises(ValueError, match="metadata identity"):
+        model.sample("unknown-item", 31, [0])
+
+
+def test_heap_optimization_preserves_frozen_hash_order_and_pseudo_selection():
+    model = sampler()
+    row = model.sample("u2", 10, [0, 1])
+    eligible = [i for i in range(30) if i not in {0, 1, 10}]
+    expected = sorted(eligible, key=lambda i: (
+        digest_key(model.seed, "u2", "uniform", i), i))[:3]
+    assert row.negative_components["uniform"] == tuple(expected)
+    uniform = UniformWarmupSampler(range(30), range(30), seed="uniform-test")
+    warmup = uniform.sample("u2", 10, [0, 1])
+    expected = sorted(eligible, key=lambda i: (
+        digest_key(uniform.seed, "u2", "uniform", i), i))[:9]
+    assert warmup.negative_components["uniform"] == tuple(expected)
+
+
+def test_approved_episode_contract_covers_both_missing_title_users_without_cohort_change():
+    root = Path(__file__).resolve().parents[1]
+    config = json.loads((root / "configs/cmirank/episode_candidates_v1.json").read_text())
+    validate_episode_contract(config, config["pseudo_contract_sha256"])
+    users = smoke_user_ids(list(range(7200)), config)
+    assert users == [*range(18), 4671, 7065]
+    assert len(users) == 20
+    with pytest.raises(ValueError, match="coverage"):
+        smoke_user_ids(list(range(100)), config)
+
+
+@pytest.mark.parametrize("change", ["composition", "imputation", "approval", "cohort", "pseudo_hash"])
+def test_episode_contract_cannot_weaken_the_approved_boundary(change):
+    root = Path(__file__).resolve().parents[1]
+    config = json.loads((root / "configs/cmirank/episode_candidates_v1.json").read_text())
+    pseudo_hash = config["pseudo_contract_sha256"]
+    if change == "composition": config["warmup"]["composition"] = {"semantic_hard": 9}
+    if change == "imputation": config["warmup"]["missing_title_imputation"] = True
+    if change == "approval": config["approval_status"] = "draft"
+    if change == "cohort": config["cohort_changes_allowed"] = True
+    if change == "pseudo_hash": config["pseudo_contract_sha256"] = "different"
+    with pytest.raises(ValueError, match="not the approved"):
+        validate_episode_contract(config, pseudo_hash)

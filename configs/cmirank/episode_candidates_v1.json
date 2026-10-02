@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "approval_status": "researcher_approved_2026-10-02",
+  "pseudo_contract_sha256": "41b759e1cf7087df76a28b654c529aa73f314a382d942bfc851a4afbab738b38",
+  "index_manifest_sha256": "2ce2201ffef375a56f6a25c52d7904c663296cf1edd64d3aa69de5220683872e",
+  "warmup": {
+    "composition": {"uniform": 9},
+    "seed": "cmirank-books-warmup-uniform-v1-20261002",
+    "negative_pool": "same_nonempty_title_catalog_as_pseudo_sampler",
+    "positive": "train_minus_two_metadata_row_required_title_may_be_empty",
+    "forbidden_negatives": "graph_prefix_and_own_pseudo_target",
+    "missing_title_imputation": false
+  },
+  "pseudo": {"composition": {"uniform": 3, "popularity_matched": 3, "semantic_hard": 3}},
+  "smoke_users": 20,
+  "smoke_include_user_ids": [4671, 7065],
+  "smoke_selection": "required_metadata_boundary_users_plus_smallest_remaining_eligible_ids",
+  "cohort_changes_allowed": false,
+  "training_ready": false,
+  "notes": "One global warm-up policy, not a fallback for selected users. Preserve the existing frozen pseudo sampler/index. Coverage users are diagnostic smoke selection only; full cohort and original evaluation candidates are unchanged."
+}
