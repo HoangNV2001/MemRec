@@ -174,6 +174,12 @@ The updated `08_audit_candidates_cpu.py` first smokes **20 real users**, deliber
 
 **Verification before launch:** **179 CPU tests passed**, including uniform warm-up with a known positive outside the text index, unchanged hash-order selection, approved-recipe/coverage validation and fail-closed smoke promotion for changed source, graph, recipe, cohort or rows. Shell syntax, Python compilation and whitespace checks passed. No model/API call, outcome metric, new user exclusion or GPU task was introduced by this implementation.
 
+**Launched:** source `554d19f9635d5857815510aede4523eb3c03119b` tested/pushed, pulled as an exact clean commit, then started `cmirank-policy-candidates-v1-20261002-hnv` inside the authorized eight-CPU step. The chain first runs the approved 20-user boundary smoke and only then the gated full candidate preparation. It holds no GPU; a resource inspection found one idle H100 but it was not reserved for CPU preprocessing. This does not launch PPO, change a cohort, or grant full real-memory-cache promotion. One status check will establish smoke outcome/progress/ETA; terminal full artifacts and cleanup must be verified on continuation.
+
+**Single status check:** the approved smoke **passed 20 users / 40 sets in 27.67 s**, including both metadata-boundary users 4671 and 7065. Every warm-up uses nine uniform negatives; every pseudo-episode retains the locked 3+3+3 mix. History collisions and warm-up negatives containing the user's own pseudo-target are both **zero**. Original evaluation candidates/instructions/suffix identities were not accessed; physical LLM requests **0**. The smoke report and 40 candidate rows were retrieved locally; both SHA-256 hashes match the remote artifacts. This is candidate integrity, not a recommendation-quality result or proof that the statistical shortcut/real-memory gates have passed.
+
+Full preparation started only after that pass. At the single inspection it had completed **201 / 1,797 users in 105.04 s**; the latest 100-user interval took 52.65 s, implying **roughly 15–17 minutes total CPU time**, about **14 minutes remaining at that inspection**, subject to throughput variation. The 60-minute hard timeout remains. No repeated polling or GPU reservation. Next continuation: verify all **3,594** full candidate sets, byte-for-byte reuse of the 40 smoke sets, artifact hashes and terminal cleanup; then implement fresh real Stage-W/Stage-R memory-cache smoke and the separate PPO compatibility gates. `training_ready` remains **false**.
+
 ---
 
 # 1. Executive decision
