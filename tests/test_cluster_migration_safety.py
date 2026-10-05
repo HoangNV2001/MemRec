@@ -161,3 +161,24 @@ def test_named_reader_acl_adds_no_group_world_or_reader_write_permission():
     entries = [struct.unpack("<HHI", blob[start:start + 8]) for start in range(4, len(blob), 8)]
     assert entries == [(1, 6, 0xFFFFFFFF), (2, 4, 1052), (4, 0, 0xFFFFFFFF),
                        (16, 4, 0xFFFFFFFF), (32, 0, 0xFFFFFFFF)]
+
+
+def test_private_donor_snapshot_is_hash_bound_and_requires_original_metadata(tmp_path):
+    import os
+    module = migration_module()
+    source, staging = tmp_path / "source", tmp_path / "staging"
+    source.mkdir(); staging.mkdir()
+    original, private = source / "private.json", staging / "private.json"
+    original.write_text("opaque-original-bytes"); original.chmod(0o600)
+    private.write_bytes(original.read_bytes()); private.chmod(0o600)
+    info = original.stat()
+    rows = {"private.json": {"snapshot_path": str(private), "size": info.st_size,
+        "mtime_ns": info.st_mtime_ns, "mode": 0o600, "sha256": module.sha256(private)}}
+    assert module.inventory(source, hash_files=True, protected=rows)["private.json"]["sha256"] == module.sha256(original)
+    private.write_text("tampered-copy")
+    with pytest.raises(RuntimeError, match="snapshot changed"):
+        module.inventory(source, hash_files=True, protected=rows)
+    private.write_bytes(original.read_bytes())
+    os.utime(original, ns=(info.st_atime_ns, info.st_mtime_ns + 100))
+    with pytest.raises(RuntimeError, match="source metadata changed"):
+        module.inventory(source, hash_files=True, protected=rows)

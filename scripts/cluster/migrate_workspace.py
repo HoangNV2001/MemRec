@@ -37,7 +37,7 @@ def save(path: Path, value) -> None:
     path.write_text(json.dumps(value, sort_keys=True, indent=2, allow_nan=False) + "\n")
 
 
-def inventory(root: Path, *, hash_files: bool, record_runtime_sockets: bool = False) -> dict:
+def inventory(root: Path, *, hash_files: bool, record_runtime_sockets: bool = False, protected: dict | None = None) -> dict:
     """Never follow symlinks; reject special files and changing file contents."""
     rows, inode_hashes, queue = {}, {}, [root]
     while queue:
@@ -55,7 +55,16 @@ def inventory(root: Path, *, hash_files: bool, record_runtime_sockets: bool = Fa
                 row.update(kind="file", size=before.st_size)
                 if hash_files:
                     inode = (before.st_dev, before.st_ino)
-                    row["sha256"] = inode_hashes.get(inode) or sha256(path)
+                    if protected and rel in protected:
+                        staged = protected[rel]
+                        if (before.st_size != staged["size"] or before.st_mtime_ns != staged["mtime_ns"]
+                                or row["mode"] != staged["mode"]):
+                            raise RuntimeError("Protected source metadata changed; obtain a fresh donor snapshot")
+                        if sha256(Path(staged["snapshot_path"])) != staged["sha256"]:
+                            raise RuntimeError("Private protected-file snapshot changed")
+                        row["sha256"] = staged["sha256"]
+                    else:
+                        row["sha256"] = inode_hashes.get(inode) or sha256(path)
                     inode_hashes[inode] = row["sha256"]
                     after = path.stat()
                     if (after.st_size, after.st_mtime_ns, after.st_ino) != (before.st_size, before.st_mtime_ns, before.st_ino):
@@ -187,6 +196,15 @@ def main() -> None:
             if path.exists():
                 path.rename(archive / name)
     started = time.monotonic()
+    private_stage = work / "protected-source-hnv"
+    donor_path = private_stage / "donor-manifest.json"
+    protected = {}
+    if donor_path.exists():
+        donor = json.loads(donor_path.read_text())
+        from scripts.cluster.grant_migration_read import FILES
+        if donor["source_root"] != str(source) or set(donor["files"]) != set(FILES):
+            raise RuntimeError("Unreviewed private donor scope")
+        protected = {name: {**row, "snapshot_path": str(private_stage / name)} for name, row in donor["files"].items()}
     def phase(name, **fields):
         record = {"phase": name, "elapsed_seconds": time.monotonic() - started,
                   "source": str(source), "destination": str(destination), "source_deleted": False,
@@ -209,13 +227,18 @@ def main() -> None:
         file_list.write_bytes(b"\0".join(name.encode() for name in selected) + b"\0")
         flags = ["-aH", "--no-owner", "--no-group"]
         phase("copy_smoke_20", source_entries=len(metadata), source_logical_bytes=logical_bytes)
-        subprocess.run(["rsync", *flags, "--from0", f"--files-from={file_list}", str(source) + "/", str(sample_root) + "/"], check=True)
+        subprocess.run(["rsync", *flags, *[f"--exclude=/{name}" for name in protected],
+                        "--from0", f"--files-from={file_list}", str(source) + "/", str(sample_root) + "/"], check=True)
         for rel in selected:
-            if sha256(source / rel) != sha256(sample_root / rel) or (source / rel).stat().st_size != (sample_root / rel).stat().st_size:
+            readable_source = Path(protected[rel]["snapshot_path"]) if rel in protected else source / rel
+            if rel in protected:
+                (sample_root / rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(readable_source, sample_root / rel)
+            if sha256(readable_source) != sha256(sample_root / rel) or readable_source.stat().st_size != (sample_root / rel).stat().st_size:
                 raise RuntimeError(f"Twenty-file copy smoke failed: {rel}")
         save(work / "copy-smoke.json", {"status": "PASS", "files": selected, "count": 20, "rsync_flags": flags})
         phase("source_full_sha256", copy_smoke_passed=True)
-        original = inventory(source, hash_files=True, record_runtime_sockets=True)
+        original = inventory(source, hash_files=True, record_runtime_sockets=True, protected=protected)
         save(work / "source-manifest.json", original)
         destination.mkdir()
         destination.chmod(stat.S_IMODE(source.stat().st_mode))
@@ -223,9 +246,14 @@ def main() -> None:
         with (work / "rsync-hnv.log").open("w") as log:
             if any(any(char in name for char in "*?[]") for name in excluded):
                 raise RuntimeError("Runtime socket exclusion needs literal-name review")
-            exclusions = [f"--exclude=/{name}" for name in excluded]
+            exclusions = [f"--exclude=/{name}" for name in (*excluded, *protected)]
             subprocess.run(["rsync", *flags, *exclusions, "--partial", "--info=stats2", str(source) + "/", str(destination) + "/"],
                            check=True, stdout=log, stderr=subprocess.STDOUT)
+        for name, row in protected.items():
+            target = destination / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(row["snapshot_path"], target)
+            target.chmod(row["mode"])
         phase("destination_full_sha256")
         copied = inventory(destination, hash_files=True)
         compare(portable_rows(original), copied)
@@ -270,13 +298,15 @@ def main() -> None:
                             "--repo", str(target_repo), "--output-dir", str(work / "cpu-smoke-hnv")],
                            env=env, check=True, stdout=log, stderr=subprocess.STDOUT)
         phase("final_source_unchanged_sha256")
-        compare(original, inventory(source, hash_files=True, record_runtime_sockets=True))
+        compare(original, inventory(source, hash_files=True, record_runtime_sockets=True, protected=protected))
         require_allocation()  # Receipt must not claim success after losing the reservation.
         receipt = {"status": "COPY_VERIFIED_RELOCATED_CPU_SMOKE_PASS_SOURCE_NOT_DELETED",
             "source_root": str(source), "destination_root": str(destination), "source_deleted": False,
             "source_entries": len(original), "source_logical_bytes": logical_bytes,
             "copied_entries": len(copied), "nonportable_runtime_socket_count": len(excluded),
             "runtime_socket_inventory_sha256": sha256(work / "nonportable-runtime-sockets.json"),
+            "protected_file_snapshot_count": len(protected),
+            "final_donor_checksum_review_required_before_source_delete": bool(protected),
             "source_manifest_sha256": sha256(work / "source-manifest.json"),
             "copied_manifest_sha256": sha256(work / "copied-manifest.json"),
             "relocation_journal_sha256": sha256(work / "relocation-journal.json"),
