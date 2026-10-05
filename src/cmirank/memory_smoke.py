@@ -26,7 +26,7 @@ def load_memory_contract(root: Path, version: int) -> tuple[dict, str]:
     base_sha = file_sha256(base_path)
     if version == 1:
         return config, base_sha
-    if version not in (2, 3):
+    if version not in (2, 3, 4):
         raise ValueError("Unsupported memory smoke version")
     delta_path = root / "configs/cmirank/real_memory_smoke_v2.json"
     delta = json.loads(delta_path.read_text())
@@ -40,7 +40,7 @@ def load_memory_contract(root: Path, version: int) -> tuple[dict, str]:
     config["run_id"] = delta["run_id"]
     config["device_binding_delta"] = delta
     hashes = {"base_sha256": base_sha, "delta_sha256": file_sha256(delta_path)}
-    if version == 3:
+    if version >= 3:
         identity_path = root / "configs/cmirank/real_memory_smoke_v3.json"
         identity_delta = json.loads(identity_path.read_text())
         if identity_delta != {"schema_version": 3, "predecessor_contract_sha256": hashes["delta_sha256"],
@@ -52,6 +52,22 @@ def load_memory_contract(root: Path, version: int) -> tuple[dict, str]:
         config["run_id"] = identity_delta["run_id"]
         config["device_identity_delta"] = identity_delta
         hashes["identity_delta_sha256"] = file_sha256(identity_path)
+    if version == 4:
+        role_path = root / "configs/cmirank/real_memory_smoke_v4.json"
+        role_delta = json.loads(role_path.read_text())
+        expected = {"schema_version": 4,
+            "approval_status": "researcher_continue_after_explicit_evidence_role_proposal_2026-10-05",
+            "predecessor_contract_sha256": hashes["identity_delta_sha256"],
+            "run_id": "cmirank-real-memory-smoke-v4-20261005-hnv",
+            "change_only": "stage_r_visible_candidate_citations_are_role_warnings_not_invented_ids",
+            "candidate_context_citations": "retain_raw_upstream_output_record_role_warning_no_semantic_safety_claim",
+            "unknown_context_ids": "hard_fail", "schema_labels_provenance_stage_w_gates": "unchanged_hard_fail",
+            "model_prompt_data_decoding_changes": False, "output_repair": False, "training_ready": False}
+        if role_delta != expected:
+            raise ValueError("V4 may classify only visible candidate citations; other hard gates unchanged")
+        config["run_id"] = role_delta["run_id"]
+        config["evidence_role_delta"] = role_delta
+        hashes["evidence_role_delta_sha256"] = file_sha256(role_path)
     return config, object_sha256(hashes)
 
 
@@ -102,23 +118,64 @@ def validate_scores(scores: list, candidates: list[int]) -> None:
             raise ValueError("Ranker score must be finite and between zero and one")
 
 
-def validate_retrieval(details: dict, uid: int) -> dict:
-    """Literal structural grounding, not semantic entailment or a new pruner."""
+def inspect_retrieval_grounding(details: dict, uid: int) -> dict:
+    """Classify citations by INPUT role, without rewriting outputs or using gold.
+
+    Candidate context is visible in the upstream Stage-R prompt but is not
+    collaborative evidence. This distinction is a diagnostic, not a claim that
+    citing candidates demonstrates user preference or a clean memory graph.
+    """
     packed = details["packed_context"]["neighbors_text"]
-    allowed = set(re.findall(r"\[(User-\d+|Item-\d+)\]", packed)) | {f"User-{uid}"}
+    neighbors = set(re.findall(r"\[(User-\d+|Item-\d+)\]", packed))
+    candidate_ids = [int(value) for value in re.findall(
+        r"^\d+\. \[(\d+)\]", details["packed_context"].get("candidates_text", ""), re.MULTILINE)]
+    if "rank_request" in details:
+        request = RankRequest.from_dict(details["rank_request"])
+        if candidate_ids != [row["id"] for row in request.candidates]:
+            raise ValueError("Visible Stage-R candidate identities differ from captured RankRequest")
+    candidates = {f"Item-{item}" for item in candidate_ids}
+    bundle = details["retrieval_bundle"]
+    citations = []
+    def classify(identifier, origin, index):
+        role = ("collaborative_neighbor" if identifier in neighbors else
+                "personal_user" if identifier == f"User-{uid}" else
+                "candidate_context" if identifier in candidates else "unknown_context")
+        citations.append({"identifier": identifier, "origin": origin, "index": index, "input_role": role})
+    for index, facet in enumerate(bundle["facets"]):
+        for identifier in facet["supporting_neighbors"]:
+            classify(identifier, "facet_support", index)
+    for index, edge in enumerate(bundle["support_edges"]):
+        classify(edge["from"], "support_edge_from", index)
+    candidate_citations = [row for row in citations if row["input_role"] == "candidate_context"]
+    unknown_citations = [row for row in citations if row["input_role"] == "unknown_context"]
+    return {"facet_count": len(bundle["facets"]), "packed_neighbors": details["packed_context"]["n_neighbors"],
+            "selected_neighbors": len(details["pruned_subgraph"]["neighbors"]),
+            "visible_neighbor_ids": sorted(neighbors), "visible_candidate_ids": candidate_ids,
+            "citations": citations, "candidate_context_citations": candidate_citations,
+            "unknown_context_citations": unknown_citations,
+            "collaborative_only_citations": not candidate_citations and not unknown_citations,
+            "semantic_grounding_proven": False}
+
+
+def validate_retrieval(details: dict, uid: int, *, candidate_context_warning: bool = False) -> dict:
+    """V1–3 retain collab-only hard fail; approved v4 diagnoses visible candidates.
+
+    Neither mode permits invented IDs, invalid values, malformed schema or wrong
+    target-user edges. Neither mode certifies semantic entailment.
+    """
+    audit = inspect_retrieval_grounding(details, uid)
     bundle = details["retrieval_bundle"]
     if not bundle["facets"]:
         raise ValueError("Empty Stage-R facets cannot validate a real-memory smoke")
     for facet in bundle["facets"]:
         if (not facet["facet"].strip() or not 0 <= facet["confidence"] <= 1
-                or set(facet["supporting_neighbors"]) - allowed):
+                or audit["unknown_context_citations"]
+                or (not candidate_context_warning and audit["candidate_context_citations"])):
             raise ValueError("Stage-R facet has invalid confidence or out-of-context support IDs")
     for edge in bundle["support_edges"]:
-        if (edge["from"] not in allowed or edge["to"] != f"User-{uid}"
-                or not 0 <= edge["w"] <= 1):
+        if edge["to"] != f"User-{uid}" or not 0 <= edge["w"] <= 1:
             raise ValueError("Stage-R support edge is not grounded in its visible context")
-    return {"facet_count": len(bundle["facets"]), "packed_neighbors": details["packed_context"]["n_neighbors"],
-            "selected_neighbors": len(details["pruned_subgraph"]["neighbors"])}
+    return audit
 
 
 def validate_write(result: dict, mutation: dict, details: dict, uid: int,
@@ -139,7 +196,8 @@ def validate_write(result: dict, mutation: dict, details: dict, uid: int,
         raise ValueError("Stage-W did not create both personal and clicked-item memory")
 
 
-def run_memory_smoke(agent, *, inputs: dict, rows: list[dict], user_ids: list[int], emit) -> dict:
+def run_memory_smoke(agent, *, inputs: dict, rows: list[dict], user_ids: list[int], emit,
+                     candidate_context_warning: bool = False) -> dict:
     """Serial, all-smoke-warmups first, then read-only pseudo ranking.
 
     `emit(name, row)` must durably append JSON before the next event. Labels stay
@@ -154,6 +212,8 @@ def run_memory_smoke(agent, *, inputs: dict, rows: list[dict], user_ids: list[in
         raise ValueError("Duplicate episode")
     initial_hash = memory_sha256(agent.storage)
     requests = []
+    warning_users = {"warmup": [], "pseudo": []}
+    candidate_citations = 0
     counters = {"warmup": 0, "pseudo": 0}
     for kind in ("warmup", "pseudo"):
         for uid in user_ids:
@@ -176,7 +236,13 @@ def run_memory_smoke(agent, *, inputs: dict, rows: list[dict], user_ids: list[in
             emit("retrieval-trace", {"episode_id": row["policy_input"]["episode_id"],
                                     "details": details, "ranked_ids": ranked})
             validate_scores(details["rerank_scores"], candidates)
-            grounding = validate_retrieval(details, uid)
+            # Persist the role diagnostic even when a later hard gate fails.
+            diagnostic = inspect_retrieval_grounding(details, uid)
+            emit("grounding-audit", {"episode_id": row["policy_input"]["episode_id"], **diagnostic})
+            grounding = validate_retrieval(details, uid, candidate_context_warning=candidate_context_warning)
+            if grounding["candidate_context_citations"]:
+                warning_users[kind].append(uid)
+                candidate_citations += len(grounding["candidate_context_citations"])
             if memory_sha256(agent.storage) != before:
                 raise ValueError("Stage-R/ReRank mutated frozen memory")
             request = RankRequest.from_dict(details["rank_request"])
@@ -218,5 +284,8 @@ def run_memory_smoke(agent, *, inputs: dict, rows: list[dict], user_ids: list[in
             "stage_r_calls": 40, "stage_rerank_calls": 40,
             "target_blind_rank_requests": len(requests), "rank_request_hashes": requests,
             "initial_memory_sha256": initial_hash, "final_memory_sha256": memory_sha256(agent.storage),
+            "candidate_context_warning_policy": candidate_context_warning,
+            "candidate_context_warning_user_ids": warning_users,
+            "candidate_context_citation_occurrences": candidate_citations,
             "warmup_scope_user_ids": user_ids, "full_1797_memory_cache": False,
             "semantic_memory_grounding_proven": False, "training_ready": False}

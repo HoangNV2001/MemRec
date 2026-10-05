@@ -11,7 +11,8 @@ import pytest
 
 from scripts.smoke_full_memrec_cpu import FakeJSONClient
 from src.cmirank.memory_smoke import (
-    load_memory_contract, memory_sha256, run_memory_smoke, validate_memory_contract, validate_retrieval, validate_scores, validate_write,
+    inspect_retrieval_grounding, load_memory_contract, memory_sha256, run_memory_smoke,
+    validate_memory_contract, validate_retrieval, validate_scores, validate_write,
 )
 from src.cmirank.snapshot import make_prefix_snapshot, snapshot_sha256
 from src.memory.storage import MemoryStorage
@@ -20,7 +21,7 @@ from src.models.memrec_agent import MemRecAgent
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def make_fixture():
+def make_fixture(client_class=FakeJSONClient):
     users = list(range(20))
     histories = {uid: (100, 101, 102, 103, 104, 200 + uid, 300 + uid) for uid in users}
     metadata = {i: {"title": f"Book {i}", "description": "Static metadata"} for i in range(100, 510)}
@@ -32,7 +33,7 @@ def make_fixture():
                          "policy_input": {"episode_id": f"user-{uid}-{kind}",
                                           "candidate_ids": [labels[uid], *range(500, 509)]},
                          "reward_audit": {"positive_item_id": labels[uid]}})
-    client = FakeJSONClient()
+    client = client_class()
     client.fail_fast = True
     agent = MemRecAgent(snapshot, client, k=16, tau=1800, n_facets=7, temperature=0.0,
                         max_tokens=4000, fanout_cap=8, reranker_mode="llm", pruner_mode="llm_rules",
@@ -163,7 +164,7 @@ def test_v2_binding_delta_preserves_entire_memory_experiment():
     assert effective == base
     assert sha != base_sha
     with pytest.raises(ValueError):
-        load_memory_contract(ROOT, 4)
+        load_memory_contract(ROOT, 5)
 
 
 def test_numeric_binding_requires_inventory_uuid_and_pci_order_agreement():
@@ -194,3 +195,93 @@ def test_cuda_and_nvml_uuid_representations_match_full_identity_only():
     for malformed in (value[:-1], " " + value, value + " extra", "MIG-" + value, "GPU-GPU-" + value, None):
         with pytest.raises(ValueError):
             canonical_gpu_uuid(malformed)
+
+
+def grounding_fixture(identifier="Item-200"):
+    return {"packed_context": {"neighbors_text": "[Item-100] book", "n_neighbors": 1,
+                               "candidates_text": "**Candidates to Rank:**\n1. [200] book\n2. [201] other book"},
+            "pruned_subgraph": {"neighbors": [{"type": "item", "id": 100}]},
+            "retrieval_bundle": {"facets": [{"facet": "interest", "confidence": .8,
+                                             "supporting_neighbors": ["Item-100", identifier]}],
+                                 "support_edges": [{"from": identifier, "to": "User-0", "w": .8}]}}
+
+
+def test_visible_candidate_role_warning_does_not_repair_or_relax_historical_gate():
+    details = grounding_fixture()
+    original = deepcopy(details)
+    audit = inspect_retrieval_grounding(details, 0)
+    assert len(audit["candidate_context_citations"]) == 2 and not audit["unknown_context_citations"]
+    assert audit["collaborative_only_citations"] is audit["semantic_grounding_proven"] is False
+    with pytest.raises(ValueError):
+        validate_retrieval(details, 0)  # v1–3 must remain rejected.
+    assert validate_retrieval(details, 0, candidate_context_warning=True) == audit
+    assert details == original
+
+
+@pytest.mark.parametrize("failure", ["invented_id", "unpacked_neighbor", "wrong_user", "confidence", "edge_weight"])
+def test_role_warning_never_permits_unknown_ids_or_invalid_values(failure):
+    details = grounding_fixture()
+    if failure == "invented_id":
+        details["retrieval_bundle"]["facets"][0]["supporting_neighbors"].append("Item-999")
+    elif failure == "unpacked_neighbor":
+        details["pruned_subgraph"]["neighbors"].append({"type": "item", "id": 999})
+        details["retrieval_bundle"]["support_edges"][0]["from"] = "Item-999"
+    elif failure == "wrong_user":
+        details["retrieval_bundle"]["support_edges"][0]["to"] = "User-1"
+    elif failure == "confidence":
+        details["retrieval_bundle"]["facets"][0]["confidence"] = 1.1
+    else:
+        details["retrieval_bundle"]["support_edges"][0]["w"] = -0.1
+    with pytest.raises(ValueError):
+        validate_retrieval(details, 0, candidate_context_warning=True)
+
+
+def test_v4_keeps_all_model_data_and_device_fields_and_no_promotion():
+    v3, hash3 = load_memory_contract(ROOT, 3)
+    v4, hash4 = load_memory_contract(ROOT, 4)
+    delta = v4.pop("evidence_role_delta")
+    assert delta["output_repair"] is delta["training_ready"] is False
+    assert delta["unknown_context_ids"] == "hard_fail"
+    v4["run_id"] = v3["run_id"]
+    assert v4 == v3 and hash4 != hash3
+
+
+def test_candidate_role_classification_is_independent_of_positive_labels():
+    details = grounding_fixture()
+    before = inspect_retrieval_grounding(details, 0)
+    details["reward_audit"] = {"positive_item_id": 200, "positive_position": 0}
+    assert inspect_retrieval_grounding(details, 0) == before
+    details["reward_audit"] = {"positive_item_id": 201, "positive_position": 1}
+    assert inspect_retrieval_grounding(details, 0) == before
+
+
+def test_visible_candidates_must_agree_with_actual_rankrequest_order():
+    from src.cmirank.request import RankRequest
+    details = grounding_fixture()
+    details["rank_request"] = RankRequest.from_stage_rr_inputs(user_id=0,
+        retrieval_bundle=details["retrieval_bundle"], candidates=[{"id": 201}, {"id": 200}]).to_dict()
+    with pytest.raises(ValueError, match="identities differ"):
+        validate_retrieval(details, 0, candidate_context_warning=True)
+
+
+def test_v4_full_fake_pipeline_records_every_warning_with_zero_output_repair():
+    import re
+    class CandidateCitingFake(FakeJSONClient):
+        def generate_json(self, messages, properties, **kwargs):
+            result = super().generate_json(messages, properties, **kwargs)
+            if "facets" in properties:
+                first = re.findall(r"^1\. \[(\d+)\]", messages[0]["content"], re.MULTILINE)[0]
+                result["facets"][0]["supporting_neighbors"] = [f"Item-{first}"]
+            return result
+    users, rows, client, agent, inputs = make_fixture(CandidateCitingFake)
+    recorded = defaultdict(list)
+    result = run_memory_smoke(agent, inputs=inputs, rows=rows, user_ids=users,
+        candidate_context_warning=True, emit=lambda name, row: recorded[name].append(deepcopy(row)))
+    assert client.total_physical_requests == 100
+    assert result["candidate_context_citation_occurrences"] == 40
+    assert result["candidate_context_warning_user_ids"] == {"warmup": users, "pseudo": users}
+    assert len(recorded["grounding-audit"]) == 40
+    assert result["semantic_memory_grounding_proven"] is result["training_ready"] is False
+    for trace in recorded["retrieval-trace"]:
+        first = trace["details"]["rank_request"]["candidates"][0]["id"]
+        assert trace["details"]["facets"][0]["supporting_neighbors"] == [f"Item-{first}"]

@@ -1,0 +1,13 @@
+{
+  "schema_version": 4,
+  "approval_status": "researcher_continue_after_explicit_evidence_role_proposal_2026-10-05",
+  "predecessor_contract_sha256": "659b0eedab1970314653c512241ba7a7c2a8dcbeeaa58f478ea18f0cd21f6ba2",
+  "run_id": "cmirank-real-memory-smoke-v4-20261005-hnv",
+  "change_only": "stage_r_visible_candidate_citations_are_role_warnings_not_invented_ids",
+  "candidate_context_citations": "retain_raw_upstream_output_record_role_warning_no_semantic_safety_claim",
+  "unknown_context_ids": "hard_fail",
+  "schema_labels_provenance_stage_w_gates": "unchanged_hard_fail",
+  "model_prompt_data_decoding_changes": false,
+  "output_repair": false,
+  "training_ready": false
+}

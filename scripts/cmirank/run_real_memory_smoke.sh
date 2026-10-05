@@ -15,8 +15,8 @@ if [[ "$(git rev-parse HEAD)" != "$MEMREC_EXPECTED_COMMIT" || \
   echo 'Exact clean deployed source required' >&2; exit 2
 fi
 MEMREC_PYTHON="$MEMREC_ROOT/envs/llm-hnv/bin/python"
-MEMREC_CONTRACT_VERSION=${1:-3}
-case "$MEMREC_CONTRACT_VERSION" in 1|2|3) ;; *) echo 'Unsupported smoke version' >&2; exit 2;; esac
+MEMREC_CONTRACT_VERSION=${1:-4}
+case "$MEMREC_CONTRACT_VERSION" in 1|2|3|4) ;; *) echo 'Unsupported smoke version' >&2; exit 2;; esac
 RUN_ID=$("$MEMREC_PYTHON" - "$MEMREC_CONTRACT_VERSION" <<'PY'
 from pathlib import Path
 import sys

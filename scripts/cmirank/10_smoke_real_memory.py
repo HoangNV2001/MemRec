@@ -137,7 +137,7 @@ def main() -> None:
     parser.add_argument("--index-dir", type=Path, required=True)
     parser.add_argument("--candidate-run-dir", type=Path, required=True)
     parser.add_argument("--audit-dir", type=Path, required=True)
-    parser.add_argument("--contract-version", choices=(1, 2, 3), type=int, default=3)
+    parser.add_argument("--contract-version", choices=(1, 2, 3, 4), type=int, default=4)
     args = parser.parse_args()
     config, contract_sha = load_memory_contract(ROOT, args.contract_version)
     run = args.run_dir.resolve()
@@ -282,7 +282,8 @@ def main() -> None:
             append_row(run, name, row)
             if name == "progress":
                 print(json.dumps({**row, "elapsed_seconds": time.monotonic() - started}), flush=True)
-        result = run_memory_smoke(agent, inputs=inputs, rows=rows, user_ids=user_ids, emit=emit)
+        result = run_memory_smoke(agent, inputs=inputs, rows=rows, user_ids=user_ids, emit=emit,
+                                  candidate_context_warning=args.contract_version == 4)
         stats = client.get_token_stats()
         if (stats["total_requests"] != 100 or stats["total_cache_hits"] != 0
                 or stats["total_physical_requests"] != client.request_budget.used
@@ -294,6 +295,8 @@ def main() -> None:
                        "peak_observed_gpu_used_mib": peak_used_mib,
                        "gpu_telemetry_scope": "physical_memory_sampled_after_each_user_not_allocator_peak",
                        "artifact_sha256": {p.name: file_sha256(p) for p in run.glob("*.jsonl")}})
+        if result["candidate_context_citation_occurrences"]:
+            result["status"] = "REAL_MEMORY_SMOKE_PASS_WITH_ROLE_WARNINGS_CLEANUP_AND_SEMANTIC_REVIEW_REQUIRED"
         (run / "report.json").write_text(artifact_json_dumps(result))
         exit_code = 0
     except BaseException as error:

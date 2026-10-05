@@ -33,8 +33,11 @@ không có cờ trong 7 probe cố định**; semantic-centrality probe NDCG@5 c
 Bước tiếp theo là **20-user real LM_Mem/LM_Rec smoke** (§0.11), giữ nguyên baseline
 và tách target khỏi policy input. Smoke v1 dừng trước inference do vLLM 0.10.2
 không nhận GPU UUID trong binding; v2 dừng ở kiểm UUID do khác tiền tố giữa
-PyTorch/NVML. GPU đã nhả sạch sau cả hai lượt. V3 sửa riêng adapter/identity check,
-không thay model/prompt; chưa có kết quả memory/SLM/PPO.
+PyTorch/NVML. V3 đã inference nhưng dừng sau 2 request: Stage-R cite một candidate
+đã thấy trong prompt như collaborative neighbor; chưa có Stage-W/user hoàn tất.
+GPU đã nhả sạch sau cả ba lượt. V4 theo amendment §0.12 giữ nguyên upstream output,
+ghi candidate-visible thành cảnh báo vai trò; ID bịa/lỗi schema/label vẫn hard-fail.
+**237 tests CPU pass**; chưa có memory smoke hoàn tất, fine-tune hay score CM-IRank.
 
 ## Bản đồ tài liệu — chỉ 5 tài liệu dự án
 
