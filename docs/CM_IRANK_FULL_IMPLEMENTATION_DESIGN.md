@@ -351,6 +351,8 @@ The helper **never deletes a source, cancels a job, kills a step, or starts a GP
 
 **Reviewed portability exception:** explicitly inventory/exclude **only** filesystem sockets whose type is `S_IFSOCK` and relative path is inside `cache/tmp/`. Save their exact names/types/reason and count/hash separately; report the resulting source/destination count difference. All regular data/models/code/env/results, directories and symlinks still require full parity; any other special file or a socket outside the temporary runtime scope still hard-fails. No original socket/source is deleted by this repair. Two additional CPU tests cover this narrow classification and outside-scope rejection. The empty pre-copy failure may be retried only after archiving its state; a nonempty/partial destination is not overwritten by that flag.
 
+**Migration retry launched:** **253 tests passed**; exact tested tool source `92e4fcd117c6b2d315a307ce5fec1c3ef99ef16e` pushed/pulled clean. The old empty failed state is archived; the retry runs CPU-only with four CPUs, 150-minute hard cap, under the freshly resolved user-owned reserved allocation. Work/receipts live in the separate `memrec-migration-20261005-hnv` folder, not in either data tree being compared. Both keep-busy generator steps, both GPUs and the reserved batch job are untouched. One retry status inspection will establish twenty-file smoke/progress/ETA; **source deletion remains disabled until independent receipt review**. Do not pull new source into the active migration helper checkout.
+
 ---
 
 # 1. Executive decision
