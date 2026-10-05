@@ -119,3 +119,32 @@ def test_relocation_changes_generated_runtime_only_and_does_not_mutate_hardlink_
     assert historical.read_text() == f'{{"historical_root":"{source}"}}'
     assert model.read_bytes() == (str(source) + "\0weights").encode()
     assert (target / "internal-link").resolve() == model
+
+
+def test_only_runtime_unix_sockets_are_explicitly_inventoried_not_silently_skipped(tmp_path):
+    import socket
+    module = migration_module()
+    root = tmp_path / "root"
+    (root / "cache/tmp").mkdir(parents=True)
+    endpoint = socket.socket(socket.AF_UNIX)
+    endpoint.bind(str(root / "cache/tmp/ipc"))
+    try:
+        with pytest.raises(RuntimeError, match="Special file"):
+            module.inventory(root, hash_files=True)
+        rows = module.inventory(root, hash_files=True, record_runtime_sockets=True)
+        assert rows["cache/tmp/ipc"]["kind"] == "nonportable_runtime_socket"
+        assert "cache/tmp/ipc" not in module.portable_rows(rows)
+    finally:
+        endpoint.close()
+
+
+def test_socket_outside_project_runtime_cache_remains_a_hard_failure(tmp_path):
+    import socket
+    module = migration_module()
+    endpoint = socket.socket(socket.AF_UNIX)
+    endpoint.bind(str(tmp_path / "ipc"))
+    try:
+        with pytest.raises(RuntimeError, match="Special file"):
+            module.inventory(tmp_path, hash_files=True, record_runtime_sockets=True)
+    finally:
+        endpoint.close()

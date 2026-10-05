@@ -37,7 +37,7 @@ def save(path: Path, value) -> None:
     path.write_text(json.dumps(value, sort_keys=True, indent=2, allow_nan=False) + "\n")
 
 
-def inventory(root: Path, *, hash_files: bool) -> dict:
+def inventory(root: Path, *, hash_files: bool, record_runtime_sockets: bool = False) -> dict:
     """Never follow symlinks; reject special files and changing file contents."""
     rows, inode_hashes, queue = {}, {}, [root]
     while queue:
@@ -60,10 +60,16 @@ def inventory(root: Path, *, hash_files: bool) -> dict:
                     after = path.stat()
                     if (after.st_size, after.st_mtime_ns, after.st_ino) != (before.st_size, before.st_mtime_ns, before.st_ino):
                         raise RuntimeError(f"Source changed while hashing: {rel}")
+            elif record_runtime_sockets and stat.S_ISSOCK(before.st_mode) and rel.startswith("cache/tmp/"):
+                row.update(kind="nonportable_runtime_socket", reason="unix_ipc_endpoint_not_persistent_data")
             else:
                 raise RuntimeError(f"Special file needs review, not a silent skip: {rel}")
             rows[rel] = row
     return rows
+
+
+def portable_rows(rows: dict) -> dict:
+    return {name: row for name, row in rows.items() if row["kind"] != "nonportable_runtime_socket"}
 
 
 def smoke_selection(rows: dict) -> list[str]:
@@ -150,6 +156,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--work-dir", type=Path, required=True)
     parser.add_argument("--expected-commit", required=True)
+    parser.add_argument("--resume-empty-reviewed-failure", action="store_true")
     args = parser.parse_args()
     job = require_allocation()
     if os.environ.get("CUDA_VISIBLE_DEVICES") != "":
@@ -165,7 +172,15 @@ def main() -> None:
     work = args.work_dir
     work.mkdir(parents=True, exist_ok=True)
     if (work / "state.json").exists():
-        raise RuntimeError("Existing migration attempt: review before resuming or overwriting")
+        previous = json.loads((work / "state.json").read_text())
+        if (not args.resume_empty_reviewed_failure or previous.get("phase") != "FAILED_SOURCE_PRESERVED"
+                or previous.get("source") != str(source) or previous.get("destination") != str(destination)
+                or (work / "source-manifest.json").exists() or (work / "copy-smoke.json").exists()):
+            raise RuntimeError("Existing nonempty/unreviewed attempt must not be overwritten")
+        archive = work / "failed-precopy-attempt-hnv"
+        archive.mkdir()
+        shutil.copy2(work / "state.json", archive / "state.json")
+        (work / "state.json").unlink()
     started = time.monotonic()
     def phase(name, **fields):
         record = {"phase": name, "elapsed_seconds": time.monotonic() - started,
@@ -176,7 +191,9 @@ def main() -> None:
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(InterruptedError("migration timeout/interrupt")))
     try:
         phase("source_metadata_inventory")
-        metadata = inventory(source, hash_files=False)
+        metadata = inventory(source, hash_files=False, record_runtime_sockets=True)
+        excluded = {name: row for name, row in metadata.items() if row["kind"] == "nonportable_runtime_socket"}
+        save(work / "nonportable-runtime-sockets.json", excluded)
         logical_bytes = sum(row.get("size", 0) for row in metadata.values())
         if shutil.disk_usage(destination.parent).free < logical_bytes + 10 * 2**30:
             raise RuntimeError("Insufficient space for full copy plus safety reserve")
@@ -193,22 +210,25 @@ def main() -> None:
                 raise RuntimeError(f"Twenty-file copy smoke failed: {rel}")
         save(work / "copy-smoke.json", {"status": "PASS", "files": selected, "count": 20, "rsync_flags": flags})
         phase("source_full_sha256", copy_smoke_passed=True)
-        original = inventory(source, hash_files=True)
+        original = inventory(source, hash_files=True, record_runtime_sockets=True)
         save(work / "source-manifest.json", original)
         destination.mkdir()
         destination.chmod(stat.S_IMODE(source.stat().st_mode))
         phase("full_rsync", source_entries=len(original), source_logical_bytes=logical_bytes)
         with (work / "rsync-hnv.log").open("w") as log:
-            subprocess.run(["rsync", *flags, "--partial", "--info=stats2", str(source) + "/", str(destination) + "/"],
+            if any(any(char in name for char in "*?[]") for name in excluded):
+                raise RuntimeError("Runtime socket exclusion needs literal-name review")
+            exclusions = [f"--exclude=/{name}" for name in excluded]
+            subprocess.run(["rsync", *flags, *exclusions, "--partial", "--info=stats2", str(source) + "/", str(destination) + "/"],
                            check=True, stdout=log, stderr=subprocess.STDOUT)
         phase("destination_full_sha256")
         copied = inventory(destination, hash_files=True)
-        compare(original, copied)
+        compare(portable_rows(original), copied)
         save(work / "copied-manifest.json", copied)
         phase("verified_byte_identical_relocating_generated_runtime")
         changes = relocate_runtime(source, destination, work)
         save(work / "relocation-journal.json", changes)
-        compare(relocated_expected(original, changes), inventory(destination, hash_files=True))
+        compare(relocated_expected(portable_rows(original), changes), inventory(destination, hash_files=True))
         target_repo = destination / "repo/MemRec-hnv"
         source_git = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=target_repo, text=True).strip()
         if subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=no"], cwd=target_repo, text=True):
@@ -245,10 +265,13 @@ def main() -> None:
                             "--repo", str(target_repo), "--output-dir", str(work / "cpu-smoke-hnv")],
                            env=env, check=True, stdout=log, stderr=subprocess.STDOUT)
         phase("final_source_unchanged_sha256")
-        compare(original, inventory(source, hash_files=True))
+        compare(original, inventory(source, hash_files=True, record_runtime_sockets=True))
+        require_allocation()  # Receipt must not claim success after losing the reservation.
         receipt = {"status": "COPY_VERIFIED_RELOCATED_CPU_SMOKE_PASS_SOURCE_NOT_DELETED",
             "source_root": str(source), "destination_root": str(destination), "source_deleted": False,
             "source_entries": len(original), "source_logical_bytes": logical_bytes,
+            "copied_entries": len(copied), "nonportable_runtime_socket_count": len(excluded),
+            "runtime_socket_inventory_sha256": sha256(work / "nonportable-runtime-sockets.json"),
             "source_manifest_sha256": sha256(work / "source-manifest.json"),
             "copied_manifest_sha256": sha256(work / "copied-manifest.json"),
             "relocation_journal_sha256": sha256(work / "relocation-journal.json"),
