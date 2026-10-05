@@ -289,6 +289,8 @@ After a clean artifact/release review: real Qwen3.5-4B **N−1**/direct matched 
 
 **Local prelaunch verification:** **223 tests passed**, including 14 new CPU tests for a 20-user/100-call fake-client trace, mutation replay, all-warmups-before-pseudo ordering, target/input separation, fresh-state and temporal guards, invalid/duplicate scores, unsupported entity IDs, fixed baseline/scope enforcement, physical request journaling/truncation rejection and audit-hash fail-closed behavior. Compilation, shell syntax and whitespace checks passed. These tests do not call an API or load a GPU model. Read-only authorized preflight found two genuinely idle cards; selection must be repeated by the launcher rather than carrying that snapshot forward.
 
+**Launch:** tested source `fb70e92ffd2c80c7a82b23b778bc3b31452b4873` was pushed and pulled as the exact clean cluster commit. `cmirank-real-memory-smoke-v1-20261005-hnv` was launched through the explicitly authorized, freshly resolved existing allocation with eight CPUs. Scope is only the diagnostic above; the launcher does CPU preparation before selecting an idle GPU. No full-cache, policy fine-tune, PPO or held-out evaluation is chained after it. One status inspection will establish startup/progress; outcome and release still need terminal artifact verification. Do not pull a new source into this running cluster task.
+
 ---
 
 # 1. Executive decision
