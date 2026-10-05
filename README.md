@@ -38,6 +38,8 @@ PyTorch/NVML. V3 đã inference nhưng dừng sau 2 request: Stage-R cite một 
 GPU đã nhả sạch sau cả ba lượt. V4 theo amendment §0.12 giữ nguyên upstream output,
 ghi candidate-visible thành cảnh báo vai trò; ID bịa/lỗi schema/label vẫn hard-fail.
 **237 tests CPU pass**; chưa có memory smoke hoàn tất, fine-tune hay score CM-IRank.
+Review CPU v3 đã xong; v4 sẵn sàng nhưng **chưa chạy** vì preflight mới thấy cả
+4 GPU đang có process/giữ VRAM. MemRec không giữ card hay server để chờ.
 
 ## Bản đồ tài liệu — chỉ 5 tài liệu dự án
 
