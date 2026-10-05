@@ -11,7 +11,7 @@ import pytest
 
 from scripts.smoke_full_memrec_cpu import FakeJSONClient
 from src.cmirank.memory_smoke import (
-    memory_sha256, run_memory_smoke, validate_memory_contract, validate_retrieval, validate_scores, validate_write,
+    load_memory_contract, memory_sha256, run_memory_smoke, validate_memory_contract, validate_retrieval, validate_scores, validate_write,
 )
 from src.cmirank.snapshot import make_prefix_snapshot, snapshot_sha256
 from src.memory.storage import MemoryStorage
@@ -152,3 +152,26 @@ def test_audit_hash_mismatch_blocks_before_model_loading(tmp_path):
     config = json.loads((ROOT / "configs/cmirank/real_memory_smoke_v1.json").read_text())
     with pytest.raises(ValueError, match="artifacts differ"):
         runner.verify_audit(tmp_path, config, {}, {})
+
+
+def test_v2_binding_delta_preserves_entire_memory_experiment():
+    base, base_sha = load_memory_contract(ROOT, 1)
+    effective, sha = load_memory_contract(ROOT, 2)
+    delta = effective.pop("device_binding_delta")
+    assert delta["predecessor_contract_sha256"] == base_sha
+    effective["run_id"] = base["run_id"]
+    assert effective == base
+    assert sha != base_sha
+    with pytest.raises(ValueError):
+        load_memory_contract(ROOT, 3)
+
+
+def test_numeric_binding_requires_inventory_uuid_and_pci_order_agreement():
+    from src.cmirank.gpu_resources import GPUCard, verified_numeric_cuda_binding
+    cards = [GPUCard(i, f"GPU-{i}", "H100", 0, 1, 81559) for i in range(4)]
+    pci = "\n".join(f"{i}, GPU-{i}, 00000000:{40+i:02X}:00.0" for i in range(4))
+    assert verified_numeric_cuda_binding(cards, cards[-1], pci) == "3"
+    for bad in (pci.replace("GPU-3", "GPU-9"), pci.replace("2B:00", "01:00"),
+                pci.splitlines()[0], pci + "\n" + pci.splitlines()[0]):
+        with pytest.raises(ValueError):
+            verified_numeric_cuda_binding(cards, cards[-1], bad)

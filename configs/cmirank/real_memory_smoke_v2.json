@@ -1,0 +1,9 @@
+{
+  "schema_version": 2,
+  "predecessor_contract_sha256": "3d27587d7453edb9737563a219a6f0953ce9297dec7c7a3da4fb8c44ffb21424",
+  "run_id": "cmirank-real-memory-smoke-v2-20261005-hnv",
+  "change_only": "vllm_0102_cuda_device_binding",
+  "cuda_device_order": "PCI_BUS_ID",
+  "cuda_visible_devices": "numeric_nvml_index_after_full_pci_order_check_and_selected_uuid_assertion",
+  "training_ready": false
+}

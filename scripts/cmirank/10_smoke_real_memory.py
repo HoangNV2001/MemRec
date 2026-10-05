@@ -27,9 +27,9 @@ sys.path.insert(0, str(ROOT))
 
 from src.cmirank.candidate_artifacts import load_candidate_samplers, smoke_user_ids
 from src.cmirank.gpu_resources import (
-    compute_gpu_processes, parse_gpu_snapshot, select_idle_h100,
+    compute_gpu_processes, parse_gpu_snapshot, select_idle_h100, verified_numeric_cuda_binding,
 )
-from src.cmirank.memory_smoke import object_sha256, run_memory_smoke, validate_memory_contract
+from src.cmirank.memory_smoke import load_memory_contract, object_sha256, run_memory_smoke
 from src.cmirank.policy_inputs import load_locked_policy_inputs
 from src.cmirank.provenance import artifact_json_dumps, file_sha256
 from src.cmirank.shortcut_audit import verify_candidate_run
@@ -137,10 +137,9 @@ def main() -> None:
     parser.add_argument("--index-dir", type=Path, required=True)
     parser.add_argument("--candidate-run-dir", type=Path, required=True)
     parser.add_argument("--audit-dir", type=Path, required=True)
+    parser.add_argument("--contract-version", choices=(1, 2), type=int, default=2)
     args = parser.parse_args()
-    config_path = ROOT / "configs/cmirank/real_memory_smoke_v1.json"
-    config = json.loads(config_path.read_text())
-    validate_memory_contract(config)
+    config, contract_sha = load_memory_contract(ROOT, args.contract_version)
     run = args.run_dir.resolve()
     private_root = Path(os.environ["MEMREC_ROOT"]).resolve()
     if (run != private_root / "runs" / config["run_id"] or run.exists()
@@ -194,7 +193,6 @@ def main() -> None:
             raise ValueError("Wrong completed checkpoint revision")
         if importlib.metadata.version("vllm") != "0.10.2":
             raise ValueError("Baseline vLLM environment changed")
-        contract_sha = file_sha256(config_path)
         manifest = {"config": config, "config_sha256": contract_sha, "source_commit": commit,
                     "graph_snapshot_sha256": inputs["snapshot_sha256"],
                     "policy_split_manifest_sha256": inputs["manifest_sha256"],
@@ -215,14 +213,28 @@ def main() -> None:
         if select_idle_h100([now], set(apps_now)).uuid != card.uuid:
             raise ValueError("Selected GPU no longer idle")
         card = now
-        os.environ["CUDA_VISIBLE_DEVICES"] = card.uuid
-        subprocess.run([sys.executable, "-c",
-            "import torch; assert torch.cuda.is_available() and torch.cuda.device_count() == 1"], check=True)
+        if args.contract_version == 2:
+            pci = subprocess.check_output(["nvidia-smi", "--query-gpu=index,uuid,pci.bus_id",
+                                             "--format=csv,noheader,nounits"], text=True)
+            (run / "gpu-pci-load-time.csv").write_text(pci)
+            os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+            os.environ["CUDA_VISIBLE_DEVICES"] = verified_numeric_cuda_binding(cards_now, card, pci)
+        else:
+            os.environ["CUDA_VISIBLE_DEVICES"] = card.uuid
+        cuda_identity = subprocess.check_output([sys.executable, "-c",
+            "import json, torch; assert torch.cuda.is_available() and torch.cuda.device_count() == 1; "
+            "print(json.dumps({'uuid': str(torch.cuda.get_device_properties(0).uuid), 'devices': 1}))"], text=True)
+        identity = json.loads(cuda_identity)
+        if identity["uuid"].lower() != card.uuid.lower():
+            raise ValueError("Numeric CUDA binding does not point to the selected physical UUID")
         # The visibility-check child exits immediately; the CPU coordinator never
         # initializes a CUDA context or holds a second set of weights.
         manifest["physical_gpu_index"] = card.index
         manifest["gpu_uuid"] = card.uuid
         manifest["slurm_job_id"] = job
+        manifest["cuda_visible_devices"] = os.environ["CUDA_VISIBLE_DEVICES"]
+        manifest["cuda_device_order"] = os.environ.get("CUDA_DEVICE_ORDER")
+        manifest["cuda_identity_check"] = identity
         manifest["cpu_preparation_seconds"] = time.monotonic() - started
         (run / "manifest.json").write_text(artifact_json_dumps(manifest))
         port = 18105

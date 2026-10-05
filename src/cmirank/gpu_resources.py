@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import re
 from dataclasses import dataclass
 from io import StringIO
 
@@ -85,3 +86,31 @@ def gpu_release_verified(card: GPUCard, baseline: GPUCard, before: set[int],
     if shared:
         return not (after - before) and card.used_mib <= baseline.used_mib + 128
     return card.used_mib < 512 and not after
+
+
+def verified_numeric_cuda_binding(cards: list[GPUCard], selected: GPUCard, pci_snapshot: str) -> str:
+    """vLLM 0.10.2 requires integer CVD; prove NVML and PCI CUDA ordering agree.
+
+    Return no fallback if the full inventory is incomplete/reordered. The model
+    launcher must ALSO assert the UUID seen at logical CUDA device zero before
+    loading weights. Never infer a device index from a previous run.
+    """
+    pci = {}
+    for row in csv.reader(StringIO(pci_snapshot)):
+        if not row:
+            continue
+        if len(row) != 3:
+            raise ValueError("Malformed GPU PCI snapshot")
+        index, uuid, bus = [value.strip() for value in row]
+        match = re.fullmatch(r"([0-9a-fA-F]{8}):([0-9a-fA-F]{2}):([0-9a-fA-F]{2})\.([0-7])", bus)
+        if not match or int(index) in pci:
+            raise ValueError("Malformed/duplicate GPU PCI identity")
+        pci[int(index)] = (uuid, tuple(int(part, 16) for part in match.groups()))
+    if (set(pci) != {card.index for card in cards}
+            or set(pci) != set(range(len(cards)))
+            or any(pci[card.index][0] != card.uuid for card in cards)
+            or len({bus for _, bus in pci.values()}) != len(cards)
+            or sorted(pci, key=lambda index: pci[index][1]) != list(range(len(cards)))
+            or selected not in cards):
+        raise ValueError("NVML index and CUDA PCI ordering/UUID do not agree")
+    return str(selected.index)

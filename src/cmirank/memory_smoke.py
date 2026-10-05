@@ -12,9 +12,34 @@ import hashlib
 import json
 import math
 import re
+from pathlib import Path
 
 from .policy_data import NEUTRAL_PSEUDO_INSTRUCTION
 from .request import RankRequest
+from .provenance import file_sha256
+
+
+def load_memory_contract(root: Path, version: int) -> tuple[dict, str]:
+    base_path = root / "configs/cmirank/real_memory_smoke_v1.json"
+    config = json.loads(base_path.read_text())
+    validate_memory_contract(config)
+    base_sha = file_sha256(base_path)
+    if version == 1:
+        return config, base_sha
+    if version != 2:
+        raise ValueError("Unsupported memory smoke version")
+    delta_path = root / "configs/cmirank/real_memory_smoke_v2.json"
+    delta = json.loads(delta_path.read_text())
+    expected = {"schema_version": 2, "predecessor_contract_sha256": base_sha,
+        "run_id": "cmirank-real-memory-smoke-v2-20261005-hnv",
+        "change_only": "vllm_0102_cuda_device_binding", "cuda_device_order": "PCI_BUS_ID",
+        "cuda_visible_devices": "numeric_nvml_index_after_full_pci_order_check_and_selected_uuid_assertion",
+        "training_ready": False}
+    if delta != expected:
+        raise ValueError("V2 may change only vLLM device binding, not the memory experiment")
+    config["run_id"] = delta["run_id"]
+    config["device_binding_delta"] = delta
+    return config, object_sha256({"base_sha256": base_sha, "delta_sha256": file_sha256(delta_path)})
 
 
 def validate_memory_contract(config: dict) -> None:

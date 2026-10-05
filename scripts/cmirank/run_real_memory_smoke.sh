@@ -15,7 +15,15 @@ if [[ "$(git rev-parse HEAD)" != "$MEMREC_EXPECTED_COMMIT" || \
   echo 'Exact clean deployed source required' >&2; exit 2
 fi
 MEMREC_PYTHON="$MEMREC_ROOT/envs/llm-hnv/bin/python"
-RUN_ID=$($MEMREC_PYTHON -c 'import json; print(json.load(open("configs/cmirank/real_memory_smoke_v1.json"))["run_id"])')
+MEMREC_CONTRACT_VERSION=${1:-2}
+case "$MEMREC_CONTRACT_VERSION" in 1|2) ;; *) echo 'Unsupported smoke version' >&2; exit 2;; esac
+RUN_ID=$("$MEMREC_PYTHON" - "$MEMREC_CONTRACT_VERSION" <<'PY'
+from pathlib import Path
+import sys
+from src.cmirank.memory_smoke import load_memory_contract
+print(load_memory_contract(Path.cwd(), int(sys.argv[1]))[0]['run_id'])
+PY
+)
 RUN_DIR="$MEMREC_ROOT/runs/$RUN_ID"
 if [[ -e "$RUN_DIR" ]]; then echo 'Refusing to overwrite smoke' >&2; exit 2; fi
 export CUDA_VISIBLE_DEVICES=''
@@ -86,12 +94,13 @@ PY
 trap finish EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-SMOKE_TIMEOUT_MINUTES=$($MEMREC_PYTHON -c 'import json; print(json.load(open("configs/cmirank/real_memory_smoke_v1.json"))["timeout_minutes"])')
+SMOKE_TIMEOUT_MINUTES=$("$MEMREC_PYTHON" -c 'import json; print(json.load(open("configs/cmirank/real_memory_smoke_v1.json"))["timeout_minutes"])')
 timeout --signal=TERM --kill-after=60s "${SMOKE_TIMEOUT_MINUTES}m" "$MEMREC_PYTHON" -u \
   scripts/cmirank/10_smoke_real_memory.py --run-dir "$RUN_DIR" \
   --index-dir "$MEMREC_ROOT/runs/cmirank-minilm-candidate-index-v2-20261001-hnv" \
   --candidate-run-dir "$MEMREC_ROOT/runs/cmirank-policy-candidates-v2-20261005-hnv" \
   --audit-dir "$MEMREC_ROOT/runs/cmirank-shortcut-audit-v2-20261005-hnv" \
+  --contract-version "$MEMREC_CONTRACT_VERSION" \
   > "$MEMREC_ROOT/logs/$RUN_ID.log" 2>&1 &
 TASK_PID=$!
 printf '%s\n' "$TASK_PID" > "$MEMREC_ROOT/logs/$RUN_ID-launcher.pid"
