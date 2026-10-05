@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -24,6 +25,7 @@ sys.path.insert(0, str(ROOT))
 from src.cmirank.candidate_artifacts import load_candidate_samplers, smoke_user_ids
 from src.cmirank.policy_inputs import load_locked_policy_inputs
 from src.cmirank.provenance import artifact_json_dumps, file_sha256
+from src.cmirank.shortcut_audit import verify_candidate_run
 
 
 def verify_full_gate(smoke_dir: Path, *, source_commit: str, recipes: dict, inputs: dict) -> dict:
@@ -38,6 +40,9 @@ def verify_full_gate(smoke_dir: Path, *, source_commit: str, recipes: dict, inpu
         "index_manifest_sha256": recipes["index_manifest_sha256"],
         "query_user_ids": smoke_user_ids(sorted(inputs["warmups"]), recipes["episode_config"]),
     }
+    if recipes.get("recipe_version") == 2:
+        expected.update({"recipe_version": 2,
+                         "prefix_anchor_coverage_sha256": inputs["prefix_anchor_coverage_sha256"]})
     if (any(report.get(key) != value for key, value in expected.items())
             or file_sha256(smoke_dir / "candidate-rows.jsonl") != report["candidate_manifest_sha256"]):
         raise ValueError("Full candidate generation has no matching successful smoke")
@@ -50,17 +55,38 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--users", choices=("20", "all"), default="20")
     parser.add_argument("--smoke-dir", type=Path)
+    parser.add_argument("--recipe-version", type=int, choices=(1, 2), default=1)
+    parser.add_argument("--warmup-run-dir", type=Path)
     args = parser.parse_args()
     if args.output_dir.exists():
         raise ValueError("Refusing to overwrite candidate artifacts")
     if args.users == "all" and not args.smoke_dir:
         parser.error("Full candidate generation requires --smoke-dir")
+    if args.recipe_version == 2 and not args.warmup_run_dir:
+        parser.error("V2 must reuse the verified unchanged v1 warm-up inputs")
     started = time.monotonic()
     inputs = load_locked_policy_inputs(ROOT)
-    recipes = load_candidate_samplers(ROOT, args.index_dir, inputs["snapshot"])
+    recipes = load_candidate_samplers(ROOT, args.index_dir, inputs["snapshot"], version=args.recipe_version)
     source_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     all_ids = sorted(inputs["warmups"])
     query_ids = smoke_user_ids(all_ids, recipes["episode_config"]) if args.users == "20" else all_ids
+    old_warmups, coverage = {}, None
+    if args.recipe_version == 2:
+        binding = json.loads((ROOT / "configs/cmirank/shortcut_audit_v1.json").read_text())
+        if args.warmup_run_dir.name != binding["candidate_run_id"]:
+            raise ValueError("Wrong predecessor warm-up run")
+        old_rows = verify_candidate_run(args.warmup_run_dir, binding, inputs, recipes["predecessor_recipes"])
+        old_warmups = {row["policy_input"]["episode_id"]: row for row in old_rows
+                       if row["provenance"]["kind"] == "warmup"}
+        # Audit *all* approved users even in smoke; never silently lose users.
+        coverage = []
+        for uid in all_ids:
+            anchor, counts = recipes["pseudo"].prefix_anchor(
+                (*inputs["snapshot"].train_data[uid], inputs["warmups"][uid]))
+            coverage.append({"user_id": uid, **counts,
+                             "anchor_float32_sha256": hashlib.sha256(anchor.tobytes()).hexdigest()})
+        coverage_text = artifact_json_dumps(coverage)
+        inputs["prefix_anchor_coverage_sha256"] = hashlib.sha256(coverage_text.encode()).hexdigest()
     cached = {}
     if args.users == "all":
         verify_full_gate(args.smoke_dir, source_commit=source_commit, recipes=recipes, inputs=inputs)
@@ -68,6 +94,8 @@ def main() -> None:
             row = json.loads(line)
             cached[row["policy_input"]["episode_id"]] = row
     args.output_dir.mkdir(parents=True)
+    if coverage is not None:
+        (args.output_dir / "anchor-coverage.json").write_text(coverage_text)
     artifact = args.output_dir / "candidate-rows.jsonl"
     position_counts = {"warmup": Counter(), "pseudo": Counter()}
     stage_counts = Counter()
@@ -86,6 +114,11 @@ def main() -> None:
                 if episode_id in cached:
                     row = cached[episode_id]
                     reused += 1
+                elif kind == "warmup" and old_warmups:
+                    old = old_warmups[episode_id]
+                    row = {"policy_input": old["policy_input"], "reward_audit": old["reward_audit"],
+                           "provenance": {**old["provenance"],
+                                          "episode_contract_sha256": recipes["episode_contract_sha256"]}}
                 else:
                     sampler = recipes[kind]
                     candidates = sampler.sample(episode_id, positive, prefix,
@@ -145,6 +178,16 @@ def main() -> None:
         "training_ready": False, "real_llm_requests": 0,
         "elapsed_seconds": time.monotonic() - started,
     }
+    if coverage is not None:
+        report.update({"recipe_version": 2,
+                       "prefix_anchor_coverage_sha256": inputs["prefix_anchor_coverage_sha256"],
+                       "prefix_anchor_users_verified": len(coverage),
+                       "users_with_unembedded_prefix_interactions": [row["user_id"] for row in coverage
+                                                                     if row["unembedded_prefix_interactions"]],
+                       "unembedded_prefix_interactions": sum(row["unembedded_prefix_interactions"] for row in coverage),
+                       "warmup_candidate_sets_reused_from_v1": len(query_ids),
+                       "predecessor_warmup_candidate_sha256": binding["full_candidates_sha256"],
+                       "predecessor_warmup_report_sha256": binding["full_report_sha256"]})
     (args.output_dir / "report.json").write_text(artifact_json_dumps(report))
     print(json.dumps({key: value for key, value in report.items() if key != "query_user_ids"},
                      sort_keys=True), flush=True)

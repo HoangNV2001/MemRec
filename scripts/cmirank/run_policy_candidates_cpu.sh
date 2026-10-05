@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 # Approved episode recipe: 20-user boundary smoke, then full only on a pass.
 set -euo pipefail
+MEMREC_RECIPE_VERSION=${1:-1}
+case "$MEMREC_RECIPE_VERSION" in
+  1) MEMREC_EXPECTED_ALLOCATION_NAME=train_TTS ;;
+  2) : "${MEMREC_EXPECTED_ALLOCATION_NAME:?Pass the privately approved allocation name}" ;;
+  *) echo 'Unsupported recipe version' >&2; exit 2 ;;
+esac
 if [[ -z "${SLURM_JOB_ID:-}" || \
-      "$(squeue -j "$SLURM_JOB_ID" -h -o '%u %T %j')" != 'anhntc2 RUNNING train_TTS' ]]; then
+      "$(squeue -j "$SLURM_JOB_ID" -h -o '%u %T %j')" != "anhntc2 RUNNING $MEMREC_EXPECTED_ALLOCATION_NAME" ]]; then
   echo 'Unexpected or missing authorized allocation' >&2
   exit 2
 fi
@@ -25,6 +31,12 @@ export TOKENIZERS_PARALLELISM=false
 if (( ${SLURM_CPUS_PER_TASK:-0} < 8 )); then echo 'Eight CPUs required' >&2; exit 2; fi
 MEMREC_PYTHON="$MEMREC_ROOT/envs/llm-hnv/bin/python"
 RUN_DIR="$MEMREC_ROOT/runs/cmirank-policy-candidates-v1-20261002-hnv"
+MEMREC_CANDIDATE_OPTIONS=()
+if [[ "$MEMREC_RECIPE_VERSION" == 2 ]]; then
+  RUN_DIR="$MEMREC_ROOT/runs/cmirank-policy-candidates-v2-20261005-hnv"
+  MEMREC_CANDIDATE_OPTIONS=(--recipe-version 2 --warmup-run-dir
+    "$MEMREC_ROOT/runs/cmirank-policy-candidates-v1-20261002-hnv")
+fi
 INDEX_DIR="$MEMREC_ROOT/runs/cmirank-minilm-candidate-index-v2-20261001-hnv"
 mkdir -p "$TMPDIR"
 exec 9>"$MEMREC_ROOT/cache/policy-candidates-hnv.lock"
@@ -59,7 +71,8 @@ trap finish EXIT
 trap 'exit 130' INT TERM
 timeout --signal=TERM --kill-after=30s 5m "$MEMREC_PYTHON" -u \
   scripts/cmirank/08_audit_candidates_cpu.py --index-dir "$INDEX_DIR" \
-  --output-dir "$RUN_DIR/smoke-hnv" --users 20 > "$RUN_DIR/smoke.log" 2>&1 &
+  --output-dir "$RUN_DIR/smoke-hnv" --users 20 "${MEMREC_CANDIDATE_OPTIONS[@]}" \
+  > "$RUN_DIR/smoke.log" 2>&1 &
 TASK_PID=$!
 printf '%s\n' "$TASK_PID" > "$RUN_DIR/launcher.pid"
 wait "$TASK_PID"
@@ -67,6 +80,7 @@ TASK_PID=''
 timeout --signal=TERM --kill-after=30s 60m "$MEMREC_PYTHON" -u \
   scripts/cmirank/08_audit_candidates_cpu.py --index-dir "$INDEX_DIR" \
   --output-dir "$RUN_DIR/full-hnv" --users all --smoke-dir "$RUN_DIR/smoke-hnv" \
+  "${MEMREC_CANDIDATE_OPTIONS[@]}" \
   > "$RUN_DIR/full.log" 2>&1 &
 TASK_PID=$!
 printf '%s\n' "$TASK_PID" > "$RUN_DIR/launcher.pid"

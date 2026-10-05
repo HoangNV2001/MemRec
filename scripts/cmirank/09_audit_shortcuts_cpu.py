@@ -23,8 +23,8 @@ from src.cmirank.candidate_artifacts import load_candidate_samplers, smoke_user_
 from src.cmirank.policy_inputs import load_locked_policy_inputs
 from src.cmirank.provenance import artifact_json_dumps, file_sha256
 from src.cmirank.shortcut_audit import (
-    METRICS, PROBES, feature_rows, fit_probe_scores, metadata_features, null_pvalue,
-    rank_credits, validate_audit_contract, validate_feature_row, verify_candidate_run,
+    METRICS, PROBES, bind_completed_prefix_run, feature_rows, fit_probe_scores, metadata_features, null_pvalue,
+    rank_credits, validate_audit_contract, validate_feature_row, validate_v2_audit_delta, verify_candidate_run,
 )
 
 
@@ -91,6 +91,7 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--users", choices=("20", "all"), default="20")
     parser.add_argument("--smoke-dir", type=Path)
+    parser.add_argument("--recipe-version", type=int, choices=(1, 2), default=1)
     args = parser.parse_args()
     if args.output_dir.exists():
         raise ValueError("Refusing to overwrite shortcut artifacts")
@@ -100,17 +101,28 @@ def main() -> None:
     contract_path = ROOT / "configs/cmirank/shortcut_audit_v1.json"
     config = json.loads(contract_path.read_text())
     validate_audit_contract(config)
-    if args.candidate_run_dir.name != config["candidate_run_id"]:
-        raise ValueError("Wrong candidate run identity")
     inputs = load_locked_policy_inputs(ROOT)
-    recipes = load_candidate_samplers(ROOT, args.index_dir, inputs["snapshot"])
+    recipes = load_candidate_samplers(ROOT, args.index_dir, inputs["snapshot"], version=args.recipe_version)
+    source_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    base_audit_sha = file_sha256(contract_path)
+    if args.recipe_version == 2:
+        contract_path = ROOT / "configs/cmirank/shortcut_audit_v2.json"
+        delta = json.loads(contract_path.read_text())
+        validate_v2_audit_delta(delta, base_audit_sha)
+        config = {**config, "candidate_run_id": delta["candidate_run_id"]}
+        if args.candidate_run_dir.name != config["candidate_run_id"]:
+            raise ValueError("Wrong prefix candidate run identity")
+        config.update(bind_completed_prefix_run(args.candidate_run_dir, source_commit=source_commit,
+                                                inputs=inputs, recipes=recipes))
+    elif args.candidate_run_dir.name != config["candidate_run_id"]:
+        raise ValueError("Wrong candidate run identity")
     all_rows = verify_candidate_run(args.candidate_run_dir, config, inputs, recipes)
     smoke_ids = smoke_user_ids(sorted(inputs["warmups"]), recipes["episode_config"])
     ids = smoke_ids if args.users == "20" else sorted(inputs["warmups"])
     selected = set(ids)
     rows = [row for row in all_rows if row["provenance"]["kind"] == "pseudo"
             and row["provenance"]["user_id"] in selected]
-    provenance = {"source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+    provenance = {"source_commit": source_commit,
                   "audit_contract_sha256": file_sha256(contract_path),
                   "candidate_source_commit": config["candidate_source_commit"],
                   "full_report_sha256": config["full_report_sha256"],
@@ -119,6 +131,8 @@ def main() -> None:
                   "split_sha256": inputs["manifest_sha256"],
                   "episode_contract_sha256": recipes["episode_contract_sha256"],
                   "index_manifest_sha256": recipes["index_manifest_sha256"]}
+    if args.recipe_version == 2:
+        provenance.update({"recipe_version": 2, "base_audit_contract_sha256": base_audit_sha})
     cached = verify_smoke(args.smoke_dir, provenance, smoke_ids) if args.users == "all" else {}
     metadata_path = ROOT / "data/processed/instructrec-books/instructrec-books.meta"
     texts, lengths = metadata_features(metadata_path, max_characters=recipes["config"]["encoder"]["max_text_characters"])

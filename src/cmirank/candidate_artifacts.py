@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from .candidates import (
-    MixedCandidateSampler, UniformWarmupSampler, popularity_from_snapshot,
+    MixedCandidateSampler, PrefixAnchoredCandidateSampler, UniformWarmupSampler, popularity_from_snapshot,
     validate_candidate_contract,
 )
 from .provenance import file_sha256
@@ -47,7 +47,31 @@ def smoke_user_ids(eligible: list[int], config: dict) -> list[int]:
     return sorted(selected)
 
 
-def load_candidate_samplers(root: Path, index_dir: Path, snapshot) -> dict:
+def validate_prefix_contract(config: dict, *, predecessor_candidate_sha: str,
+                             predecessor_episode_sha: str, index_sha: str) -> None:
+    fixed = {"schema_version": 2, "approval_status": "researcher_approved_2026-10-05",
+             "predecessor_candidate_contract_sha256": predecessor_candidate_sha,
+             "predecessor_episode_contract_sha256": predecessor_episode_sha,
+             "index_manifest_sha256": index_sha, "change_only": "pseudo_semantic_anchor",
+             "semantic_anchor": {
+                 "source": "allowed_graph_prefix_plus_pre_target_warmup",
+                 "pooling": "interaction_weighted_mean_of_available_prefix_vectors_float64",
+                 "ordering": "ascending_item_identity_preserving_interaction_multiplicity",
+                 "normalization": "l2_then_cast_float32", "minimum_norm": 1e-12,
+                 "missing_vectors": "count_without_imputation_fail_if_none",
+                 "degenerate_anchor": "fail_without_fallback_or_user_removal",
+                 "pseudo_target_used": False},
+             "preserve": ["uniform_and_popularity_selection", "3_plus_3_plus_3", "seed",
+                          "episode_ids", "hash_shuffle", "encoder_index_text_contract",
+                          "uniform_warmup", "cohort_snapshot", "original_evaluation_candidates", "audit_criterion"],
+             "cohort_changes_allowed": False, "training_ready": False}
+    if set(config) != set(fixed) | {"notes"} or any(config.get(key) != value for key, value in fixed.items()):
+        raise ValueError("Not the approved prefix-only semantic repair")
+
+
+def load_candidate_samplers(root: Path, index_dir: Path, snapshot, *, version: int = 1) -> dict:
+    if version not in (1, 2):
+        raise ValueError("Unsupported recipe version")
     pseudo_path = root / "configs/cmirank/candidate_sampler_v1.json"
     episode_path = root / "configs/cmirank/episode_candidates_v1.json"
     config = json.loads(pseudo_path.read_text())
@@ -84,7 +108,7 @@ def load_candidate_samplers(root: Path, index_dir: Path, snapshot) -> dict:
     csv.field_size_limit(16 * 1024 * 1024)
     with metadata.open(encoding="utf-8", newline="") as handle:
         catalog_ids = {int(row["item_id"]) for row in csv.DictReader(handle, delimiter="\t")}
-    return {
+    result = {
         "pseudo": MixedCandidateSampler(ids, vectors, popularity_from_snapshot(snapshot.train_data),
                                          seed=config["seed"]),
         "warmup": UniformWarmupSampler(ids, catalog_ids, seed=episode["warmup"]["seed"]),
@@ -93,3 +117,19 @@ def load_candidate_samplers(root: Path, index_dir: Path, snapshot) -> dict:
         "candidate_contract_sha256": pseudo_hash,
         "index_manifest_sha256": file_sha256(index_manifest_path),
     }
+    if version == 2:
+        delta_path = root / "configs/cmirank/candidate_sampler_v2.json"
+        delta = json.loads(delta_path.read_text())
+        validate_prefix_contract(delta, predecessor_candidate_sha=pseudo_hash,
+                                 predecessor_episode_sha=result["episode_contract_sha256"],
+                                 index_sha=result["index_manifest_sha256"])
+        # V1 validates the unchanged encoder/text/catalog and index provenance.
+        # The delta owns the v2 episode/sampler hash; never rewrite the index.
+        result["predecessor_recipes"] = dict(result)
+        result["pseudo"] = PrefixAnchoredCandidateSampler(
+            ids, vectors, result["pseudo"].popularity, seed=config["seed"])
+        result["candidate_contract_sha256"] = file_sha256(delta_path)
+        result["episode_contract_sha256"] = file_sha256(delta_path)
+        result["v2_contract"] = delta
+    result["recipe_version"] = version
+    return result

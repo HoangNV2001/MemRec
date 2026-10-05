@@ -158,6 +158,10 @@ class MixedCandidateSampler:
         self.buckets = np.array([popularity_bucket(popularity.get(int(item), 0))
                                  for item in ids], dtype=np.int32)
 
+    def semantic_query(self, positive: int, allowed_prefix: Collection[int]) -> np.ndarray:
+        """Historical v1 query; retained unchanged for rejected-recipe replay."""
+        return self.vectors[self.positions[positive]]
+
     def sample(self, episode_id: str, positive: int,
                allowed_prefix: Collection[int], *,
                additionally_forbidden: Collection[int] = ()) -> CandidateSet:
@@ -182,7 +186,7 @@ class MixedCandidateSampler:
                              int(self.buckets[self.positions[item]]),
                              digest_key(self.seed, episode_id, "popularity", item), item))
         blocked.update(popular)
-        scores = self.vectors @ self.vectors[self.positions[positive]]
+        scores = self.vectors @ self.semantic_query(positive, allowed_prefix)
         # Stable score ordering; hash-break exact ties. O(pool) argpartition
         # avoids sorting the whole catalog by vector score for every episode.
         eligible_positions = np.array([self.positions[item] for item in eligible
@@ -202,3 +206,34 @@ class MixedCandidateSampler:
                             {"uniform": tuple(uniform),
                              "popularity_matched": tuple(popular),
                              "semantic_hard": tuple(semantic)})
+
+
+class PrefixAnchoredCandidateSampler(MixedCandidateSampler):
+    """V2 changes only semantic query; uniform/popularity/order stay v1.
+
+    Available prefix interactions (including legitimate warm-up feedback) are
+    mean-pooled in float64 and L2-normalized, then cast to float32 for catalog
+    scoring. Missing-title prefix items are counted, not imputed. No target
+    vector, user dropping or degenerate-anchor fallback is permitted.
+    """
+
+    def prefix_anchor(self, allowed_prefix: Collection[int]) -> tuple[np.ndarray, dict]:
+        prefix = tuple(sorted(int(item) for item in allowed_prefix))
+        available = [self.positions[item] for item in prefix if item in self.positions]
+        if not available:
+            raise ValueError("No frozen metadata embeddings in allowed prefix")
+        mean = self.vectors[available].astype(np.float64).mean(axis=0)
+        norm = float(np.linalg.norm(mean))
+        if not np.isfinite(norm) or norm <= 1e-12:
+            raise ValueError("Degenerate allowed-prefix semantic anchor")
+        query = (mean / norm).astype(np.float32)
+        if not np.isfinite(query).all() or not np.isclose(np.linalg.norm(query), 1, atol=1e-5):
+            raise ValueError("Invalid normalized allowed-prefix semantic anchor")
+        return query, {"prefix_interactions": len(prefix),
+                       "embedded_prefix_interactions": len(available),
+                       "unembedded_prefix_interactions": len(prefix) - len(available)}
+
+    def semantic_query(self, positive: int, allowed_prefix: Collection[int]) -> np.ndarray:
+        # 'positive' is deliberately unused here. Base sample() only uses it
+        # for exclusion, eligibility, the unchanged popularity bucket and reward.
+        return self.prefix_anchor(allowed_prefix)[0]

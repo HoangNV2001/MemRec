@@ -1,0 +1,22 @@
+{
+  "schema_version": 2,
+  "approval_status": "researcher_approved_2026-10-05",
+  "predecessor_candidate_contract_sha256": "41b759e1cf7087df76a28b654c529aa73f314a382d942bfc851a4afbab738b38",
+  "predecessor_episode_contract_sha256": "944e5a0f88cb9ed183b4d91c7abbc2244cba27430f5c16dbf7a1e570550f975e",
+  "index_manifest_sha256": "2ce2201ffef375a56f6a25c52d7904c663296cf1edd64d3aa69de5220683872e",
+  "change_only": "pseudo_semantic_anchor",
+  "semantic_anchor": {
+    "source": "allowed_graph_prefix_plus_pre_target_warmup",
+    "pooling": "interaction_weighted_mean_of_available_prefix_vectors_float64",
+    "ordering": "ascending_item_identity_preserving_interaction_multiplicity",
+    "normalization": "l2_then_cast_float32",
+    "minimum_norm": 1e-12,
+    "missing_vectors": "count_without_imputation_fail_if_none",
+    "degenerate_anchor": "fail_without_fallback_or_user_removal",
+    "pseudo_target_used": false
+  },
+  "preserve": ["uniform_and_popularity_selection", "3_plus_3_plus_3", "seed", "episode_ids", "hash_shuffle", "encoder_index_text_contract", "uniform_warmup", "cohort_snapshot", "original_evaluation_candidates", "audit_criterion"],
+  "cohort_changes_allowed": false,
+  "training_ready": false,
+  "notes": "Researcher continuation after explanation approves this data-validity repair, not a method pivot. Popularity remains target-bucket matched as in v1. Only semantic query changes. Historical v1 configs/index/results remain immutable; reuse verified uniform warm-up inputs, not rejected pseudo candidates."
+}

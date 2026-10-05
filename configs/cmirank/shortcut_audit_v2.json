@@ -1,0 +1,11 @@
+{
+  "schema_version": 2,
+  "approval_status": "researcher_approved_2026-10-05",
+  "predecessor_audit_contract_sha256": "db5dd72a6e557c7fe116f2d6f36150f8f27bffa4067bfdb873ac10fc5b7c3578",
+  "candidate_recipe_version": 2,
+  "candidate_run_id": "cmirank-policy-candidates-v2-20261005-hnv",
+  "candidate_artifact_binding": "verified_same_source_completed_generator_and_smoke_hashes",
+  "audit_changes_allowed": false,
+  "training_ready": false,
+  "notes": "Only the candidate source changes. Inherit all seven probes, train-only orientation, validation cohort, exact ties, null seed/draws, Bonferroni and material threshold from the pinned v1 audit. Bind newly generated candidate hashes only after successful same-source candidate completion/cleanup; emit the binding in audit provenance. No v1 row/manifest overwrite or score-based sampler search."
+}

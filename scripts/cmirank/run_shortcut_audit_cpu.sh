@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 # Frozen diagnostic contract: feature smoke before the full CPU-only audit.
 set -euo pipefail
+MEMREC_RECIPE_VERSION=${1:-1}
+case "$MEMREC_RECIPE_VERSION" in
+  1) MEMREC_EXPECTED_ALLOCATION_NAME=train_TTS ;;
+  2) : "${MEMREC_EXPECTED_ALLOCATION_NAME:?Pass the privately approved allocation name}" ;;
+  *) echo 'Unsupported recipe version' >&2; exit 2 ;;
+esac
 if [[ -z "${SLURM_JOB_ID:-}" || \
-      "$(squeue -j "$SLURM_JOB_ID" -h -o '%u %T %j')" != 'anhntc2 RUNNING train_TTS' ]]; then
+      "$(squeue -j "$SLURM_JOB_ID" -h -o '%u %T %j')" != "anhntc2 RUNNING $MEMREC_EXPECTED_ALLOCATION_NAME" ]]; then
   echo 'Unexpected or missing authorized allocation' >&2
   exit 2
 fi
@@ -26,6 +32,12 @@ if (( ${SLURM_CPUS_PER_TASK:-0} < 8 )); then echo 'Eight CPUs required' >&2; exi
 MEMREC_PYTHON="$MEMREC_ROOT/envs/llm-hnv/bin/python"
 RUN_DIR="$MEMREC_ROOT/runs/cmirank-shortcut-audit-v1-20261002-hnv"
 CANDIDATE_DIR="$MEMREC_ROOT/runs/cmirank-policy-candidates-v1-20261002-hnv"
+MEMREC_AUDIT_OPTIONS=()
+if [[ "$MEMREC_RECIPE_VERSION" == 2 ]]; then
+  RUN_DIR="$MEMREC_ROOT/runs/cmirank-shortcut-audit-v2-20261005-hnv"
+  CANDIDATE_DIR="$MEMREC_ROOT/runs/cmirank-policy-candidates-v2-20261005-hnv"
+  MEMREC_AUDIT_OPTIONS=(--recipe-version 2)
+fi
 INDEX_DIR="$MEMREC_ROOT/runs/cmirank-minilm-candidate-index-v2-20261001-hnv"
 mkdir -p "$TMPDIR"
 exec 9>"$MEMREC_ROOT/cache/policy-candidates-hnv.lock"
@@ -61,6 +73,7 @@ trap 'exit 130' INT TERM
 timeout --signal=TERM --kill-after=30s 5m "$MEMREC_PYTHON" -u \
   scripts/cmirank/09_audit_shortcuts_cpu.py --candidate-run-dir "$CANDIDATE_DIR" \
   --index-dir "$INDEX_DIR" --output-dir "$RUN_DIR/smoke-hnv" --users 20 \
+  "${MEMREC_AUDIT_OPTIONS[@]}" \
   > "$RUN_DIR/smoke.log" 2>&1 &
 TASK_PID=$!
 printf '%s\n' "$TASK_PID" > "$RUN_DIR/launcher.pid"
@@ -69,7 +82,7 @@ TASK_PID=''
 timeout --signal=TERM --kill-after=30s 15m "$MEMREC_PYTHON" -u \
   scripts/cmirank/09_audit_shortcuts_cpu.py --candidate-run-dir "$CANDIDATE_DIR" \
   --index-dir "$INDEX_DIR" --output-dir "$RUN_DIR/full-hnv" --users all \
-  --smoke-dir "$RUN_DIR/smoke-hnv" > "$RUN_DIR/full.log" 2>&1 &
+  --smoke-dir "$RUN_DIR/smoke-hnv" "${MEMREC_AUDIT_OPTIONS[@]}" > "$RUN_DIR/full.log" 2>&1 &
 TASK_PID=$!
 printf '%s\n' "$TASK_PID" > "$RUN_DIR/launcher.pid"
 wait "$TASK_PID"
