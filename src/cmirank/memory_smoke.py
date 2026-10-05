@@ -1,0 +1,184 @@
+"""Real-memory smoke gates; unchanged MemRec prompts and no policy training.
+
+The common graph covers 1,797 query users, but this diagnostic warms ONLY the
+20 predeclared smoke users. Its final requests cannot stand in for a full
+1,797-user warmed cache. Semantic grounding is not proven by these guards.
+"""
+
+from __future__ import annotations
+
+from copy import deepcopy
+import hashlib
+import json
+import math
+import re
+
+from .policy_data import NEUTRAL_PSEUDO_INSTRUCTION
+from .request import RankRequest
+
+
+def validate_memory_contract(config: dict) -> None:
+    baseline_agent = {"k": 16, "tau": 1800, "n_facets": 7, "mix_min_users": 4,
+        "mix_min_items": 6, "fanout_cap": 8, "reranker_mode": "llm", "pruner_mode": "llm_rules",
+        "upstream_empty_facets_prompt": True}
+    fixed = {"schema_version": 1, "run_id": "cmirank-real-memory-smoke-v1-20261005-hnv",
+        "scope": "20_user_real_memory_infrastructure_not_full_cache_or_training",
+        "memory_provider": "upstream_aligned", "users": 20, "warmup_scope": "same_20_smoke_users_only",
+        "model_id": "Qwen/Qwen3-30B-A3B-Instruct-2507-FP8",
+        "model_revision": "5a5a776300a41aaa681dd7ff0106608ef2bc90db", "backend": "vllm==0.10.2",
+        "tensor_parallel_size": 1, "gpu_memory_utilization": 0.60, "max_model_len": 16384,
+        "max_num_seqs": 1, "dtype": "auto", "seed": 42, "temperature": 0.0,
+        "max_tokens": 4000, "agent": baseline_agent, "nominal_physical_requests": 100,
+        "physical_request_cap": 110, "sdk_max_retries": 0, "request_timeout_seconds": 180,
+        "server_startup_timeout_seconds": 600, "timeout_minutes": 90,
+        "output_repair": False, "response_cache_read": False, "training_ready": False}
+    bindings = {"candidate_run_id", "audit_run_id", "candidate_source_commit", "full_report_sha256",
+                "full_candidates_sha256", "audit_report_sha256", "audit_features_sha256"}
+    if set(config) != set(fixed) | bindings or any(config.get(k) != v for k, v in fixed.items()):
+        raise ValueError("Memory smoke must keep the baseline contract and bounded diagnostic scope")
+    for name in bindings - {"candidate_run_id", "audit_run_id"}:
+        length = 40 if name == "candidate_source_commit" else 64
+        if not re.fullmatch(r"[0-9a-f]{" + str(length) + r"}", config[name]):
+            raise ValueError("Missing locked predecessor artifact hash")
+
+
+def object_sha256(value: object) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False,
+                                    separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+
+
+def memory_sha256(storage) -> str:
+    return object_sha256({"users": storage.user_profiles, "items": storage.item_descriptions,
+                          "n_updates": storage.n_updates})
+
+
+def validate_scores(scores: list, candidates: list[int]) -> None:
+    if (len(candidates) != 10 or len(set(candidates)) != 10 or len(scores) != 10
+            or any(type(row.get("item_id")) is not int for row in scores)
+            or {row["item_id"] for row in scores} != set(candidates)):
+        raise ValueError("Ranker must return all ten original candidate IDs exactly once")
+    for row in scores:
+        score = row.get("score")
+        if (isinstance(score, bool) or not isinstance(score, (float, int))
+                or not math.isfinite(score) or not 0 <= score <= 1):
+            raise ValueError("Ranker score must be finite and between zero and one")
+
+
+def validate_retrieval(details: dict, uid: int) -> dict:
+    """Literal structural grounding, not semantic entailment or a new pruner."""
+    packed = details["packed_context"]["neighbors_text"]
+    allowed = set(re.findall(r"\[(User-\d+|Item-\d+)\]", packed)) | {f"User-{uid}"}
+    bundle = details["retrieval_bundle"]
+    if not bundle["facets"]:
+        raise ValueError("Empty Stage-R facets cannot validate a real-memory smoke")
+    for facet in bundle["facets"]:
+        if (not facet["facet"].strip() or not 0 <= facet["confidence"] <= 1
+                or set(facet["supporting_neighbors"]) - allowed):
+            raise ValueError("Stage-R facet has invalid confidence or out-of-context support IDs")
+    for edge in bundle["support_edges"]:
+        if (edge["from"] not in allowed or edge["to"] != f"User-{uid}"
+                or not 0 <= edge["w"] <= 1):
+            raise ValueError("Stage-R support edge is not grounded in its visible context")
+    return {"facet_count": len(bundle["facets"]), "packed_neighbors": details["packed_context"]["n_neighbors"],
+            "selected_neighbors": len(details["pruned_subgraph"]["neighbors"])}
+
+
+def validate_write(result: dict, mutation: dict, details: dict, uid: int,
+                   clicked: int, fanout_cap: int) -> None:
+    allowed = {f"{nb['type'].capitalize()}-{nb['id']}" for nb in details["pruned_subgraph"]["neighbors"]}
+    raw = result["raw_response"]
+    neighbor_ids = [row["neighbor_id"] for row in raw["neighbor_updates"]]
+    # Upstream silently ignores an invented neighbor. Diagnose it, do not repair
+    # the response or treat an ignored mutation as a valid output.
+    if (set(neighbor_ids) - allowed or len(set(neighbor_ids)) != len(neighbor_ids)
+            or len(neighbor_ids) > fanout_cap):
+        raise ValueError("Stage-W neighbor IDs/fanout violate its existing prompt")
+    users = {uid} | {int(n.split("-")[1]) for n in neighbor_ids if n.startswith("User-")}
+    items = {clicked} | {int(n.split("-")[1]) for n in neighbor_ids if n.startswith("Item-")}
+    if set(mutation["users"]) - users or set(mutation["items"]) - items:
+        raise ValueError("Mutation journal contains an unrequested entity")
+    if result["stats"]["user_applied"] != 1 or result["stats"]["item_applied"] != 1:
+        raise ValueError("Stage-W did not create both personal and clicked-item memory")
+
+
+def run_memory_smoke(agent, *, inputs: dict, rows: list[dict], user_ids: list[int], emit) -> dict:
+    """Serial, all-smoke-warmups first, then read-only pseudo ranking.
+
+    `emit(name, row)` must durably append JSON before the next event. Labels stay
+    in a separate reward-audit file, never in RankRequest or a policy prompt.
+    """
+    if len(user_ids) != 20 or len(set(user_ids)) != 20 or user_ids != sorted(user_ids):
+        raise ValueError("Exactly twenty predeclared ordered smoke users required")
+    if agent.storage.n_updates or agent.storage.user_profiles:
+        raise ValueError("Must start from fresh metadata-only storage")
+    by_event = {(row["provenance"]["user_id"], row["provenance"]["kind"]): row for row in rows}
+    if len(by_event) != len(rows):
+        raise ValueError("Duplicate episode")
+    initial_hash = memory_sha256(agent.storage)
+    requests = []
+    counters = {"warmup": 0, "pseudo": 0}
+    for kind in ("warmup", "pseudo"):
+        for uid in user_ids:
+            row = by_event[uid, kind]
+            candidates = deepcopy(row["policy_input"]["candidate_ids"])
+            target = inputs["targets"][uid]
+            history = inputs["snapshot"].train_data[uid]
+            positive = inputs["warmups" if kind == "warmup" else "targets"][uid]
+            if (target in history or positive != row["reward_audit"]["positive_item_id"]
+                    or candidates.count(positive) != 1
+                    or (set(candidates) - {positive}) & set(history)
+                    or kind == "warmup" and target in candidates):
+                raise ValueError("Episode temporal/candidate roles differ")
+            before = memory_sha256(agent.storage)
+            if hasattr(agent.llm_client, "set_episode"):
+                agent.llm_client.set_episode(row["policy_input"]["episode_id"])
+            ranked, details = agent.rerank(
+                uid, candidates, NEUTRAL_PSEUDO_INSTRUCTION, return_details=True,
+                capture_rank_request=True, rank_snapshot_id=inputs["snapshot_sha256"])
+            emit("retrieval-trace", {"episode_id": row["policy_input"]["episode_id"],
+                                    "details": details, "ranked_ids": ranked})
+            validate_scores(details["rerank_scores"], candidates)
+            grounding = validate_retrieval(details, uid)
+            if memory_sha256(agent.storage) != before:
+                raise ValueError("Stage-R/ReRank mutated frozen memory")
+            request = RankRequest.from_dict(details["rank_request"])
+            if ([c["id"] for c in request.candidates] != candidates
+                    or request.instruction != NEUTRAL_PSEUDO_INSTRUCTION
+                    or request.snapshot_id != inputs["snapshot_sha256"]
+                    or request.vanilla_mode or not request.upstream_empty_facets_prompt):
+                raise ValueError("RankRequest differs from approved target-blind input")
+            # Compare to the actual physical API messages, not just two mutually
+            # agreeing serializers. Fake clients may omit this infrastructure hook.
+            if hasattr(agent.llm_client, "last_request"):
+                expected = agent.reranker.build_rerank_prompt(**request.baseline_prompt_kwargs())
+                if agent.llm_client.last_request["messages"] != expected:
+                    raise ValueError("Captured RankRequest cannot replay exact API prompt")
+            if kind == "warmup":
+                agent.storage.begin_mutation_record()
+                feedback = {"action": "CLICK", "item_id": inputs["warmups"][uid], "position": 0}
+                result = agent.write(user_id=uid, feedback=feedback,
+                                     recent_facets=details["facets"], pruned_subgraph=details["pruned_subgraph"])
+                mutation = agent.storage.finish_mutation_record()
+                emit("stage-w-journal", {"episode_id": row["policy_input"]["episode_id"],
+                    "user_id": uid, "feedback": feedback, "memory_before_sha256": before,
+                    "memory_after_sha256": memory_sha256(agent.storage),
+                    "mutation": mutation, "result": result, "grounding": grounding})
+                validate_write(result, mutation, details, uid, positive, agent.fanout_cap)
+            else:
+                emit("policy-inputs", {"episode_id": row["policy_input"]["episode_id"],
+                    "rank_request": request.to_dict(), "memory_state_sha256": before,
+                    "warmup_scope_user_ids": user_ids})
+                emit("reward-audit", {"episode_id": row["policy_input"]["episode_id"],
+                                     **row["reward_audit"]})
+                requests.append(request.sha256())
+            counters[kind] += 1
+            emit("progress", {"phase": kind, "completed_users": counters[kind],
+                              "logical_requests": 3 * counters["warmup"] + 2 * counters["pseudo"]})
+    if (agent.n_stage_w_calls, agent.n_stage_r_calls, agent.n_stage_rr_calls) != (20, 40, 40):
+        raise ValueError("Unexpected stage count or pseudo-target write")
+    return {"users": 20, "warmup_stage_w_calls": 20, "pseudo_stage_w_calls": 0,
+            "stage_r_calls": 40, "stage_rerank_calls": 40,
+            "target_blind_rank_requests": len(requests), "rank_request_hashes": requests,
+            "initial_memory_sha256": initial_hash, "final_memory_sha256": memory_sha256(agent.storage),
+            "warmup_scope_user_ids": user_ids, "full_1797_memory_cache": False,
+            "semantic_memory_grounding_proven": False, "training_ready": False}

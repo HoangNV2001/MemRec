@@ -27,8 +27,11 @@ hard negatives chọn quanh positive: probe chỉ dùng candidate-set đạt NDC
 researcher đã cho triển khai v2 đổi riêng semantic anchor sang allowed history
 prefix, giữ 3+3+3 và tiêu chí audit. V2 phải smoke/audit CPU lại trước GPU.
 Kết quả, giới hạn và bước tiếp theo ở design **§0.9–0.10**; chưa nạp GPU mới.
-V2 implementation đã **209 tests pass**; smoke/full audit riêng vẫn bắt buộc,
-không suy ra PPO-ready từ test phần mềm.
+V2 đã hoàn tất candidate/feature smoke và full audit CPU: **1.797 users / 3.594 bộ,
+không có cờ trong 7 probe cố định**; semantic-centrality probe NDCG@5 còn 0,3110.
+Đã kiểm hash toàn bộ 26 tệp kết quả. Đây không phải score method hay PPO-ready.
+Bước tiếp theo là **20-user real LM_Mem/LM_Rec smoke** (§0.11), giữ nguyên baseline
+và tách target khỏi policy input; chưa có kết quả thực của smoke này.
 
 ## Bản đồ tài liệu — chỉ 5 tài liệu dự án
 
