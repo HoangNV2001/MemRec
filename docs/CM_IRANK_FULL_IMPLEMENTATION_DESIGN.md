@@ -359,6 +359,8 @@ The helper **never deletes a source, cancels a job, kills a step, or starts a GP
 
 **Private snapshot verified and migration resumed:** source `551734df19bc0165070ef75c0b8c85411381ff33`, **255 tests passed**. The secure donor→reader stream delivered all six reviewed files and manifest (3,818,986 bytes including manifest), hashes verified by the receiving CPU step. No original mode/content/ACL changed. Both failed pre-copy states/samples are archived; the new bounded four-CPU migration uses the unchanged scope and 150-minute cap, still zero GPU/API calls and no source deletion. One status check will establish progress/ETA; keep the running helper source pinned, never update it mid-copy.
 
+**Single resumed status check:** copy smoke **20/20 passed**; source inventory has **118,999 entries / 86,170,478,189 logical bytes (80.25 GiB)**, distinct from the earlier ~75 GiB allocated-space estimate. Whole-source SHA256 phase began at **16.89 s**; no final receipt yet and no source deletion authorized. Provisional ETA **30–60 minutes CPU/I/O**, not measured full throughput: large integrity passes, full rsync, relocation and the portable twenty-user CPU smoke on shared storage. Hard timeout remains 150 minutes. No second status poll or GPU reclaim planned this turn. Later continuation must verify receipt, destination/runtime/code/data, immutable raw artifacts and fresh donor checksums before logging into the donor account to delete only the old MemRec subtree. Do not treat this launch or the small copy smoke as completed migration.
+
 ---
 
 # 1. Executive decision
