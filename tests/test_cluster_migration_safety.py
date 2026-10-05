@@ -148,3 +148,16 @@ def test_socket_outside_project_runtime_cache_remains_a_hard_failure(tmp_path):
             module.inventory(tmp_path, hash_files=True, record_runtime_sockets=True)
     finally:
         endpoint.close()
+
+
+def test_named_reader_acl_adds_no_group_world_or_reader_write_permission():
+    import struct
+    path = Path(__file__).resolve().parents[1] / "scripts/cluster/grant_migration_read.py"
+    spec = importlib.util.spec_from_file_location("grant_reader_hnv", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    blob = module.read_acl(1052)
+    assert struct.unpack("<I", blob[:4])[0] == 2
+    entries = [struct.unpack("<HHI", blob[start:start + 8]) for start in range(4, len(blob), 8)]
+    assert entries == [(1, 6, 0xFFFFFFFF), (2, 4, 1052), (4, 0, 0xFFFFFFFF),
+                       (16, 4, 0xFFFFFFFF), (32, 0, 0xFFFFFFFF)]

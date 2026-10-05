@@ -175,12 +175,17 @@ def main() -> None:
         previous = json.loads((work / "state.json").read_text())
         if (not args.resume_empty_reviewed_failure or previous.get("phase") != "FAILED_SOURCE_PRESERVED"
                 or previous.get("source") != str(source) or previous.get("destination") != str(destination)
-                or (work / "source-manifest.json").exists() or (work / "copy-smoke.json").exists()):
+                or (work / "source-manifest.json").exists()):
             raise RuntimeError("Existing nonempty/unreviewed attempt must not be overwritten")
-        archive = work / "failed-precopy-attempt-hnv"
+        number = len(list(work.glob("failed-precopy-attempt*-hnv"))) + 1
+        archive = work / f"failed-precopy-attempt-{number:02d}-hnv"
         archive.mkdir()
         shutil.copy2(work / "state.json", archive / "state.json")
         (work / "state.json").unlink()
+        for name in ("copy-smoke.json", "smoke-files-hnv.list", "copy-smoke-hnv", "nonportable-runtime-sockets.json"):
+            path = work / name
+            if path.exists():
+                path.rename(archive / name)
     started = time.monotonic()
     def phase(name, **fields):
         record = {"phase": name, "elapsed_seconds": time.monotonic() - started,
