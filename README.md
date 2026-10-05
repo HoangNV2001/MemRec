@@ -20,6 +20,13 @@ V3 với schema rõ đã **pass 20/20 synthetic output và backward/optimizer**;
 peak VRAM 34,66 GiB, khoảng 40 giây, GPU đã trả về 1 MiB. 141 tests CPU pass.
 Đây chỉ là infrastructure smoke; G0/PPO và ranking Books chưa được chứng minh.
 
+Cập nhật **2026-10-05**: candidate preparation đã hoàn tất 1.797 policy users /
+3.594 bộ; **195 tests CPU pass**. Audit tiếp theo phát hiện shortcut semantic do
+hard negatives chọn quanh positive: probe chỉ dùng candidate-set đạt NDCG@5
+0,6633 trên pseudo-validation, **không phải score CM-IRank**. PPO đang chặn;
+đề xuất sửa semantic anchor sang allowed history prefix cần researcher chốt.
+Kết quả, giới hạn và bước tiếp theo ở design **§0.9**; chưa nạp GPU mới.
+
 ## Bản đồ tài liệu — chỉ 5 tài liệu dự án
 
 | Tài liệu | Nguồn chuẩn cho |

@@ -4,7 +4,7 @@
 > **Short name:** **CM-IRank**\
 > **Document role:** source-of-truth implementation/research specification for agents and human reviewers\
 > **Status:** design v1.1 — user-approved model/snapshot amendment; method not yet validated\
-> **Date:** 2026-09-30; execution ledger updated 2026-10-02\
+> **Date:** 2026-09-30; execution ledger updated 2026-10-05\
 > **Primary benchmark:** InstructRec Books unless the thesis scope is explicitly changed by the human researcher\
 > **Primary metric:** NDCG@5\
 > **Compute assumption:** self-hosted LLM/SLM and fine-tuning/RL are in scope. The existing internal GPU runbook allows **one H100 concurrently**; a two-H100 PPO run requires separate human approval and a runbook amendment. No GPU work is authorized by this design alone.
@@ -60,7 +60,7 @@ If an implementation detail in this design is incompatible with the actual repos
 
 The method must have a falsifiable research question, a clear formulation, strong controls, ablations and failure analysis; code porting or fidelity repairs alone are not a thesis contribution. The solution must be general and robust: no Books-specific rule stack, manual prompt/weight/seed selection on exposed labels, negative-sampling shortcut, or hidden outcome leakage. A one-year master's thesis additionally needs reliable benchmark reconstruction, method/attribution analysis, robustness across cohorts or domains, cost–quality measurements, and sealed confirmation. A small positive delta on 200 development users is insufficient. If CM-IRank does not beat **full MemRec and SASRec** under matched protocol, report that honestly rather than rebranding local-ranker or efficiency-only gains as the original thesis goal.
 
-### 0.4 G0 implementation ledger (updated 2026-10-02)
+### 0.4 G0 implementation ledger (updated 2026-10-05)
 
 | Component | Status | Boundary |
 |---|---|---|
@@ -75,7 +75,7 @@ The method must have a falsifiable research question, a clear formulation, stron
 | Baseline-parity pseudo-graph snapshot | CPU graph audit done; **Stage-W memory not yet proven safe** | Approved roles `train[:-2]` / `train[-2]` / `train[-1]`; smoke 20 first, then all 1,797 eligible query users. Exactly 3,594 query edges removed; full graph hash `22c78a5b483e137f2b0cfff23c6027471c6c553f7313b4c1aa51ec67d9a37921`. No global clock or Stage-W memory state built yet |
 | Pseudo-memory CPU wiring smoke | 20 users passed with fake LLM; **not quality/leakage proof for real LLM** | 20 warm-up Stage-W calls on `train[-2]`, 0 pseudo-target Stage-W writes, 20 target-blind RankRequests; 100 fake logical requests, 0 real requests; smoke-only uniform candidates, not the final sampler |
 | Qwen3.5-4B model contract | Revision pinned; **v3 infrastructure smoke passed: 20/20 valid + backward/one discarded AdamW update** | Target-free single-action synthetic requests only. Peak reserved 34.66 GiB under memory fraction 0.60; GPU released. Full N−1/real-memory smoke, PPO runtime/memory and Books ranking quality remain untested. See §0.5 |
-| Episode candidates | Approved smoke and full preparation complete: **1,797 users / 3,594 sets**, 40 smoke sets reused | PPO keeps frozen 3+3+3; every warm-up uses nine uniform negatives. Full graph/split unchanged. Statistical shortcut audit and real-memory gates remain open. See §0.7–0.8 |
+| Episode candidates | Preparation complete, but **v1 statistical gate stopped: semantic-centrality shortcut** | All 1,797 users / 3,594 sets retained. No PPO on this recipe; semantic anchor repair needs researcher approval. Warm-up/index/split remain unchanged. See §0.7–0.9 |
 | R1/VeRL compatibility audit | Pinned source inspection done; runtime/PPO smoke **not done** | Historical R1 stack cannot be assumed compatible with Qwen3.5; upstream VeRL example is GRPO/multi-GPU, not our one-card PPO gate. G0 not passed |
 
 **Pre-outcome researcher decisions, 2026-09-30:** The primary policy base is now **`Qwen/Qwen3.5-4B`**, replacing the proposed Qwen2.5-3B; the R1 binary-reward, terminal-only, direct/no-RL and MPSS arms must all use the same Qwen3.5-4B base for attribution. The official Hub revision `851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a` is pinned in `configs/cmirank/policy_model_v1.json`; at the time of this decision no weights had been downloaded or loaded. See §0.5 for the subsequent failed infrastructure smoke. Qwen2.5-3B remains a *fact about the R1-Ranker paper*, not this project's primary model. For each eligible policy user with `train=[..., warmup, target]`, the approved pseudo-episode roles are `graph=train[:-2]`, `Stage-W feedback=train[-2]`, and reward-only `pseudo-target=train[-1]`. This changes the earlier one-edge graph-only audit; the superseding audit is recorded below. Neither decision was based on CM-IRank ranking outcomes, which do not yet exist. PPO/backend compatibility remains to be verified before training.
@@ -197,6 +197,35 @@ The next CPU step implements §32 before any real-memory/PPO promotion. `configs
 **Single status inspection:** the new feature smoke **passed 20 users in 20.71 s**, including users 4671/7065, after independently verifying **all 3,594 completed candidate sets** and their 40 reused smoke rows. Target-blind features are deterministic, finite and replayable; no original instruction/evaluation candidates/suffix identities were accessed, no real LLM requests and no GPU requested. Audit contract SHA-256 `db5dd72a6e557c7fe116f2d6f36150f8f27bffa4067bfdb873ac10fc5b7c3578`; feature SHA-256 `2a60a75b80b3c2f6229ddeba368c7b621b85a88bc73768063153204482ddf5d9`. Full diagnostics had started under the identical contract, but no full report or risk decision existed at that inspection. Provisional ETA **1–3 minutes CPU-only** from that inspection (20.71 s smoke/preflight overhead plus full features/null tests; no throughput guarantee), with the unchanged 15-minute full hard timeout. Do not poll again this turn. Next continuation must verify full diagnostic report, validation risk flags and terminal cleanup before deciding whether to proceed; a successful feature smoke alone does not pass the statistical gate or authorize PPO.
 
 The smoke report and feature rows were retrieved locally; both SHA-256 hashes matched the remote files. No unfinished full output was copied or interpreted, and the running cluster source was not changed by the subsequent documentation commit.
+
+### 0.9 Terminal shortcut result and stopped promotion — inspected 2026-10-05
+
+**Completed, but not promoted:** `cmirank-shortcut-audit-v1-20261002-hnv` finished its full diagnostic in **26.90 s**, with 1,497 train users for probe fitting and **300 disjoint policy-validation users** for reporting. All 3,594 candidate sets were independently verified; the 40 candidate-smoke sets and **20 audit-feature smoke rows** were reused. All **12** remote run artifacts were retrieved and SHA-256 matched. An independent local line comparison confirmed all 20 feature rows are byte-identical in full output. Cleanup exit **0**, child exited, no GPU or real LLM requests; the shared allocation was left running at completion. Local suite rerun: **195 tests passed**. Full diagnostic report SHA-256 `c3d896c129eb8eae9b3cbace92993d3a596ae7fe320cc85463ede9a39e623ead`; full feature SHA-256 `e9c589adb2233c96c25431a16ff875c4d0a92741d95d3a985871fd6e9a45c7ae`.
+
+**Pseudo-validation diagnostics only — not CM-IRank/MemRec benchmark results:**
+
+| Probe (orientation fitted on train only) | Hit@1 | Hit@5 | NDCG@5 | Predeclared risk flag |
+|---|---:|---:|---:|---|
+| Random ranking, exact expected credit | 0.1000 | 0.5000 | 0.2948 | Reference |
+| Position frequency | 0.0500 | 0.4767 | 0.2597 | No |
+| Item ID, higher first | 0.1033 | 0.4833 | 0.2902 | No |
+| Popularity, lower first | 0.0944 | 0.5359 | 0.3069 | No |
+| Title length, longer first | 0.0733 | 0.5353 | 0.2985 | No |
+| Bounded metadata length, shorter first | 0.0183 | 0.5467 | 0.2604 | No |
+| Description present | 0.1000 | 0.5000 | 0.2948 | No |
+| **Semantic centrality, higher first** | **0.2994** | **0.9967** | **0.6633** | **Yes; Bonferroni p = 0.0007** |
+
+The semantic probe uses **only the candidate set**, without user history, collaborative memory, original instructions or component labels. It also performs strongly on pseudo-train (NDCG@5 **0.6452**, Hit@5 **0.9940**), consistent with a reproducible dataset-level artifact rather than validation-only fitting. The Monte Carlo p is subject to the predeclared 9,999-draw resolution; do not present it as an exact analytic p-value. Other probes not being flagged is not a proof that those features are harmless under every scoring criterion.
+
+**Source-supported explanation, still a causal hypothesis:** v1 chooses its three semantic negatives nearest to the **positive embedding** (`MixedCandidateSampler.sample`). This tends to form a positive-centred four-item cluster beside six other sampled candidates. Candidate centrality can then recover much of the ranking without learning user–memory relevance. The observed near-perfect Hit@5 is a strong warning about this recipe. It is **not** evidence of sealed-label access, nor proof that the real SLM exploits this feature: the probe uses title+description embeddings, whereas the baseline-parity policy prompt exposes titles and item memories, not raw descriptions. Do not compare NDCG@5 0.6633 to the original-candidate 200-user MemRec/SASRec table or call it method improvement.
+
+**Gate:** report decision `STOP_BEFORE_PPO_SHORTCUT_REVIEW`. Preserve v1 configs/rows/results unchanged as a rejected promotion artifact; no threshold, seed, prompt, cohort or label reinterpretation. `training_ready=false`, statistical gate not passed, real-memory safety and PPO compatibility gates still open. An available GPU does not waive this stop.
+
+**Proposed minimal repair — awaiting researcher approval, not implemented:** keep the ten-candidate shape, **3 uniform + 3 popularity-matched + 3 semantic** composition, encoder/index/text contract, seed, 1,497/300 users, graph snapshot and nine-uniform warm-up recipe. Change **only semantic selection** from positive-anchored to **allowed-prefix-anchored**, using a normalized mean of available frozen embeddings from `graph_prefix + warmup`; no pseudo-target may enter that anchor. Continue excluding the positive/history from negatives, keep component/reward fields outside policy inputs and preserve original evaluation candidates. Check anchor coverage and fail explicitly for a missing/degenerate anchor rather than impute or drop users. This is a candidate-data validity repair, not a new thesis contribution or a claim that the new sampler will pass.
+
+If approved, implement a **new v2 candidate contract/run**, reference the existing frozen index without rewriting its historical manifest, rerun 20-user candidate/feature smoke then full CPU diagnostics with the **same** risk criterion. Do not search sampler variants or accept one merely for giving higher ranking scores. Only after the statistical review permits continuation: fresh real Stage-W/Stage-R smoke → one-card real-policy/PPO compatibility smoke → tiny PPO; no full training or held-out scoring is approved by this proposal.
+
+**Resource preflight boundary:** on this continuation the running allocation no longer matched the name explicitly authorized in the private runbook. A replacement allocation was discovered read-only, but not used. Resource reauthorization is needed separately, still limited to **one genuinely idle H100**, descending physical index preference and immediate release. No GPU workload, resource reservation or new Slurm allocation was started. Exact infrastructure identifiers and the pending authorization are recorded only in the ignored private runbook.
 
 ---
 
@@ -1001,6 +1030,8 @@ Use the evaluation shape:
 Do not train only on 20-candidate R1 format and then silently transfer; that may be used for R1 reproduction but not as the only Books training data.
 
 ## 13.2 Deterministic mixed-hardness sampler
+
+**Current gate, 2026-10-05:** the following v1 recipe is preserved for provenance but **not approved for PPO promotion**, because the fixed candidate-only semantic-centrality probe flagged a shortcut (§0.9). The prefix-anchored semantic repair below is a proposal awaiting researcher approval; do not silently change the existing config or reuse v1 as a passed training set.
 
 Default v1 composition per **PPO pseudo-target episode** (not Stage-W warm-up):
 
