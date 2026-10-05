@@ -114,3 +114,17 @@ def verified_numeric_cuda_binding(cards: list[GPUCard], selected: GPUCard, pci_s
             or selected not in cards):
         raise ValueError("NVML index and CUDA PCI ordering/UUID do not agree")
     return str(selected.index)
+
+
+def canonical_gpu_uuid(value: str) -> str:
+    """Same complete 128-bit identity: NVML has GPU-, Torch's CUuuid does not.
+
+    Accept only the exact hex UUID grammar (optional GPU- namespace); never
+    accept a prefix/subsequence, another GPU, a MIG identifier or extra text.
+    """
+    if not isinstance(value, str):
+        raise ValueError("GPU UUID must be text")
+    match = re.fullmatch(r"(?:gpu-)?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", value.lower())
+    if match is None:
+        raise ValueError("Malformed full GPU UUID")
+    return match.group(1)

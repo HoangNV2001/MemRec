@@ -163,7 +163,7 @@ def test_v2_binding_delta_preserves_entire_memory_experiment():
     assert effective == base
     assert sha != base_sha
     with pytest.raises(ValueError):
-        load_memory_contract(ROOT, 3)
+        load_memory_contract(ROOT, 4)
 
 
 def test_numeric_binding_requires_inventory_uuid_and_pci_order_agreement():
@@ -175,3 +175,22 @@ def test_numeric_binding_requires_inventory_uuid_and_pci_order_agreement():
                 pci.splitlines()[0], pci + "\n" + pci.splitlines()[0]):
         with pytest.raises(ValueError):
             verified_numeric_cuda_binding(cards, cards[-1], bad)
+
+
+def test_v3_preserves_every_v2_field_except_identity_and_run_id():
+    v2, sha2 = load_memory_contract(ROOT, 2)
+    v3, sha3 = load_memory_contract(ROOT, 3)
+    delta = v3.pop("device_identity_delta")
+    assert delta["change_only"] == "canonical_uuid_representation_for_device_identity_assertion"
+    v3["run_id"] = v2["run_id"]
+    assert v3 == v2 and sha3 != sha2
+
+
+def test_cuda_and_nvml_uuid_representations_match_full_identity_only():
+    from src.cmirank.gpu_resources import canonical_gpu_uuid
+    value = "116eac5f-3ac9-a010-88b2-33f589cbd713"
+    assert canonical_gpu_uuid(value) == canonical_gpu_uuid("GPU-" + value.upper())
+    assert canonical_gpu_uuid(value) != canonical_gpu_uuid("216eac5f-3ac9-a010-88b2-33f589cbd713")
+    for malformed in (value[:-1], " " + value, value + " extra", "MIG-" + value, "GPU-GPU-" + value, None):
+        with pytest.raises(ValueError):
+            canonical_gpu_uuid(malformed)

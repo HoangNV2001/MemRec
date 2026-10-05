@@ -27,7 +27,7 @@ sys.path.insert(0, str(ROOT))
 
 from src.cmirank.candidate_artifacts import load_candidate_samplers, smoke_user_ids
 from src.cmirank.gpu_resources import (
-    compute_gpu_processes, parse_gpu_snapshot, select_idle_h100, verified_numeric_cuda_binding,
+    canonical_gpu_uuid, compute_gpu_processes, parse_gpu_snapshot, select_idle_h100, verified_numeric_cuda_binding,
 )
 from src.cmirank.memory_smoke import load_memory_contract, object_sha256, run_memory_smoke
 from src.cmirank.policy_inputs import load_locked_policy_inputs
@@ -137,7 +137,7 @@ def main() -> None:
     parser.add_argument("--index-dir", type=Path, required=True)
     parser.add_argument("--candidate-run-dir", type=Path, required=True)
     parser.add_argument("--audit-dir", type=Path, required=True)
-    parser.add_argument("--contract-version", choices=(1, 2), type=int, default=2)
+    parser.add_argument("--contract-version", choices=(1, 2, 3), type=int, default=3)
     args = parser.parse_args()
     config, contract_sha = load_memory_contract(ROOT, args.contract_version)
     run = args.run_dir.resolve()
@@ -213,7 +213,7 @@ def main() -> None:
         if select_idle_h100([now], set(apps_now)).uuid != card.uuid:
             raise ValueError("Selected GPU no longer idle")
         card = now
-        if args.contract_version == 2:
+        if args.contract_version >= 2:
             pci = subprocess.check_output(["nvidia-smi", "--query-gpu=index,uuid,pci.bus_id",
                                              "--format=csv,noheader,nounits"], text=True)
             (run / "gpu-pci-load-time.csv").write_text(pci)
@@ -225,7 +225,12 @@ def main() -> None:
             "import json, torch; assert torch.cuda.is_available() and torch.cuda.device_count() == 1; "
             "print(json.dumps({'uuid': str(torch.cuda.get_device_properties(0).uuid), 'devices': 1}))"], text=True)
         identity = json.loads(cuda_identity)
-        if identity["uuid"].lower() != card.uuid.lower():
+        (run / "cuda-identity.json").write_text(artifact_json_dumps({
+            "observed_cuda": identity, "selected_nvml_uuid": card.uuid,
+            "numeric_visible_device": os.environ["CUDA_VISIBLE_DEVICES"]}))
+        matches = (canonical_gpu_uuid(identity["uuid"]) == canonical_gpu_uuid(card.uuid)
+                   if args.contract_version >= 3 else identity["uuid"].lower() == card.uuid.lower())
+        if not matches:
             raise ValueError("Numeric CUDA binding does not point to the selected physical UUID")
         # The visibility-check child exits immediately; the CPU coordinator never
         # initializes a CUDA context or holds a second set of weights.

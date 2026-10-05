@@ -1,0 +1,8 @@
+{
+  "schema_version": 3,
+  "predecessor_contract_sha256": "147e1a0fc9ec480e1d6a798ce7f4dbf621bc4439f66e6d88046624e670a96598",
+  "run_id": "cmirank-real-memory-smoke-v3-20261005-hnv",
+  "change_only": "canonical_uuid_representation_for_device_identity_assertion",
+  "uuid_comparison": "full_128_bit_uuid_optional_gpu_prefix_canonical_lowercase",
+  "training_ready": false
+}

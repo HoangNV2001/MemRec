@@ -32,7 +32,8 @@ không có cờ trong 7 probe cố định**; semantic-centrality probe NDCG@5 c
 Đã kiểm hash toàn bộ 26 tệp kết quả. Đây không phải score method hay PPO-ready.
 Bước tiếp theo là **20-user real LM_Mem/LM_Rec smoke** (§0.11), giữ nguyên baseline
 và tách target khỏi policy input. Smoke v1 dừng trước inference do vLLM 0.10.2
-không nhận GPU UUID trong binding; GPU đã nhả. Run v2 sửa riêng binding thiết bị,
+không nhận GPU UUID trong binding; v2 dừng ở kiểm UUID do khác tiền tố giữa
+PyTorch/NVML. GPU đã nhả sạch sau cả hai lượt. V3 sửa riêng adapter/identity check,
 không thay model/prompt; chưa có kết quả memory/SLM/PPO.
 
 ## Bản đồ tài liệu — chỉ 5 tài liệu dự án

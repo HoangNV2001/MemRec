@@ -26,7 +26,7 @@ def load_memory_contract(root: Path, version: int) -> tuple[dict, str]:
     base_sha = file_sha256(base_path)
     if version == 1:
         return config, base_sha
-    if version != 2:
+    if version not in (2, 3):
         raise ValueError("Unsupported memory smoke version")
     delta_path = root / "configs/cmirank/real_memory_smoke_v2.json"
     delta = json.loads(delta_path.read_text())
@@ -39,7 +39,20 @@ def load_memory_contract(root: Path, version: int) -> tuple[dict, str]:
         raise ValueError("V2 may change only vLLM device binding, not the memory experiment")
     config["run_id"] = delta["run_id"]
     config["device_binding_delta"] = delta
-    return config, object_sha256({"base_sha256": base_sha, "delta_sha256": file_sha256(delta_path)})
+    hashes = {"base_sha256": base_sha, "delta_sha256": file_sha256(delta_path)}
+    if version == 3:
+        identity_path = root / "configs/cmirank/real_memory_smoke_v3.json"
+        identity_delta = json.loads(identity_path.read_text())
+        if identity_delta != {"schema_version": 3, "predecessor_contract_sha256": hashes["delta_sha256"],
+            "run_id": "cmirank-real-memory-smoke-v3-20261005-hnv",
+            "change_only": "canonical_uuid_representation_for_device_identity_assertion",
+            "uuid_comparison": "full_128_bit_uuid_optional_gpu_prefix_canonical_lowercase",
+            "training_ready": False}:
+            raise ValueError("V3 may fix only canonical GPU UUID comparison")
+        config["run_id"] = identity_delta["run_id"]
+        config["device_identity_delta"] = identity_delta
+        hashes["identity_delta_sha256"] = file_sha256(identity_path)
+    return config, object_sha256(hashes)
 
 
 def validate_memory_contract(config: dict) -> None:
