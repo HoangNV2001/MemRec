@@ -21,7 +21,7 @@ def sha256(path: Path) -> str:
 def main() -> None:
     if not os.environ.get("SLURM_JOB_ID"):
         raise RuntimeError("Download requires an authorized Slurm step")
-    root = Path("/mnt/data/users/anhnct/memrec-hnv")
+    root = Path("/mnt/data/users/hoangnv242/memrec-hnv")
     if not Path(os.environ.get("HF_HOME", "")).resolve().is_relative_to(root / "cache"):
         raise RuntimeError("HF cache is outside MemRec-owned storage")
     contract = json.loads(Path("configs/cmirank/policy_model_v1.json").read_text())

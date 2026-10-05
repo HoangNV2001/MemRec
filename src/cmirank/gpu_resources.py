@@ -58,6 +58,29 @@ def select_idle_h100(cards: list[GPUCard], occupied: set[str]) -> GPUCard:
     raise ValueError("No empty H100: require <20% utilization, <512 MiB and no process")
 
 
+def select_reserved_gpu1(cards: list[GPUCard], occupied: set[str]) -> GPUCard:
+    """New permission: GPU 1 only, after a proven generator-step handoff.
+
+    This function NEVER stops a step/job and never shares/falls back to GPU 0.
+    A separate, verified handoff must make GPU 1 idle before a model launcher.
+    """
+    return select_idle_h100([card for card in cards if card.index == 1], occupied)
+
+
+def generator_step_target(job: str, step: str, *, name: str, owner: str, state: str,
+                          gpu_pids: set[int], step_pids: set[int]) -> str:
+    """Validate ONLY a numeric omni-gen-1 step target, never a job/batch/step0.
+
+    Caller must additionally verify PID UID/cgroups/command and capture the
+    exact allocation/GPU snapshots. Returns a target, performs no cancellation.
+    """
+    if (not job.isdigit() or not step.isdigit() or name != "omni-gen-1"
+            or owner != "hoangnv242" or state != "RUNNING"
+            or not gpu_pids or not gpu_pids <= step_pids):
+        raise ValueError("Cannot prove exclusive ownership of the authorized GPU1 generator step")
+    return f"{job}.{step}"
+
+
 def select_qwen_smoke_gpu(cards: list[GPUCard], occupied: set[str], config: dict) -> GPUCard:
     """One researcher-approved shared-card exception, never a default policy."""
     policy = config.get("gpu_policy", "idle_only")

@@ -10,8 +10,11 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
   echo 'Refusing to run outside a Slurm step' >&2
   exit 2
 fi
+if [[ "$(squeue -j "$SLURM_JOB_ID" -h -o '%u %T %j')" != 'hoangnv242 RUNNING senvoice-pro-opt' ]]; then
+  echo 'Unexpected reserved allocation' >&2; exit 2
+fi
 
-MEMREC_ROOT=/mnt/data/users/anhnct/memrec-hnv
+MEMREC_ROOT=/mnt/data/users/hoangnv242/memrec-hnv
 REPO="$MEMREC_ROOT/repo/MemRec-hnv"
 RUN_ID=sasrec-books-dev-v3-hnv
 RUN_DIR="$MEMREC_ROOT/runs/$RUN_ID"
@@ -30,16 +33,12 @@ SNAPSHOT_BEFORE="$LOG_DIR/$RUN_ID-$1-gpu-before.csv"
 SNAPSHOT_AFTER="$LOG_DIR/$RUN_ID-$1-gpu-after.csv"
 nvidia-smi --query-gpu=index,utilization.gpu,memory.used,memory.total \
   --format=csv,noheader,nounits > "$SNAPSHOT_BEFORE"
-if [[ "$(wc -l < "$SNAPSHOT_BEFORE")" -ne 4 ]]; then
-  echo 'Expected a four-GPU preflight snapshot' >&2
+if [[ "$(wc -l < "$SNAPSHOT_BEFORE")" -lt 2 ]]; then
+  echo 'Reserved GPU1 must be present' >&2
   exit 2
 fi
 
-GPU_INDEX=$(sort -t, -k2,2n -k3,3n "$SNAPSHOT_BEFORE" | head -1 | cut -d, -f1 | tr -d ' ')
-if [[ ! "$GPU_INDEX" =~ ^[0-3]$ ]]; then
-  echo 'Could not resolve a single GPU index' >&2
-  exit 2
-fi
+GPU_INDEX=1
 GPU_ROW=$(grep "^$GPU_INDEX," "$SNAPSHOT_BEFORE")
 GPU_UTIL=$(printf '%s\n' "$GPU_ROW" | cut -d, -f2 | tr -d ' ')
 GPU_MEMORY_MB=$(printf '%s\n' "$GPU_ROW" | cut -d, -f3 | tr -d ' ')
@@ -47,11 +46,17 @@ if [[ ! "$GPU_UTIL" =~ ^[0-9]+$ || ! "$GPU_MEMORY_MB" =~ ^[0-9]+$ ]]; then
   echo 'Malformed selected-GPU utilization/memory snapshot' >&2
   exit 2
 fi
-if (( GPU_UTIL >= 20 || GPU_MEMORY_MB >= 2048 )); then
+if (( GPU_UTIL >= 20 || GPU_MEMORY_MB >= 512 )); then
   echo 'No sufficiently idle H100 for a non-intrusive MemRec run' >&2
   exit 2
 fi
+nvidia-smi --query-compute-apps=gpu_uuid,pid --format=csv,noheader,nounits > "$LOG_DIR/$RUN_ID-$1-apps-before.csv"
+GPU_UUID=$(nvidia-smi -i 1 --query-gpu=uuid --format=csv,noheader)
+if grep -Fq "$GPU_UUID" "$LOG_DIR/$RUN_ID-$1-apps-before.csv"; then
+  echo 'GPU1 still has a compute process; require a verified handoff first' >&2; exit 2
+fi
 export CUDA_VISIBLE_DEVICES="$GPU_INDEX"
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
 export XDG_CACHE_HOME="$MEMREC_ROOT/cache"
 export HF_HOME="$MEMREC_ROOT/cache/huggingface"
 export HF_HUB_CACHE="$HF_HOME/hub"

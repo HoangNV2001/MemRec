@@ -5,11 +5,11 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
   echo 'Preparation requires an authorized Slurm step' >&2
   exit 2
 fi
-if [[ "$(squeue -j "$SLURM_JOB_ID" -h -o '%u %T %j')" != 'anhntc2 RUNNING train_TTS' ]]; then
+if [[ "$(squeue -j "$SLURM_JOB_ID" -h -o '%u %T %j')" != 'hoangnv242 RUNNING senvoice-pro-opt' ]]; then
   echo 'Unexpected allocation' >&2
   exit 2
 fi
-MEMREC_ROOT=/mnt/data/users/anhnct/memrec-hnv
+MEMREC_ROOT=/mnt/data/users/hoangnv242/memrec-hnv
 cd "$MEMREC_ROOT/repo/MemRec-hnv"
 if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
   echo 'Tracked source must be clean before preparation' >&2

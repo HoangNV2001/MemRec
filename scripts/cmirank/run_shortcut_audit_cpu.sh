@@ -3,16 +3,17 @@
 set -euo pipefail
 MEMREC_RECIPE_VERSION=${1:-1}
 case "$MEMREC_RECIPE_VERSION" in
-  1) MEMREC_EXPECTED_ALLOCATION_NAME=train_TTS ;;
+  1) MEMREC_EXPECTED_ALLOCATION_NAME=senvoice-pro-opt ;;
   2) : "${MEMREC_EXPECTED_ALLOCATION_NAME:?Pass the privately approved allocation name}" ;;
   *) echo 'Unsupported recipe version' >&2; exit 2 ;;
 esac
+if [[ "$MEMREC_EXPECTED_ALLOCATION_NAME" != senvoice-pro-opt ]]; then exit 2; fi
 if [[ -z "${SLURM_JOB_ID:-}" || \
-      "$(squeue -j "$SLURM_JOB_ID" -h -o '%u %T %j')" != "anhntc2 RUNNING $MEMREC_EXPECTED_ALLOCATION_NAME" ]]; then
+      "$(squeue -j "$SLURM_JOB_ID" -h -o '%u %T %j')" != "hoangnv242 RUNNING $MEMREC_EXPECTED_ALLOCATION_NAME" ]]; then
   echo 'Unexpected or missing authorized allocation' >&2
   exit 2
 fi
-MEMREC_ROOT=/mnt/data/users/anhnct/memrec-hnv
+MEMREC_ROOT=/mnt/data/users/hoangnv242/memrec-hnv
 cd "$MEMREC_ROOT/repo/MemRec-hnv"
 if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
   echo 'Shortcut audit requires clean tracked source' >&2

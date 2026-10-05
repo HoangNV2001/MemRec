@@ -2,11 +2,11 @@
 # Real encoder smoke -> full metadata index -> 20-user integrity smoke; no GPU.
 set -euo pipefail
 if [[ -z "${SLURM_JOB_ID:-}" || \
-      "$(squeue -j "$SLURM_JOB_ID" -h -o '%u %T %j')" != 'anhntc2 RUNNING train_TTS' ]]; then
+      "$(squeue -j "$SLURM_JOB_ID" -h -o '%u %T %j')" != 'hoangnv242 RUNNING senvoice-pro-opt' ]]; then
   echo 'Unexpected or missing authorized allocation' >&2
   exit 2
 fi
-MEMREC_ROOT=/mnt/data/users/anhnct/memrec-hnv
+MEMREC_ROOT=/mnt/data/users/hoangnv242/memrec-hnv
 cd "$MEMREC_ROOT/repo/MemRec-hnv"
 if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
   echo 'Candidate indexing requires clean tracked source' >&2

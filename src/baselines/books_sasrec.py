@@ -27,7 +27,7 @@ from src.temporal_movielens.baselines import _sasrec_epoch
 
 ROOT = Path(__file__).resolve().parents[2]
 BOOKS_INTER = ROOT / 'data/processed/instructrec-books/instructrec-books.inter'
-SERVER_RUN_ROOT = Path('/mnt/data/users/anhnct/memrec-hnv/runs')
+SERVER_RUN_ROOT = Path('/mnt/data/users/hoangnv242/memrec-hnv/runs')
 
 
 @dataclass

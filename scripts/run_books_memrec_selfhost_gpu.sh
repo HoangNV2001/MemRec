@@ -19,7 +19,7 @@ if [[ "$MODE" != smoke && "$MODE" != smoke700 && "$MODE" != full && "$MODE" != r
   exit 2
 fi
 
-MEMREC_ROOT=/mnt/data/users/anhnct/memrec-hnv
+MEMREC_ROOT=/mnt/data/users/hoangnv242/memrec-hnv
 REPO="$MEMREC_ROOT/repo/MemRec-hnv"
 if [[ "$MODE" == smoke ]]; then
   RUN_ID=books-memrec-llm-smoke-v2-hnv
@@ -81,7 +81,7 @@ if [[ "$(git status --porcelain --untracked-files=no)" != '' ]]; then
   exit 2
 fi
 JOB_INFO=$(squeue -j "$SLURM_JOB_ID" -h -o '%u %T %j')
-if [[ "$JOB_INFO" != 'anhntc2 RUNNING train_TTS' ]]; then
+if [[ "$JOB_INFO" != 'hoangnv242 RUNNING senvoice-pro-opt' ]]; then
   echo "Unexpected allocation: $JOB_INFO" >&2
   exit 2
 fi
@@ -186,7 +186,7 @@ if (( UNIQUE_GPU_COUNT != VISIBLE_GPU_COUNT )); then
   exit 2
 fi
 GPU_INDEX=''
-for candidate_index in 3 2 1 0; do
+for candidate_index in 1; do
   candidate_row=$(grep "^$candidate_index," "$PREFLIGHT_BEFORE" || true)
   if [[ -z "$candidate_row" ]]; then
     continue  # This allocation/node may expose fewer than four H100s.
@@ -227,6 +227,7 @@ fi
 cp "$PREFLIGHT_BEFORE" "$BEFORE"
 cp "$PREFLIGHT_APPS" "$APPS_BEFORE"
 export CUDA_VISIBLE_DEVICES="$GPU_INDEX"
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
 export XDG_CACHE_HOME="$MEMREC_ROOT/cache"
 export HF_HOME="$MEMREC_ROOT/cache/huggingface"
 export HF_HUB_CACHE="$HF_HOME/hub"
@@ -384,7 +385,7 @@ record = {
     'tensor_parallel': 1, 'gpu_memory_utilization': 0.60,
     'max_model_len': 16384, 'max_num_seqs': 1, 'seed': 42,
     'response_cache': 'exact-input/write-only-in-smoke' if mode == 'smoke' else 'exact-input/read-write',
-    'vllm_cache_root': '/mnt/data/users/anhnct/memrec-hnv/cache/vllm',
+    'vllm_cache_root': '/mnt/data/users/hoangnv242/memrec-hnv/cache/vllm',
     'slurm_job_id': job_id, 'physical_gpu_index': int(gpu_index),
     'candidate_sha256': BOOKS_CANDIDATE_SHA256,
     'dev_cohort_sha256': manifest['cohort_sha256']['dev'],

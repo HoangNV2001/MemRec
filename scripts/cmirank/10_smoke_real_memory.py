@@ -27,7 +27,7 @@ sys.path.insert(0, str(ROOT))
 
 from src.cmirank.candidate_artifacts import load_candidate_samplers, smoke_user_ids
 from src.cmirank.gpu_resources import (
-    canonical_gpu_uuid, compute_gpu_processes, parse_gpu_snapshot, select_idle_h100, verified_numeric_cuda_binding,
+    canonical_gpu_uuid, compute_gpu_processes, parse_gpu_snapshot, select_reserved_gpu1, verified_numeric_cuda_binding,
 )
 from src.cmirank.memory_smoke import load_memory_contract, object_sha256, run_memory_smoke
 from src.cmirank.policy_inputs import load_locked_policy_inputs
@@ -36,6 +36,7 @@ from src.cmirank.shortcut_audit import verify_candidate_run
 from src.data.dataset_base import RecDataset
 from src.models.llm_client import DurableRequestBudget, LLMClient
 from src.models.memrec_agent import MemRecAgent
+from src.cluster_runtime import require_allocation, require_project_root
 
 
 def append_row(run: Path, name: str, row: dict) -> None:
@@ -141,7 +142,7 @@ def main() -> None:
     args = parser.parse_args()
     config, contract_sha = load_memory_contract(ROOT, args.contract_version)
     run = args.run_dir.resolve()
-    private_root = Path(os.environ["MEMREC_ROOT"]).resolve()
+    private_root = require_project_root(Path(os.environ["MEMREC_ROOT"]))
     if (run != private_root / "runs" / config["run_id"] or run.exists()
             or config["users"] != 20 or config["training_ready"] or config["output_repair"]
             or config["tensor_parallel_size"] != 1 or config["physical_request_cap"] != 110
@@ -151,10 +152,7 @@ def main() -> None:
     if (commit != os.environ["MEMREC_EXPECTED_COMMIT"]
             or subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=no"], cwd=ROOT, text=True)):
         raise ValueError("Exact clean deployed source required")
-    job = os.environ["SLURM_JOB_ID"]
-    expected_allocation = f"anhntc2 RUNNING {os.environ['MEMREC_EXPECTED_ALLOCATION_NAME']}"
-    if subprocess.check_output(["squeue", "-j", job, "-h", "-o", "%u %T %j"], text=True).strip() != expected_allocation:
-        raise ValueError("Unauthorized allocation")
+    job = require_allocation()
     os.environ["CUDA_VISIBLE_DEVICES"] = ""  # CPU preparation never selects CUDA.
     run.mkdir()
     server, card, client, server_log = None, None, None, None
@@ -206,11 +204,11 @@ def main() -> None:
                     "versions": {n: importlib.metadata.version(n) for n in ("torch", "transformers", "vllm", "openai")}}
         (run / "manifest.json").write_text(artifact_json_dumps(manifest))
         cards, before_apps = capture_gpu(run, "before")
-        card = select_idle_h100(cards, set(before_apps))
+        card = select_reserved_gpu1(cards, set(before_apps))
         # Recheck the selected card immediately before CUDA/model initialization.
         cards_now, apps_now = capture_gpu(run, "load-time")
         now = next(c for c in cards_now if c.uuid == card.uuid)
-        if select_idle_h100([now], set(apps_now)).uuid != card.uuid:
+        if select_reserved_gpu1([now], set(apps_now)).uuid != card.uuid:
             raise ValueError("Selected GPU no longer idle")
         card = now
         if args.contract_version >= 2:

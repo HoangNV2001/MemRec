@@ -10,7 +10,7 @@ from pathlib import Path
 from huggingface_hub import snapshot_download
 
 
-ROOT = Path('/mnt/data/users/anhnct/memrec-hnv')
+ROOT = Path('/mnt/data/users/hoangnv242/memrec-hnv')
 MODEL = 'Qwen/Qwen3-30B-A3B-Instruct-2507-FP8'
 REVISION = '5a5a776300a41aaa681dd7ff0106608ef2bc90db'
 DESTINATION = ROOT / 'models/Qwen3-30B-A3B-Instruct-2507-FP8-hnv'

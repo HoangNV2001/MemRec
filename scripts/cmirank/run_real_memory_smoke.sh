@@ -3,12 +3,15 @@
 set -euo pipefail
 : "${MEMREC_EXPECTED_ALLOCATION_NAME:?Pass the privately approved allocation name}"
 : "${MEMREC_EXPECTED_COMMIT:?Pass the exact tested source commit}"
+if [[ "$MEMREC_EXPECTED_ALLOCATION_NAME" != senvoice-pro-opt ]]; then
+  echo 'Only the new reserved allocation is authorized' >&2; exit 2
+fi
 if [[ -z "${SLURM_JOB_ID:-}" || \
-      "$(squeue -j "$SLURM_JOB_ID" -h -o '%u %T %j')" != "anhntc2 RUNNING $MEMREC_EXPECTED_ALLOCATION_NAME" || \
+      "$(squeue -j "$SLURM_JOB_ID" -h -o '%u %T %j')" != "hoangnv242 RUNNING $MEMREC_EXPECTED_ALLOCATION_NAME" || \
       "${SLURM_CPUS_PER_TASK:-0}" -lt 8 ]]; then
   echo 'Unexpected allocation or insufficient CPUs' >&2; exit 2
 fi
-export MEMREC_ROOT=/mnt/data/users/anhnct/memrec-hnv
+export MEMREC_ROOT=/mnt/data/users/hoangnv242/memrec-hnv
 cd "$MEMREC_ROOT/repo/MemRec-hnv"
 if [[ "$(git rev-parse HEAD)" != "$MEMREC_EXPECTED_COMMIT" || \
       -n "$(git status --porcelain --untracked-files=no)" ]]; then

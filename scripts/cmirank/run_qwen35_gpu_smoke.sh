@@ -2,11 +2,11 @@
 # Authorized train_TTS step; default idle-only, with one explicitly approved smoke exception.
 set -euo pipefail
 if [[ -z "${SLURM_JOB_ID:-}" || \
-      "$(squeue -j "$SLURM_JOB_ID" -h -o '%u %T %j')" != 'anhntc2 RUNNING train_TTS' ]]; then
+      "$(squeue -j "$SLURM_JOB_ID" -h -o '%u %T %j')" != 'hoangnv242 RUNNING senvoice-pro-opt' ]]; then
   echo 'Unexpected or missing authorized allocation' >&2
   exit 2
 fi
-MEMREC_ROOT=/mnt/data/users/anhnct/memrec-hnv
+MEMREC_ROOT=/mnt/data/users/hoangnv242/memrec-hnv
 cd "$MEMREC_ROOT/repo/MemRec-hnv"
 mkdir -p "$MEMREC_ROOT/cache"
 exec 9>"$MEMREC_ROOT/cache/qwen35-gpu-hnv.lock"
@@ -36,10 +36,10 @@ GPU_UUID=$("$MEMREC_PYTHON" - "$PREFLIGHT" "$PREFLIGHT_APPS" <<'PY'
 import json
 from pathlib import Path
 import sys
-from src.cmirank.gpu_resources import parse_gpu_snapshot, compute_gpu_uuids, select_qwen_smoke_gpu
+from src.cmirank.gpu_resources import parse_gpu_snapshot, compute_gpu_uuids, select_reserved_gpu1
 config = json.loads(Path("configs/cmirank/qwen35_gpu_smoke.json").read_text())
-card = select_qwen_smoke_gpu(parse_gpu_snapshot(Path(sys.argv[1]).read_text()),
-                             compute_gpu_uuids(Path(sys.argv[2]).read_text()), config)
+card = select_reserved_gpu1(parse_gpu_snapshot(Path(sys.argv[1]).read_text()),
+                            compute_gpu_uuids(Path(sys.argv[2]).read_text()))
 print(card.uuid)
 PY
 )

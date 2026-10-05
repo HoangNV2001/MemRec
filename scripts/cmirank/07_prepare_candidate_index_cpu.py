@@ -24,7 +24,7 @@ from src.cmirank.candidates import digest_key, validate_candidate_contract
 from src.cmirank.metadata import read_metadata_texts
 from src.cmirank.provenance import artifact_json_dumps, file_sha256
 
-CLUSTER_ROOT = Path("/mnt/data/users/anhnct/memrec-hnv")
+CLUSTER_ROOT = Path("/mnt/data/users/hoangnv242/memrec-hnv")
 
 
 def main() -> None:
@@ -39,7 +39,7 @@ def main() -> None:
     job = os.environ.get("SLURM_JOB_ID", "")
     if (not job.isdigit()
             or subprocess.check_output(["squeue", "-j", job, "-h", "-o", "%u %T %j"],
-                                       text=True).strip() != "anhntc2 RUNNING train_TTS"
+                                       text=True).strip() != "hoangnv242 RUNNING senvoice-pro-opt"
             or os.environ.get("CUDA_VISIBLE_DEVICES") != ""
             or not run.is_relative_to(CLUSTER_ROOT / "runs")
             or run.name != config["index_build"]["run_id"]):

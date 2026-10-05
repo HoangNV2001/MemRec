@@ -41,6 +41,12 @@ ghi candidate-visible thành cảnh báo vai trò; ID bịa/lỗi schema/label v
 Review CPU v3 đã xong; v4 sẵn sàng nhưng **chưa chạy** vì preflight mới thấy cả
 4 GPU đang có process/giữ VRAM. MemRec không giữ card hay server để chờ.
 
+**Cập nhật resource:** user yêu cầu đổi account/reserved allocation và chuyển toàn
+bộ server workspace sang `/mnt/data/users/hoangnv242/memrec-hnv`. Migration phải
+copy/hash/rebase/smoke trước khi xóa nguồn cũ; hiện chưa được coi là hoàn tất.
+Quyền mới chỉ dùng GPU được duyệt, không bao giờ hủy job reserved; runbook nội bộ
+và design §0.13 là nguồn chuẩn, không dùng account/path cũ cho compute mới.
+
 ## Bản đồ tài liệu — chỉ 5 tài liệu dự án
 
 | Tài liệu | Nguồn chuẩn cho |

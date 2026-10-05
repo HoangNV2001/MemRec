@@ -34,7 +34,7 @@ def main() -> None:
     args = parser.parse_args()
     if not os.environ.get("SLURM_JOB_ID") or not os.environ.get("CUDA_VISIBLE_DEVICES"):
         raise RuntimeError("Require an authorized single-GPU Slurm step")
-    storage = Path("/mnt/data/users/anhnct/memrec-hnv")
+    storage = Path("/mnt/data/users/hoangnv242/memrec-hnv")
     if not args.run_dir.resolve().is_relative_to(storage / "runs"):
         raise RuntimeError("Run directory outside MemRec-owned storage")
     config_path = ROOT / "configs/cmirank/qwen35_gpu_smoke.json"
