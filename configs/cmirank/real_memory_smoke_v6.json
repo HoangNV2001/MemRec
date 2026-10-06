@@ -1,0 +1,12 @@
+{
+  "schema_version": 6,
+  "predecessor_contract_sha256": "1e684749299bd68585a4388fdf62630e0a578238f7222879eea2bafb7798b794",
+  "run_id": "cmirank-real-memory-smoke-v6-20261006-hnv",
+  "change_only": "fresh_per_run_compiler_cache_namespace_after_workspace_relocation",
+  "cache_names": ["TRITON_CACHE_DIR", "VLLM_CACHE_ROOT", "TORCHINDUCTOR_CACHE_DIR", "CUDA_CACHE_PATH"],
+  "cache_namespace": "project_root/cache/runtime-hnv/run_id",
+  "old_cache_artifacts": "preserve_do_not_rewrite_or_delete",
+  "model_prompt_data_decoding_changes": false,
+  "output_repair": false,
+  "training_ready": false
+}

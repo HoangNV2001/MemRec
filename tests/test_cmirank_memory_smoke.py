@@ -164,7 +164,7 @@ def test_v2_binding_delta_preserves_entire_memory_experiment():
     assert effective == base
     assert sha != base_sha
     with pytest.raises(ValueError):
-        load_memory_contract(ROOT, 6)
+        load_memory_contract(ROOT, 7)
 
 
 def test_numeric_binding_requires_inventory_uuid_and_pci_order_agreement():
@@ -254,6 +254,16 @@ def test_v5_resource_retry_preserves_every_v4_scientific_and_warning_field():
     assert not delta["model_prompt_data_decoding_changes"] and not delta["training_ready"]
     v5["run_id"] = v4["run_id"]
     assert v5 == v4 and hash5 != hash4
+
+
+def test_v6_preserves_science_and_uses_only_fresh_compiler_namespace():
+    v5, hash5 = load_memory_contract(ROOT, 5)
+    v6, hash6 = load_memory_contract(ROOT, 6)
+    delta = v6.pop("compiler_cache_delta")
+    assert delta["old_cache_artifacts"] == "preserve_do_not_rewrite_or_delete"
+    assert delta["cache_names"] == ["TRITON_CACHE_DIR", "VLLM_CACHE_ROOT", "TORCHINDUCTOR_CACHE_DIR", "CUDA_CACHE_PATH"]
+    v6["run_id"] = v5["run_id"]
+    assert v6 == v5 and hash6 != hash5
 
 
 def test_candidate_role_classification_is_independent_of_positive_labels():

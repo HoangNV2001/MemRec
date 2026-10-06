@@ -50,7 +50,10 @@ CPU sau cleanup đã pass 20 user, report byte-identical trước cleanup. Resea
 đã xác nhận GPU1 chỉ có generator hiện tại; handoff ghi rõ owner-attested
 exclusivity, không giả lập mapping PID. V4 dừng trước signal/model/API vì guard
 nhầm mask shell wrapper với CUDA actor. V5 sửa riêng guard bootstrap, vẫn bắt
-Python chỉ GPU1 và drain sạch trước load. **279 tests pass**; chưa có memory/PPO outcome.
+Python chỉ GPU1 và drain sạch trước load. V5 handoff đã pass nhưng CUDA startup
+gặp compiler cache chứa path cũ; GPU1 đã nhả về 1 MiB, GPU0/job nguyên vẹn.
+V6 dùng namespace compiler mới, không sửa artifacts/data. **280 tests pass**;
+chưa có memory/PPO outcome.
 Quyền mới chỉ dùng GPU được duyệt, không bao giờ hủy job reserved; runbook nội bộ
 và design §0.13 là nguồn chuẩn, không dùng account/path cũ cho compute mới.
 

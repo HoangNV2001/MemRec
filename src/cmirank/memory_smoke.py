@@ -26,7 +26,7 @@ def load_memory_contract(root: Path, version: int) -> tuple[dict, str]:
     base_sha = file_sha256(base_path)
     if version == 1:
         return config, base_sha
-    if version not in (2, 3, 4, 5):
+    if version not in (2, 3, 4, 5, 6):
         raise ValueError("Unsupported memory smoke version")
     delta_path = root / "configs/cmirank/real_memory_smoke_v2.json"
     delta = json.loads(delta_path.read_text())
@@ -68,7 +68,7 @@ def load_memory_contract(root: Path, version: int) -> tuple[dict, str]:
         config["run_id"] = role_delta["run_id"]
         config["evidence_role_delta"] = role_delta
         hashes["evidence_role_delta_sha256"] = file_sha256(role_path)
-    if version == 5:
+    if version >= 5:
         resource_path = root / "configs/cmirank/real_memory_smoke_v5.json"
         resource_delta = json.loads(resource_path.read_text())
         expected = {"schema_version": 5,
@@ -83,6 +83,22 @@ def load_memory_contract(root: Path, version: int) -> tuple[dict, str]:
         config["run_id"] = resource_delta["run_id"]
         config["generator_mask_delta"] = resource_delta
         hashes["generator_mask_delta_sha256"] = file_sha256(resource_path)
+    if version == 6:
+        cache_path = root / "configs/cmirank/real_memory_smoke_v6.json"
+        cache_delta = json.loads(cache_path.read_text())
+        expected = {"schema_version": 6,
+            "predecessor_contract_sha256": hashes["generator_mask_delta_sha256"],
+            "run_id": "cmirank-real-memory-smoke-v6-20261006-hnv",
+            "change_only": "fresh_per_run_compiler_cache_namespace_after_workspace_relocation",
+            "cache_names": ["TRITON_CACHE_DIR", "VLLM_CACHE_ROOT", "TORCHINDUCTOR_CACHE_DIR", "CUDA_CACHE_PATH"],
+            "cache_namespace": "project_root/cache/runtime-hnv/run_id",
+            "old_cache_artifacts": "preserve_do_not_rewrite_or_delete",
+            "model_prompt_data_decoding_changes": False, "output_repair": False, "training_ready": False}
+        if cache_delta != expected:
+            raise ValueError("V6 changes only compiler cache namespace, not the scientific smoke")
+        config["run_id"] = cache_delta["run_id"]
+        config["compiler_cache_delta"] = cache_delta
+        hashes["compiler_cache_delta_sha256"] = file_sha256(cache_path)
     return config, object_sha256(hashes)
 
 

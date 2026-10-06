@@ -138,7 +138,7 @@ def main() -> None:
     parser.add_argument("--index-dir", type=Path, required=True)
     parser.add_argument("--candidate-run-dir", type=Path, required=True)
     parser.add_argument("--audit-dir", type=Path, required=True)
-    parser.add_argument("--contract-version", choices=(1, 2, 3, 4, 5), type=int, default=4)
+    parser.add_argument("--contract-version", choices=(1, 2, 3, 4, 5, 6), type=int, default=4)
     parser.add_argument("--owner-confirmed-generator-step")
     args = parser.parse_args()
     config, contract_sha = load_memory_contract(ROOT, args.contract_version)
@@ -203,6 +203,8 @@ def main() -> None:
                     "checkpoint_marker_sha256": file_sha256(model_path / "download-complete-hnv.json"),
                     "checkpoint_config_sha256": file_sha256(model_path / "config.json"),
                     "checkpoint_tokenizer_sha256": file_sha256(model_path / "tokenizer_config.json"),
+                    "compiler_cache_paths": {k: os.environ.get(k) for k in
+                        ("TRITON_CACHE_DIR", "VLLM_CACHE_ROOT", "TORCHINDUCTOR_CACHE_DIR", "CUDA_CACHE_PATH")},
                     "python_version": sys.version,
                     "versions": {n: importlib.metadata.version(n) for n in ("torch", "transformers", "vllm", "openai")}}
         (run / "manifest.json").write_text(artifact_json_dumps(manifest))

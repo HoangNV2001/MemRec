@@ -19,7 +19,7 @@ if [[ "$(git rev-parse HEAD)" != "$MEMREC_EXPECTED_COMMIT" || \
 fi
 MEMREC_PYTHON="$MEMREC_ROOT/envs/llm-hnv/bin/python"
 MEMREC_CONTRACT_VERSION=${1:-4}
-case "$MEMREC_CONTRACT_VERSION" in 1|2|3|4|5) ;; *) echo 'Unsupported smoke version' >&2; exit 2;; esac
+case "$MEMREC_CONTRACT_VERSION" in 1|2|3|4|5|6) ;; *) echo 'Unsupported smoke version' >&2; exit 2;; esac
 RUN_ID=$("$MEMREC_PYTHON" - "$MEMREC_CONTRACT_VERSION" <<'PY'
 from pathlib import Path
 import sys
@@ -40,6 +40,18 @@ export TRITON_CACHE_DIR="$MEMREC_ROOT/cache/triton"
 export VLLM_CACHE_ROOT="$MEMREC_ROOT/cache/vllm"
 export TORCHINDUCTOR_CACHE_DIR="$MEMREC_ROOT/cache/torchinductor"
 export CUDA_CACHE_PATH="$MEMREC_ROOT/cache/nv/ComputeCache"
+if [[ "$MEMREC_CONTRACT_VERSION" == 6 ]]; then
+  # Copied generated kernels can embed old absolute autotune paths. Retain
+  # those forensic cache bytes, but compile this fresh run in its own namespace.
+  MEMREC_COMPILER_CACHE_ROOT="$MEMREC_ROOT/cache/runtime-hnv/$RUN_ID"
+  if [[ -e "$MEMREC_COMPILER_CACHE_ROOT" ]]; then
+    echo 'Refusing to reuse a non-fresh relocated compiler namespace' >&2; exit 2
+  fi
+  export TRITON_CACHE_DIR="$MEMREC_COMPILER_CACHE_ROOT/triton"
+  export VLLM_CACHE_ROOT="$MEMREC_COMPILER_CACHE_ROOT/vllm"
+  export TORCHINDUCTOR_CACHE_DIR="$MEMREC_COMPILER_CACHE_ROOT/torchinductor"
+  export CUDA_CACHE_PATH="$MEMREC_COMPILER_CACHE_ROOT/cuda"
+fi
 export TMPDIR="$MEMREC_ROOT/cache/tmp"
 export OMP_NUM_THREADS=8 MKL_NUM_THREADS=8 OPENBLAS_NUM_THREADS=8
 export TOKENIZERS_PARALLELISM=false HF_HUB_OFFLINE=1 PYTHONUNBUFFERED=1
