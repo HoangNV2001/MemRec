@@ -139,6 +139,7 @@ def main() -> None:
     parser.add_argument("--candidate-run-dir", type=Path, required=True)
     parser.add_argument("--audit-dir", type=Path, required=True)
     parser.add_argument("--contract-version", choices=(1, 2, 3, 4), type=int, default=4)
+    parser.add_argument("--owner-confirmed-generator-step")
     args = parser.parse_args()
     config, contract_sha = load_memory_contract(ROOT, args.contract_version)
     run = args.run_dir.resolve()
@@ -153,6 +154,8 @@ def main() -> None:
             or subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=no"], cwd=ROOT, text=True)):
         raise ValueError("Exact clean deployed source required")
     job = require_allocation()
+    if args.owner_confirmed_generator_step and args.contract_version != 4:
+        raise ValueError("Owner-confirmed handoff is limited to the current v4 smoke")
     os.environ["CUDA_VISIBLE_DEVICES"] = ""  # CPU preparation never selects CUDA.
     run.mkdir()
     server, card, client, server_log = None, None, None, None
@@ -203,6 +206,12 @@ def main() -> None:
                     "python_version": sys.version,
                     "versions": {n: importlib.metadata.version(n) for n in ("torch", "transformers", "vllm", "openai")}}
         (run / "manifest.json").write_text(artifact_json_dumps(manifest))
+        if args.owner_confirmed_generator_step:
+            # All data/checkpoint/metadata preparation is complete: only now
+            # stop the exact current generator confirmed by the researcher.
+            from src.cmirank.reserved_handoff import handoff
+            manifest["gpu1_handoff"] = handoff(run, args.owner_confirmed_generator_step)
+            (run / "manifest.json").write_text(artifact_json_dumps(manifest))
         cards, before_apps = capture_gpu(run, "before")
         card = select_reserved_gpu1(cards, set(before_apps))
         # Recheck the selected card immediately before CUDA/model initialization.

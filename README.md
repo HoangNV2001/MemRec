@@ -46,9 +46,10 @@ bộ server workspace sang `/mnt/data/users/hoangnv242/memrec-hnv`. Migration ph
 copy/hash/rebase/smoke trước khi xóa nguồn cũ. Bản copy đã pass SHA256 và smoke
 CPU 20 user trong 26,64 phút; review độc lập cũng pass trong 5 phút 36 giây.
 **Cleanup nguồn cũ đã hoàn tất** (receipt verified), bản đích được giữ để khôi phục.
-Kiểm tra CPU sau cleanup dùng output mới; smoke v4 còn chờ xác nhận ownership
-GPU hiện tại vì step IDs đã đổi và PID namespaces chưa đối chiếu được.
-**Chưa nạp model hay dừng generator/job**.
+CPU sau cleanup đã pass 20 user, report byte-identical trước cleanup. Researcher
+đã xác nhận GPU1 chỉ có generator hiện tại; handoff ghi rõ owner-attested
+exclusivity, không giả lập mapping PID. **277 tests pass**; v4 chỉ được nạp model
+sau khi dừng đúng step này và xác minh card sạch. Chưa có outcome v4/PPO.
 Quyền mới chỉ dùng GPU được duyệt, không bao giờ hủy job reserved; runbook nội bộ
 và design §0.13 là nguồn chuẩn, không dùng account/path cũ cho compute mới.
 

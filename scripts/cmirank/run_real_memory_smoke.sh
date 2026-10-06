@@ -98,12 +98,22 @@ trap finish EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 SMOKE_TIMEOUT_MINUTES=$("$MEMREC_PYTHON" -c 'import json; print(json.load(open("configs/cmirank/real_memory_smoke_v1.json"))["timeout_minutes"])')
+HANDOFF_ARGS=()
+if [[ -n "${MEMREC_OWNER_CONFIRMED_GPU1_STEP:-}" ]]; then
+  if [[ "$MEMREC_CONTRACT_VERSION" != 4 || \
+        ! "$MEMREC_OWNER_CONFIRMED_GPU1_STEP" =~ ^${SLURM_JOB_ID}\.[1-9][0-9]*$ ]]; then
+    echo 'Handoff must name the owner-confirmed numeric step in this allocation and v4 scope' >&2
+    exit 2
+  fi
+  HANDOFF_ARGS=(--owner-confirmed-generator-step "$MEMREC_OWNER_CONFIRMED_GPU1_STEP")
+fi
 timeout --signal=TERM --kill-after=60s "${SMOKE_TIMEOUT_MINUTES}m" "$MEMREC_PYTHON" -u \
   scripts/cmirank/10_smoke_real_memory.py --run-dir "$RUN_DIR" \
   --index-dir "$MEMREC_ROOT/runs/cmirank-minilm-candidate-index-v2-20261001-hnv" \
   --candidate-run-dir "$MEMREC_ROOT/runs/cmirank-policy-candidates-v2-20261005-hnv" \
   --audit-dir "$MEMREC_ROOT/runs/cmirank-shortcut-audit-v2-20261005-hnv" \
   --contract-version "$MEMREC_CONTRACT_VERSION" \
+  "${HANDOFF_ARGS[@]}" \
   > "$MEMREC_ROOT/logs/$RUN_ID.log" 2>&1 &
 TASK_PID=$!
 printf '%s\n' "$TASK_PID" > "$MEMREC_ROOT/logs/$RUN_ID-launcher.pid"
