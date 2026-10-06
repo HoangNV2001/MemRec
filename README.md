@@ -44,7 +44,9 @@ Review CPU v3 đã xong; v4 sẵn sàng nhưng **chưa chạy** vì preflight m�
 **Cập nhật resource:** user yêu cầu đổi account/reserved allocation và chuyển toàn
 bộ server workspace sang `/mnt/data/users/hoangnv242/memrec-hnv`. Migration phải
 copy/hash/rebase/smoke trước khi xóa nguồn cũ. Bản copy đã pass SHA256 và smoke
-CPU 20 user trong 26,64 phút; đang review độc lập trước cleanup, **nguồn chưa xóa**.
+CPU 20 user trong 26,64 phút; review độc lập cũng pass trong 5 phút 36 giây.
+Cleanup đang chạy, chưa có receipt kết thúc. Smoke v4 còn chờ chứng minh
+ownership GPU qua PID namespaces; **chưa nạp model hay dừng generator/job**.
 Quyền mới chỉ dùng GPU được duyệt, không bao giờ hủy job reserved; runbook nội bộ
 và design §0.13 là nguồn chuẩn, không dùng account/path cũ cho compute mới.
 
