@@ -52,8 +52,9 @@ exclusivity, không giả lập mapping PID. V4 dừng trước signal/model/API
 nhầm mask shell wrapper với CUDA actor. V5 sửa riêng guard bootstrap, vẫn bắt
 Python chỉ GPU1 và drain sạch trước load. V5 handoff đã pass nhưng CUDA startup
 gặp compiler cache chứa path cũ; GPU1 đã nhả về 1 MiB, GPU0/job nguyên vẹn.
-V6 dùng namespace compiler mới, không sửa artifacts/data. **280 tests pass**;
-chưa có memory/PPO outcome.
+V6 đang chạy GPU1 với namespace compiler mới; weights load xong, cold compile
+đang thực hiện. ETA 20–40 phút, timeout 90 phút và tự nhả model khi xong/lỗi.
+**280 tests pass**; chưa có memory/PPO outcome, không sửa artifacts/data.
 Quyền mới chỉ dùng GPU được duyệt, không bao giờ hủy job reserved; runbook nội bộ
 và design §0.13 là nguồn chuẩn, không dùng account/path cũ cho compute mới.
 
