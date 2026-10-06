@@ -51,7 +51,7 @@ def is_ssh_transport(command, comm):
     import re
     # SSH session transports are non-dumpable; their shell/exec children are
     # inspected separately. Do NOT exempt internal-sftp or arbitrary commands.
-    return comm == "sshd" and re.fullmatch(r"sshd: anhntc2@(notty|pts/\d+(?:,pts/\d+)*)", command.strip()) is not None
+    return comm == "sshd" and re.fullmatch(r"sshd: anhntc2(?:@(notty|pts/\d+(?:,pts/\d+)*))?", command.strip()) is not None
 
 
 def process_references(root, *, proc=Path("/proc"), uid=None):

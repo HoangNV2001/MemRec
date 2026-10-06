@@ -248,6 +248,7 @@ def test_cleanup_transport_exception_never_skips_sftp_or_python():
     module = cleanup_module()
     assert module.is_ssh_transport("sshd: anhntc2@pts/109,pts/69", "sshd")
     assert module.is_ssh_transport("sshd: anhntc2@notty", "sshd")
+    assert module.is_ssh_transport("sshd: anhntc2", "sshd")
     assert not module.is_ssh_transport("sshd: anhntc2@internal-sftp", "sshd")
     assert not module.is_ssh_transport("sshd: anhntc2@notty", "python")
     assert not module.is_ssh_transport("sshd: other@notty", "sshd")
