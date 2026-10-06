@@ -182,3 +182,40 @@ def test_private_donor_snapshot_is_hash_bound_and_requires_original_metadata(tmp
     os.utime(original, ns=(info.st_atime_ns, info.st_mtime_ns + 100))
     with pytest.raises(RuntimeError, match="source metadata changed"):
         module.inventory(source, hash_files=True, protected=rows)
+
+
+def review_module():
+    path = Path(__file__).resolve().parents[1] / "scripts/cluster/review_workspace_migration.py"
+    spec = importlib.util.spec_from_file_location("review_migration_hnv", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_review_rejects_non_generated_journal_edits(tmp_path):
+    module = review_module()
+    with pytest.raises(RuntimeError, match="immutable/non-generated"):
+        module.review_journal({"models/weights.bin": {}}, [{"path": "models/weights.bin", "kind": "file"}],
+                              tmp_path, tmp_path / "old", tmp_path / "new")
+
+
+def test_review_rejects_symlink_journal_that_is_not_exact_root_rebase(tmp_path):
+    module = review_module()
+    with pytest.raises(RuntimeError, match="exact root substitution"):
+        module.review_journal({"link": {}}, [{"path": "link", "kind": "symlink",
+            "before": str(tmp_path / "old/x"), "after": str(tmp_path / "new/y")}],
+            tmp_path, tmp_path / "old", tmp_path / "new")
+
+
+def test_deployed_code_exception_does_not_hide_immutable_data_or_untracked_files():
+    module = review_module()
+    prefix = module.REPO_PREFIX
+    expected = {prefix + "src/example.py": {"sha256": "old"}, prefix + "data/pinned.pkl": {"sha256": "data"},
+                prefix + ".git/HEAD": {"sha256": "old-head"}, "models/weights": {"sha256": "weights"}}
+    changed = {key: dict(row) for key, row in expected.items()}
+    changed[prefix + "src/example.py"]["sha256"] = "new"
+    changed[prefix + ".git/HEAD"]["sha256"] = "new-head"
+    module.compare_after_deploy(expected, changed, {prefix + "src/example.py"})
+    changed[prefix + "data/pinned.pkl"]["sha256"] = "tampered"
+    with pytest.raises(RuntimeError, match="integrity mismatch"):
+        module.compare_after_deploy(expected, changed, {prefix + "src/example.py"})
