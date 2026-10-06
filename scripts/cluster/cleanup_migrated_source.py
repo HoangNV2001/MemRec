@@ -47,10 +47,17 @@ def mentions_root(text, root):
     return re.search(re.escape(str(root)) + r"(?=/|[\s\x00]|$)", text) is not None
 
 
+def is_ssh_transport(command, comm):
+    import re
+    # SSH session transports are non-dumpable; their shell/exec children are
+    # inspected separately. Do NOT exempt internal-sftp or arbitrary commands.
+    return comm == "sshd" and re.fullmatch(r"sshd: anhntc2@(notty|pts/\d+(?:,pts/\d+)*)", command.strip()) is not None
+
+
 def process_references(root, *, proc=Path("/proc"), uid=None):
     """Read-only donor UID scan, without printing commands/environments/secrets."""
     uid = os.geteuid() if uid is None else uid
-    references, scanned = [], 0
+    references, scanned, transports = [], 0, []
     for path in proc.iterdir():
         if not path.name.isdigit() or int(path.name) == os.getpid():
             continue
@@ -59,7 +66,11 @@ def process_references(root, *, proc=Path("/proc"), uid=None):
                 continue
             scanned += 1
             roles = []
-            if mentions_root((path / "cmdline").read_bytes().decode(errors="replace"), root):
+            command = (path / "cmdline").read_bytes().decode(errors="replace").strip("\0 ")
+            if is_ssh_transport(command, (path / "comm").read_text().strip()):
+                transports.append(int(path.name))
+                continue
+            if mentions_root(command, root):
                 roles.append("command_path")
             if mentions_root(os.readlink(path / "cwd"), root):
                 roles.append("working_directory")
@@ -79,7 +90,7 @@ def process_references(root, *, proc=Path("/proc"), uid=None):
             continue  # Process exited during the diagnostic.
         # Permission errors for a live donor process are a hard failure.
     return {"node": socket.gethostname(), "donor_processes_scanned": scanned,
-            "source_references": references}
+            "ssh_transport_pids_separately_classified": transports, "source_references": references}
 
 
 def check_unchanged_metadata(root, original, review_finished_ns):

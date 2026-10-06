@@ -244,6 +244,15 @@ def test_cleanup_git_read_cannot_trust_an_unrelated_repo():
         module.read_git(Path("/mnt/data/users/hoangnv242"), "rev-parse", "HEAD")
 
 
+def test_cleanup_transport_exception_never_skips_sftp_or_python():
+    module = cleanup_module()
+    assert module.is_ssh_transport("sshd: anhntc2@pts/109,pts/69", "sshd")
+    assert module.is_ssh_transport("sshd: anhntc2@notty", "sshd")
+    assert not module.is_ssh_transport("sshd: anhntc2@internal-sftp", "sshd")
+    assert not module.is_ssh_transport("sshd: anhntc2@notty", "python")
+    assert not module.is_ssh_transport("sshd: other@notty", "sshd")
+
+
 def test_cleanup_rejects_source_metadata_changed_after_full_review(tmp_path):
     module = cleanup_module()
     (tmp_path / "data").write_text("frozen-data")
