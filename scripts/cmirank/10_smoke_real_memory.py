@@ -138,7 +138,7 @@ def main() -> None:
     parser.add_argument("--index-dir", type=Path, required=True)
     parser.add_argument("--candidate-run-dir", type=Path, required=True)
     parser.add_argument("--audit-dir", type=Path, required=True)
-    parser.add_argument("--contract-version", choices=(1, 2, 3, 4), type=int, default=4)
+    parser.add_argument("--contract-version", choices=(1, 2, 3, 4, 5), type=int, default=4)
     parser.add_argument("--owner-confirmed-generator-step")
     args = parser.parse_args()
     config, contract_sha = load_memory_contract(ROOT, args.contract_version)
@@ -154,8 +154,8 @@ def main() -> None:
             or subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=no"], cwd=ROOT, text=True)):
         raise ValueError("Exact clean deployed source required")
     job = require_allocation()
-    if args.owner_confirmed_generator_step and args.contract_version != 4:
-        raise ValueError("Owner-confirmed handoff is limited to the current v4 smoke")
+    if args.owner_confirmed_generator_step and args.contract_version not in (4, 5):
+        raise ValueError("Owner-confirmed handoff is limited to v4 and its resource-only retry")
     os.environ["CUDA_VISIBLE_DEVICES"] = ""  # CPU preparation never selects CUDA.
     run.mkdir()
     server, card, client, server_log = None, None, None, None
@@ -290,7 +290,7 @@ def main() -> None:
             if name == "progress":
                 print(json.dumps({**row, "elapsed_seconds": time.monotonic() - started}), flush=True)
         result = run_memory_smoke(agent, inputs=inputs, rows=rows, user_ids=user_ids, emit=emit,
-                                  candidate_context_warning=args.contract_version == 4)
+                                  candidate_context_warning=args.contract_version >= 4)
         stats = client.get_token_stats()
         if (stats["total_requests"] != 100 or stats["total_cache_hits"] != 0
                 or stats["total_physical_requests"] != client.request_budget.used

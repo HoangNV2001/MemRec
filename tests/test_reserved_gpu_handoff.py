@@ -52,6 +52,19 @@ def test_process_guard_requires_exact_step_uid_command_and_gpu1_env(monkeypatch)
         handoff.validate_task("21273", "19", 1052, ["python", "foreign.py"], group, env)
 
 
+def test_wrapper_initial_mask_never_relaxes_the_python_compute_mask(monkeypatch):
+    monkeypatch.setattr(handoff.pwd, "getpwnam", lambda _: SimpleNamespace(pw_uid=1052))
+    env = {"SLURM_JOB_ID": "21273", "SLURM_STEP_ID": "19", "CUDA_VISIBLE_DEVICES": "0,1", "GPU": "1"}
+    group = "0::/system.slice/slurmstepd.scope/job_21273/step_19/user/task_0\n"
+    wrapper = ["bash", str(handoff.GENERATOR_ROOT / "omni_gen.sh")]
+    python = ["/mnt/data/users/hoangnv242/envs/omnidistill/bin/python", str(handoff.GENERATOR_ROOT / "omni_gen.py")]
+    assert handoff.validate_task("21273", "19", 1052, wrapper, group, env) == "wrapper"
+    with pytest.raises(ValueError, match="Python must expose only"):
+        handoff.validate_task("21273", "19", 1052, python, group, env)
+    with pytest.raises(ValueError, match="bootstrap mask"):
+        handoff.validate_task("21273", "19", 1052, wrapper, group, {**env, "CUDA_VISIBLE_DEVICES": "0"})
+
+
 def setup_fake_handoff(monkeypatch):
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "")
     monkeypatch.setattr(handoff, "require_allocation", lambda: "21273")

@@ -1,0 +1,12 @@
+{
+  "schema_version": 5,
+  "predecessor_contract_sha256": "8c823de5bd845548a757390815d5db330582b02114e33225fca3b448a715a7c0",
+  "run_id": "cmirank-real-memory-smoke-v5-20261006-hnv",
+  "change_only": "generator_wrapper_initial_reservation_mask_not_compute_child_mask",
+  "wrapper_initial_cuda_masks": ["1", "0,1"],
+  "python_cuda_mask": "1",
+  "gpu1_own_uid_cgroup_command_and_owner_confirmation": "unchanged_required",
+  "model_prompt_data_decoding_changes": false,
+  "output_repair": false,
+  "training_ready": false
+}

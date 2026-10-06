@@ -46,15 +46,21 @@ def validate_task(job, step, uid, argv, cgroup, env):
     expected_group = rf"/job_{re.escape(job)}/step_{re.escape(step)}(?:/|$)"
     if (uid != pwd.getpwnam(CLUSTER_OWNER).pw_uid or not re.search(expected_group, cgroup)
             or env.get("SLURM_JOB_ID") != job or env.get("SLURM_STEP_ID") != step
-            or env.get("CUDA_VISIBLE_DEVICES") != "1" or env.get("GPU") != "1"):
+            or env.get("GPU") != "1"):
         raise ValueError("Generator task UID/cgroup/device/allocation does not match")
     if len(argv) < 2:
         raise ValueError("Missing generator command")
     if (argv[0] in ("bash", "/bin/bash", "/usr/bin/bash")
             and argv[1] == str(GENERATOR_ROOT / "omni_gen.sh")):
+        # /proc/environ records the shell's initial reservation mask. The
+        # actual CUDA actor is its Python child, which MUST expose only GPU1.
+        if env.get("CUDA_VISIBLE_DEVICES") not in ("1", "0,1"):
+            raise ValueError("Unexpected bootstrap mask for the approved GPU1 wrapper")
         return "wrapper"
     if (argv[0] == "/mnt/data/users/hoangnv242/envs/omnidistill/bin/python"
             and argv[1] == str(GENERATOR_ROOT / "omni_gen.py")):
+        if env.get("CUDA_VISIBLE_DEVICES") != "1":
+            raise ValueError("Generator Python must expose only GPU1")
         return "python"
     raise ValueError("Unexpected task in the generator step; do not stop it")
 
@@ -92,7 +98,7 @@ def inspect(job, target):
         role = validate_task(job, step, task_uid, argv, cgroup, environment)
         start_ticks = (path / "stat").read_text().rsplit(") ", 1)[1].split()[19]
         members.append({"pid": int(path.name), "uid": task_uid, "role": role, "argv": argv,
-                        "cgroup": cgroup, "start_ticks": start_ticks})
+                        "cgroup": cgroup, "start_ticks": start_ticks, "device_environment": environment})
     if sorted(r["role"] for r in members) != ["python", "wrapper"]:
         raise ValueError("Need exactly the approved wrapper and its generator Python")
     cards, apps, raw_cards, raw_apps = gpu_snapshot()

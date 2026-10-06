@@ -164,7 +164,7 @@ def test_v2_binding_delta_preserves_entire_memory_experiment():
     assert effective == base
     assert sha != base_sha
     with pytest.raises(ValueError):
-        load_memory_contract(ROOT, 5)
+        load_memory_contract(ROOT, 6)
 
 
 def test_numeric_binding_requires_inventory_uuid_and_pci_order_agreement():
@@ -244,6 +244,16 @@ def test_v4_keeps_all_model_data_and_device_fields_and_no_promotion():
     assert delta["unknown_context_ids"] == "hard_fail"
     v4["run_id"] = v3["run_id"]
     assert v4 == v3 and hash4 != hash3
+
+
+def test_v5_resource_retry_preserves_every_v4_scientific_and_warning_field():
+    v4, hash4 = load_memory_contract(ROOT, 4)
+    v5, hash5 = load_memory_contract(ROOT, 5)
+    delta = v5.pop("generator_mask_delta")
+    assert delta["wrapper_initial_cuda_masks"] == ["1", "0,1"] and delta["python_cuda_mask"] == "1"
+    assert not delta["model_prompt_data_decoding_changes"] and not delta["training_ready"]
+    v5["run_id"] = v4["run_id"]
+    assert v5 == v4 and hash5 != hash4
 
 
 def test_candidate_role_classification_is_independent_of_positive_labels():

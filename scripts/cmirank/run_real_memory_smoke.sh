@@ -19,7 +19,7 @@ if [[ "$(git rev-parse HEAD)" != "$MEMREC_EXPECTED_COMMIT" || \
 fi
 MEMREC_PYTHON="$MEMREC_ROOT/envs/llm-hnv/bin/python"
 MEMREC_CONTRACT_VERSION=${1:-4}
-case "$MEMREC_CONTRACT_VERSION" in 1|2|3|4) ;; *) echo 'Unsupported smoke version' >&2; exit 2;; esac
+case "$MEMREC_CONTRACT_VERSION" in 1|2|3|4|5) ;; *) echo 'Unsupported smoke version' >&2; exit 2;; esac
 RUN_ID=$("$MEMREC_PYTHON" - "$MEMREC_CONTRACT_VERSION" <<'PY'
 from pathlib import Path
 import sys
@@ -100,9 +100,9 @@ trap 'exit 143' TERM
 SMOKE_TIMEOUT_MINUTES=$("$MEMREC_PYTHON" -c 'import json; print(json.load(open("configs/cmirank/real_memory_smoke_v1.json"))["timeout_minutes"])')
 HANDOFF_ARGS=()
 if [[ -n "${MEMREC_OWNER_CONFIRMED_GPU1_STEP:-}" ]]; then
-  if [[ "$MEMREC_CONTRACT_VERSION" != 4 || \
+  if [[ ( "$MEMREC_CONTRACT_VERSION" != 4 && "$MEMREC_CONTRACT_VERSION" != 5 ) || \
         ! "$MEMREC_OWNER_CONFIRMED_GPU1_STEP" =~ ^${SLURM_JOB_ID}\.[1-9][0-9]*$ ]]; then
-    echo 'Handoff must name the owner-confirmed numeric step in this allocation and v4 scope' >&2
+    echo 'Handoff must name the owner-confirmed numeric step in this allocation and current smoke scope' >&2
     exit 2
   fi
   HANDOFF_ARGS=(--owner-confirmed-generator-step "$MEMREC_OWNER_CONFIRMED_GPU1_STEP")

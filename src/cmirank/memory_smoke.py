@@ -26,7 +26,7 @@ def load_memory_contract(root: Path, version: int) -> tuple[dict, str]:
     base_sha = file_sha256(base_path)
     if version == 1:
         return config, base_sha
-    if version not in (2, 3, 4):
+    if version not in (2, 3, 4, 5):
         raise ValueError("Unsupported memory smoke version")
     delta_path = root / "configs/cmirank/real_memory_smoke_v2.json"
     delta = json.loads(delta_path.read_text())
@@ -52,7 +52,7 @@ def load_memory_contract(root: Path, version: int) -> tuple[dict, str]:
         config["run_id"] = identity_delta["run_id"]
         config["device_identity_delta"] = identity_delta
         hashes["identity_delta_sha256"] = file_sha256(identity_path)
-    if version == 4:
+    if version >= 4:
         role_path = root / "configs/cmirank/real_memory_smoke_v4.json"
         role_delta = json.loads(role_path.read_text())
         expected = {"schema_version": 4,
@@ -68,6 +68,21 @@ def load_memory_contract(root: Path, version: int) -> tuple[dict, str]:
         config["run_id"] = role_delta["run_id"]
         config["evidence_role_delta"] = role_delta
         hashes["evidence_role_delta_sha256"] = file_sha256(role_path)
+    if version == 5:
+        resource_path = root / "configs/cmirank/real_memory_smoke_v5.json"
+        resource_delta = json.loads(resource_path.read_text())
+        expected = {"schema_version": 5,
+            "predecessor_contract_sha256": hashes["evidence_role_delta_sha256"],
+            "run_id": "cmirank-real-memory-smoke-v5-20261006-hnv",
+            "change_only": "generator_wrapper_initial_reservation_mask_not_compute_child_mask",
+            "wrapper_initial_cuda_masks": ["1", "0,1"], "python_cuda_mask": "1",
+            "gpu1_own_uid_cgroup_command_and_owner_confirmation": "unchanged_required",
+            "model_prompt_data_decoding_changes": False, "output_repair": False, "training_ready": False}
+        if resource_delta != expected:
+            raise ValueError("V5 changes only the generator wrapper initial mask check")
+        config["run_id"] = resource_delta["run_id"]
+        config["generator_mask_delta"] = resource_delta
+        hashes["generator_mask_delta_sha256"] = file_sha256(resource_path)
     return config, object_sha256(hashes)
 
 
