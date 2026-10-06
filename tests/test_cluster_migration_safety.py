@@ -32,6 +32,7 @@ def test_reserved_selector_never_uses_free_gpu0_or_a_busy_gpu1():
     ("21273", "batch", "omni-gen-1", "hoangnv242", "RUNNING", {7}, {7}),
     ("21273", "extern", "omni-gen-1", "hoangnv242", "RUNNING", {7}, {7}),
     ("21273", "", "omni-gen-1", "hoangnv242", "RUNNING", {7}, {7}),
+    ("21273", "0", "omni-gen-1", "hoangnv242", "RUNNING", {7}, {7}),
     ("21273", "1", "omni-gen-0", "hoangnv242", "RUNNING", {7}, {7}),
     ("21273", "1", "omni-gen-1", "anhntc2", "RUNNING", {7}, {7}),
     ("21273", "1", "omni-gen-1", "hoangnv242", "RUNNING", {7, 8}, {7}),
@@ -219,3 +220,38 @@ def test_deployed_code_exception_does_not_hide_immutable_data_or_untracked_files
     changed[prefix + "data/pinned.pkl"]["sha256"] = "tampered"
     with pytest.raises(RuntimeError, match="integrity mismatch"):
         module.compare_after_deploy(expected, changed, {prefix + "src/example.py"})
+
+
+def cleanup_module():
+    path = Path(__file__).resolve().parents[1] / "scripts/cluster/cleanup_migrated_source.py"
+    spec = importlib.util.spec_from_file_location("cleanup_migration_hnv", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_cleanup_path_reference_does_not_match_sibling_project():
+    module = cleanup_module()
+    root = Path("/mnt/data/users/anhnct/memrec-hnv")
+    assert module.mentions_root(f"{root}/envs/bin/python\0--arg", root)
+    assert module.mentions_root(f"{root} (deleted)", root)
+    assert not module.mentions_root(f"{root}-other/envs/python", root)
+
+
+def test_cleanup_rejects_source_metadata_changed_after_full_review(tmp_path):
+    module = cleanup_module()
+    (tmp_path / "data").write_text("frozen-data")
+    original = module.inventory(tmp_path, hash_files=True)
+    cutoff = max(path.lstat().st_ctime_ns for path in (tmp_path, tmp_path / "data")) + 1_000_000
+    module.check_unchanged_metadata(tmp_path, original, cutoff)
+    with pytest.raises(RuntimeError, match="changed after"):
+        module.check_unchanged_metadata(tmp_path, original, cutoff - 10_000_000)
+
+
+def test_cleanup_rejects_unreviewed_new_file(tmp_path):
+    module = cleanup_module()
+    (tmp_path / "data").write_text("frozen-data")
+    original = module.inventory(tmp_path, hash_files=True)
+    (tmp_path / "new-data").write_text("not copied")
+    with pytest.raises(RuntimeError, match="integrity mismatch"):
+        module.check_unchanged_metadata(tmp_path, original, 2**63 - 1)

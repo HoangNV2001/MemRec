@@ -74,7 +74,7 @@ def generator_step_target(job: str, step: str, *, name: str, owner: str, state: 
     Caller must additionally verify PID UID/cgroups/command and capture the
     exact allocation/GPU snapshots. Returns a target, performs no cancellation.
     """
-    if (not job.isdigit() or not step.isdigit() or name != "omni-gen-1"
+    if (not job.isdigit() or not step.isdigit() or int(step) == 0 or name != "omni-gen-1"
             or owner != "hoangnv242" or state != "RUNNING"
             or not gpu_pids or not gpu_pids <= step_pids):
         raise ValueError("Cannot prove exclusive ownership of the authorized GPU1 generator step")
