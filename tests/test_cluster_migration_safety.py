@@ -238,6 +238,12 @@ def test_cleanup_path_reference_does_not_match_sibling_project():
     assert not module.mentions_root(f"{root}-other/envs/python", root)
 
 
+def test_cleanup_git_read_cannot_trust_an_unrelated_repo():
+    module = cleanup_module()
+    with pytest.raises(RuntimeError, match="outside the exact"):
+        module.read_git(Path("/mnt/data/users/hoangnv242"), "rev-parse", "HEAD")
+
+
 def test_cleanup_rejects_source_metadata_changed_after_full_review(tmp_path):
     module = cleanup_module()
     (tmp_path / "data").write_text("frozen-data")

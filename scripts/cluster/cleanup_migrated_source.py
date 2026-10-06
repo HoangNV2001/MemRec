@@ -31,8 +31,13 @@ RECEIPT_SHA = "aad18840fa4050110bf6cbe66f580053c0c47bcaa00e01f9df1ba2f81a9dc1fb"
 
 def read_git(repo, *args):
     # The donor intentionally reads the new-owned proof/tool checkout. Trust
-    # only this exact path, never global safe.directory=*; do not refresh index.
-    return subprocess.check_output(["git", "--no-optional-locks", "-c", f"safe.directory={repo}", *args],
+    # only these two explicit paths. The donor's Git 2.34.1 does not honor
+    # command-line safe.directory; explicit git-dir/work-tree avoids discovery
+    # without widening global trust or refreshing either index.
+    if repo not in (ROOT, CLUSTER_ROOT / "repo/MemRec-hnv") or repo.is_symlink():
+        raise RuntimeError("Git read outside the exact migration tool/destination")
+    return subprocess.check_output(["git", "--no-optional-locks", f"--git-dir={repo / '.git'}",
+                                   f"--work-tree={repo}", *args],
                                    cwd=repo, text=True)
 
 
