@@ -16,7 +16,7 @@ chính sách loại dần candidate, fine-tune **Qwen/Qwen3.5-4B bằng PPO** v�
 | Benchmark đối chứng | Full MemRec NDCG@5 **0,747918**, SASRec **0,343320**, cùng 200 dev users/candidates; MemRec warm-up 700 users, không phải full-data/paper replication |
 | Data/protocol CM-IRank | Khóa 1.497 train / 300 validation; snapshot target-blind và 3.594 candidate sets v2 đã audit CPU, không có cờ trong 7 probe cố định; chưa chứng minh không còn shortcut |
 | Policy infrastructure | RankRequest/replay, N−1, parser, MPSS có CPU tests; Qwen3.5 synthetic smoke 20/20 và một optimizer update bỏ đi đã pass; **chưa train PPO** |
-| Real memory smoke v6 | **Fail** sau 35 requests, 11/20 warm-ups, 0 pseudo episodes: một Stage-R citation ID ngoài input; CPU review/replay đã hoàn tất, GPU đã nhả, không promote cache |
+| Real memory | V6 fail đã review; **v7 secondary control hoàn tất 20/20 user, 100 calls**, 20 warm-up writes / 0 pseudo writes, GPU đã nhả; independent CPU review đang thực hiện |
 | Method result | **Chưa có checkpoint/score CM-IRank**; held-out 5.377 users vẫn niêm phong |
 
 Kế hoạch và đánh giá khả thi mới nhất: [design §0.14](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#014-overall-review-and-next-gates--2026-10-07).
@@ -26,10 +26,13 @@ Researcher đã duyệt **v7 constrained-decoding secondary control**: schema ch
 phép ID từ input, không thay upstream-aligned primary; cần compile schema CPU
 rồi smoke thật 20 user/100 calls và review riêng ([§0.15](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#015-approved-secondary-input-id-decoding-control--2026-10-07)). Sau memory gate mới tới real N−1/direct smoke,
 one-card PPO compatibility và tiny PPO; không tự nối sang full training.
-**V7 đang chạy:** CPU gate 36 schema đã pass, 297 tests pass; handoff riêng GPU1
-thành công, GPU0/job reserved nguyên vẹn. Single startup check thấy backend đang
-khởi tạo; chưa có outcome. ETA 20–30 phút, tự nhả model khi xong/lỗi, không poll
-liên tục hay gọi đây là memory/PPO success. Source chạy được khóa ở design §0.15.
+**V7 terminal:** 16,55 phút / 240.750 tokens / 0 cache hits, peak observed VRAM
+48 GiB; còn 67 candidate-context citations phải giữ cảnh báo, không chứng minh
+semantic grounding. 26/26 artifacts hash-match; GPU về 1 MiB trước handback.
+`omni-gen-1` đã chạy lại; từ nay GPU task xong phải unload rồi bật lại riêng
+keeper theo runbook, kể cả khi còn CPU review. GPU0/job reserved được giữ nguyên.
+Independent review kiểm exact schemas/domains, 20 raw writes và 20 pseudo inputs
+read-only; chưa có checkpoint/score CM-IRank hay quyết định thay primary (§0.16).
 
 Migration và cleanup nguồn cũ đã hoàn tất, CPU smoke sau cleanup pass. Mọi compute
 mới theo root/account/allocation hiện hành trong runbook nội bộ; SSH dùng chung

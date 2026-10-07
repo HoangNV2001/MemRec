@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Review failed real-memory v3/v6 artifacts offline; no model or promotion.
+"""Review failed v3/v6 or complete controlled v7 artifacts; no model/promotion.
 
 Recheck captured requests, raw JSON, candidate roles and durable accounting.
 Do not repair the failed run, rewrite its report, or compute ranking metrics.
@@ -28,24 +28,25 @@ from src.models.llm_client import validate_json_shape
 from src.models.reranker_llm import LLMReranker
 
 
-def review_v6(run: Path, candidate_run: Path) -> dict:
+def review_v6(run: Path, candidate_run: Path, *, version: int = 6) -> dict:
     from src.cmirank.candidate_artifacts import smoke_user_ids
     from src.cmirank.gpu_resources import compute_gpu_processes, gpu_release_verified, parse_gpu_snapshot
     from src.cmirank.memory_review import read_rows, review_partial_records
     from src.data.dataset_base import RecDataset
     from src.memory.storage import MemoryStorage
 
-    config, config_sha = load_memory_contract(ROOT, 6)
+    config, config_sha = load_memory_contract(ROOT, version)
     manifest = json.loads((run / "manifest.json").read_text())
     cleanup = json.loads((run / "cleanup.json").read_text())
     if (run.name != config["run_id"] or manifest["config_sha256"] != config_sha
-            or manifest["source_commit"] != "19b9779abb2288ce5b2468b2506a1a263c31615a"
-            or manifest["config"] != config or cleanup["process_exit_code"] != 1
+            or manifest["source_commit"] != ("708d8fcc1faf57424c3dbdfc8dc2a2cb62274f11" if version == 7
+                                              else "19b9779abb2288ce5b2468b2506a1a263c31615a")
+            or manifest["config"] != config or cleanup["process_exit_code"] != (0 if version == 7 else 1)
             or not all(cleanup[key] for key in
                        ("child_exited", "owned_server_exited", "gpu_released", "allocation_still_running"))
             or manifest["original_instruction_accessed"] or manifest["original_test_candidates_accessed"]
             or manifest["original_suffix_item_ids_parsed_or_used"]):
-        raise ValueError("Not the completed/released failed v6 diagnostic")
+        raise ValueError("Not the expected terminal/released real-memory diagnostic")
     uuid = cleanup["gpu_uuid"]
     before = next(card for card in parse_gpu_snapshot((run / "gpus-load-time.csv").read_text()) if card.uuid == uuid)
     after = next(card for card in parse_gpu_snapshot((run / "gpus-after.csv").read_text()) if card.uuid == uuid)
@@ -74,13 +75,20 @@ def review_v6(run: Path, candidate_run: Path) -> dict:
     RecDataset.load_item_metadata(holder)  # Static metadata only, never RecDataset.__init__ or suffix outcomes.
     storage = MemoryStorage()
     storage.initialize_item_descriptions(holder.item_metadata)
+    if version == 7:
+        review_path = run.parent / "cmirank-real-memory-review-v6-20261007-hnv/review.json"
+        cpu_path = run.parent / "cmirank-constrained-decoding-cpu-v7-20261007-hnv/report.json"
+        if (file_sha256(review_path) != config["constrained_decoding_delta"]["offline_v6_review_sha256"]
+                or file_sha256(cpu_path) != manifest["cpu_decoding_smoke_report_sha256"]
+                or json.loads(cpu_path.read_text())["source_commit"] != manifest["source_commit"]):
+            raise ValueError("Controlled run predecessor/release preparation receipts differ")
     result = review_partial_records(run, candidates=candidates, config=config, manifest=manifest,
-                                    storage=storage, metadata=holder.item_metadata)
-    if (result["physical_requests"], result["completed_warmup_users"], result["stage_r_calls"]) != (35, 11, 12):
-        raise ValueError("Unexpected v6 terminal scope")
+                                    storage=storage, metadata=holder.item_metadata, completed_control=version == 7)
+    if (result["physical_requests"], result["completed_warmup_users"], result["stage_r_calls"]) != ((100, 20, 40) if version == 7 else (35, 11, 12)):
+        raise ValueError("Unexpected diagnostic terminal scope")
     result.update({"source_run_id": run.name, "source_commit": manifest["source_commit"],
         "config_sha256": config_sha, "gpu_released": True,
-        "elapsed_seconds": json.loads((run / "failure.json").read_text())["elapsed_seconds"],
+        "elapsed_seconds": json.loads((run / ("report.json" if version == 7 else "failure.json")).read_text())["elapsed_seconds"],
         "source_artifact_sha256": {path.name: file_sha256(path) for path in sorted(run.iterdir()) if path.is_file()}})
     return result
 
@@ -164,14 +172,15 @@ def main() -> None:
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--candidate-run-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--contract-version", type=int, choices=(3, 6), default=3)
+    parser.add_argument("--contract-version", type=int, choices=(3, 6, 7), default=3)
     args = parser.parse_args()
     if args.output_dir.exists():
         parser.error("Refusing to overwrite a review")
-    result = (review if args.contract_version == 3 else review_v6)(args.run_dir, args.candidate_run_dir)
+    result = (review(args.run_dir, args.candidate_run_dir) if args.contract_version == 3
+              else review_v6(args.run_dir, args.candidate_run_dir, version=args.contract_version))
     result["review_code_sha256"] = file_sha256(Path(__file__))
     result["grounding_code_sha256"] = file_sha256(ROOT / "src/cmirank/memory_smoke.py")
-    if args.contract_version == 6:
+    if args.contract_version in (6, 7):
         result["partial_review_code_sha256"] = file_sha256(ROOT / "src/cmirank/memory_review.py")
     result["review_source_commit"] = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     args.output_dir.mkdir(parents=True)
