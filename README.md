@@ -26,6 +26,10 @@ Researcher đã duyệt **v7 constrained-decoding secondary control**: schema ch
 phép ID từ input, không thay upstream-aligned primary; cần compile schema CPU
 rồi smoke thật 20 user/100 calls và review riêng ([§0.15](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#015-approved-secondary-input-id-decoding-control--2026-10-07)). Sau memory gate mới tới real N−1/direct smoke,
 one-card PPO compatibility và tiny PPO; không tự nối sang full training.
+**V7 đang chạy:** CPU gate 36 schema đã pass, 297 tests pass; handoff riêng GPU1
+thành công, GPU0/job reserved nguyên vẹn. Single startup check thấy backend đang
+khởi tạo; chưa có outcome. ETA 20–30 phút, tự nhả model khi xong/lỗi, không poll
+liên tục hay gọi đây là memory/PPO success. Source chạy được khóa ở design §0.15.
 
 Migration và cleanup nguồn cũ đã hoàn tất, CPU smoke sau cleanup pass. Mọi compute
 mới theo root/account/allocation hiện hành trong runbook nội bộ; SSH dùng chung
