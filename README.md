@@ -6,57 +6,30 @@ trên cùng tập user/candidate. **Chưa có kết quả xác nhận đạt m�
 Temporal Transition/PPR cho local ranker là kết quả thăm dò, không phải method
 thesis đã được xác nhận.
 
-Hướng đang triển khai là **CM-IRank**: giữ memory Stage-R/Stage-W, nghiên cứu
-chính sách Stage-ReRank loại dần candidate và MPSS reward. Chính sách chính đã
-chốt là **Qwen/Qwen3.5-4B fine-tune bằng PPO**; G0 có interface, reward/parser
-tests, split policy khóa, snapshot graph và Stage-W wiring được smoke bằng CPU.
-**Stage-W pseudo-memory với LLM thật chưa được chứng minh sạch, chưa fine-tune,
-chưa có score method**. Smoke Qwen3.5-4B ngày 2026-10-01 đã tải/load checkpoint
-nhưng dừng do lỗi serialize log trước inference/backward; GPU đã nhả sạch.
-Lỗi log đã được sửa (129 tests pass). Smoke v2 load/backward/optimizer chạy được,
-nhưng chỉ 4/20 output đúng schema; GPU đã nhả sạch. Chưa train PPO hoặc đo ranking
-Books; ledger và bước tiếp theo nằm trong CM-IRank design §0.5.
-V3 với schema rõ đã **pass 20/20 synthetic output và backward/optimizer**;
-peak VRAM 34,66 GiB, khoảng 40 giây, GPU đã trả về 1 MiB. 141 tests CPU pass.
-Đây chỉ là infrastructure smoke; G0/PPO và ranking Books chưa được chứng minh.
+Hướng hiện tại là **CM-IRank**: giữ Stage-R/Stage-W, thay Stage-ReRank bằng
+chính sách loại dần candidate, fine-tune **Qwen/Qwen3.5-4B bằng PPO** với MPSS.
 
-Cập nhật **2026-10-05**: candidate preparation đã hoàn tất 1.797 policy users /
-3.594 bộ; **195 tests CPU pass**. Audit tiếp theo phát hiện shortcut semantic do
-hard negatives chọn quanh positive: probe chỉ dùng candidate-set đạt NDCG@5
-0,6633 trên pseudo-validation, **không phải score CM-IRank**. PPO trên v1 bị chặn;
-researcher đã cho triển khai v2 đổi riêng semantic anchor sang allowed history
-prefix, giữ 3+3+3 và tiêu chí audit. V2 phải smoke/audit CPU lại trước GPU.
-Kết quả, giới hạn và bước tiếp theo ở design **§0.9–0.10**; chưa nạp GPU mới.
-V2 đã hoàn tất candidate/feature smoke và full audit CPU: **1.797 users / 3.594 bộ,
-không có cờ trong 7 probe cố định**; semantic-centrality probe NDCG@5 còn 0,3110.
-Đã kiểm hash toàn bộ 26 tệp kết quả. Đây không phải score method hay PPO-ready.
-Bước tiếp theo là **20-user real LM_Mem/LM_Rec smoke** (§0.11), giữ nguyên baseline
-và tách target khỏi policy input. Smoke v1 dừng trước inference do vLLM 0.10.2
-không nhận GPU UUID trong binding; v2 dừng ở kiểm UUID do khác tiền tố giữa
-PyTorch/NVML. V3 đã inference nhưng dừng sau 2 request: Stage-R cite một candidate
-đã thấy trong prompt như collaborative neighbor; chưa có Stage-W/user hoàn tất.
-GPU đã nhả sạch sau cả ba lượt. V4 theo amendment §0.12 giữ nguyên upstream output,
-ghi candidate-visible thành cảnh báo vai trò; ID bịa/lỗi schema/label vẫn hard-fail.
-**237 tests CPU pass**; chưa có memory smoke hoàn tất, fine-tune hay score CM-IRank.
-Review CPU v3 đã xong; v4 sẵn sàng nhưng **chưa chạy** vì preflight mới thấy cả
-4 GPU đang có process/giữ VRAM. MemRec không giữ card hay server để chờ.
+## Trạng thái hiện hành — 2026-10-07
 
-**Cập nhật resource:** user yêu cầu đổi account/reserved allocation và chuyển toàn
-bộ server workspace sang `/mnt/data/users/hoangnv242/memrec-hnv`. Migration phải
-copy/hash/rebase/smoke trước khi xóa nguồn cũ. Bản copy đã pass SHA256 và smoke
-CPU 20 user trong 26,64 phút; review độc lập cũng pass trong 5 phút 36 giây.
-**Cleanup nguồn cũ đã hoàn tất** (receipt verified), bản đích được giữ để khôi phục.
-CPU sau cleanup đã pass 20 user, report byte-identical trước cleanup. Researcher
-đã xác nhận GPU1 chỉ có generator hiện tại; handoff ghi rõ owner-attested
-exclusivity, không giả lập mapping PID. V4 dừng trước signal/model/API vì guard
-nhầm mask shell wrapper với CUDA actor. V5 sửa riêng guard bootstrap, vẫn bắt
-Python chỉ GPU1 và drain sạch trước load. V5 handoff đã pass nhưng CUDA startup
-gặp compiler cache chứa path cũ; GPU1 đã nhả về 1 MiB, GPU0/job nguyên vẹn.
-V6 đang chạy GPU1 với namespace compiler mới; weights load xong, cold compile
-đang thực hiện. ETA 20–40 phút, timeout 90 phút và tự nhả model khi xong/lỗi.
-**280 tests pass**; chưa có memory/PPO outcome, không sửa artifacts/data.
-Quyền mới chỉ dùng GPU được duyệt, không bao giờ hủy job reserved; runbook nội bộ
-và design §0.13 là nguồn chuẩn, không dùng account/path cũ cho compute mới.
+| Phần việc | Bằng chứng / giới hạn |
+|---|---|
+| Benchmark đối chứng | Full MemRec NDCG@5 **0,747918**, SASRec **0,343320**, cùng 200 dev users/candidates; MemRec warm-up 700 users, không phải full-data/paper replication |
+| Data/protocol CM-IRank | Khóa 1.497 train / 300 validation; snapshot target-blind và 3.594 candidate sets v2 đã audit CPU, không có cờ trong 7 probe cố định; chưa chứng minh không còn shortcut |
+| Policy infrastructure | RankRequest/replay, N−1, parser, MPSS có CPU tests; Qwen3.5 synthetic smoke 20/20 và một optimizer update bỏ đi đã pass; **chưa train PPO** |
+| Real memory smoke v6 | **Fail** sau 35 requests, 11/20 warm-ups, 0 pseudo episodes: một Stage-R citation ID ngoài input; GPU đã nhả, không promote cache |
+| Method result | **Chưa có checkpoint/score CM-IRank**; held-out 5.377 users vẫn niêm phong |
+
+Kế hoạch và đánh giá khả thi mới nhất: [design §0.14](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#014-overall-review-and-next-gates--2026-10-07).
+Đang làm offline CPU review raw requests, schema, provenance và replay Stage-W;
+không sửa ID, bỏ user, tune prompt hay nới hard gate để thông qua smoke.
+Đối chứng constrained decoding chỉ là đề xuất cần researcher duyệt, chưa thay
+upstream-aligned primary. Sau memory gate mới tới real N−1/direct smoke,
+one-card PPO compatibility và tiny PPO; không tự nối sang full training.
+
+Migration và cleanup nguồn cũ đã hoàn tất, CPU smoke sau cleanup pass. Mọi compute
+mới theo root/account/allocation hiện hành trong runbook nội bộ; SSH dùng chung
+ControlMaster, không hủy job reserved và không giữ model idle. Chi tiết lịch sử
+lỗi hạ tầng được giữ ở design §0.5–0.13, không nhầm với tiến độ nghiên cứu.
 
 ## Bản đồ tài liệu — chỉ 5 tài liệu dự án
 

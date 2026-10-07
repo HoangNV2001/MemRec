@@ -66,6 +66,103 @@ def test_twenty_user_serial_smoke_has_exact_counts_target_blind_inputs_and_repla
     assert memory_sha256(storage) == summary["final_memory_sha256"]
 
 
+def partial_review_fixture(tmp_path):
+    import sqlite3
+    from src.cmirank.memory_review import response_schema
+    from src.cmirank.memory_smoke import object_sha256
+
+    config, _ = load_memory_contract(ROOT, 6)
+
+    class RecordedFake(FakeJSONClient):
+        def set_episode(self, episode_id):
+            self.episode_id = episode_id
+
+        def generate_json(self, messages, properties, **kwargs):
+            raw = super().generate_json(messages, properties, **kwargs)
+            if self.episode_id == "user-11-warmup" and "facets" in properties:
+                raw["facets"][0]["supporting_neighbors"] = ["Item-99999999"]
+            physical = {"messages": messages, "response_format": response_schema(properties),
+                        "model": config["model_id"], "temperature": kwargs["temperature"],
+                        "max_tokens": kwargs["max_tokens"]}
+            self.last_request = physical
+            base = {"episode_id": self.episode_id, "physical_attempt": self.total_physical_requests,
+                    "request_sha256": object_sha256(physical)}
+            emit("physical-requests", {**base, "event": "request", "kwargs": physical})
+            emit("physical-requests", {**base, "event": "response", "content": json.dumps(raw),
+                "finish_reason": "stop", "usage": {"prompt_tokens": 8, "completion_tokens": 3, "total_tokens": 11}})
+            return raw
+
+    def emit(name, row):
+        with (tmp_path / f"{name}.jsonl").open("a") as handle:
+            handle.write(json.dumps(row) + "\n")
+
+    users, rows, client, agent, inputs = make_fixture(RecordedFake)
+    with pytest.raises(ValueError, match="out-of-context"):
+        run_memory_smoke(agent, inputs=inputs, rows=rows, user_ids=users,
+                         candidate_context_warning=True, emit=emit)
+    with sqlite3.connect(tmp_path / "request-budget.sqlite") as connection:
+        connection.execute("CREATE TABLE budget (lim INTEGER, used INTEGER)")
+        connection.execute("INSERT INTO budget VALUES (110, ?)", (client.total_physical_requests,))
+    for row in rows:
+        row["provenance"]["snapshot_sha256"] = inputs["snapshot_sha256"]
+    storage = MemoryStorage()
+    storage.initialize_item_descriptions(inputs["snapshot"].item_metadata)
+    return {"candidates": {row["policy_input"]["episode_id"]: row for row in rows},
+            "config": config, "manifest": {"query_user_ids": users, "graph_snapshot_sha256": inputs["snapshot_sha256"]},
+            "storage": storage, "metadata": inputs["snapshot"].item_metadata}
+
+
+def test_partial_offline_review_replays_raw_writes_without_api_repair_or_promotion(tmp_path):
+    from src.cmirank.memory_review import read_rows, review_partial_records
+    args = partial_review_fixture(tmp_path)
+    before = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+    result = review_partial_records(tmp_path, **args)
+    assert result["physical_requests"] == 35 and result["physical_retries"] == 0
+    assert result["completed_warmup_users"] == 11 and result["completed_pseudo_users"] == 0
+    assert result["raw_write_mutation_replay_valid"] and result["exact_stage_r_rerank_write_api_prompt_parity"]
+    assert result["unknown_context_occurrences"] == 1 and not result["literal_grounding_gate_passed"]
+    assert not result["training_ready"] and not result["ranking_metrics_computed"]
+    assert result["total_tokens"] == 385
+    unknown = result["failure"]["unknown_id_input_presence"][0]
+    assert not unknown["literal_in_original_stage_r_input"] and not unknown["numeric_token_in_original_stage_r_input"]
+    # The complete journal includes the generated ID, but is not original-input evidence.
+    assert "99999999" in json.dumps(read_rows(tmp_path / "physical-requests.jsonl"))
+    assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == before
+
+
+@pytest.mark.parametrize("tamper", ["write_prompt", "raw_response", "mutation", "budget", "schema", "truncated"])
+def test_partial_review_rejects_prompt_state_accounting_and_schema_tampering(tmp_path, tamper):
+    import sqlite3
+    from src.cmirank.memory_review import read_rows, review_partial_records
+    from src.cmirank.memory_smoke import object_sha256
+    args = partial_review_fixture(tmp_path)
+    path = tmp_path / "physical-requests.jsonl"
+    physical = read_rows(path)
+    if tamper == "write_prompt":
+        physical[4]["kwargs"]["messages"][0]["content"] += " changed"
+        physical[4]["request_sha256"] = physical[5]["request_sha256"] = object_sha256(physical[4]["kwargs"])
+    elif tamper == "raw_response":
+        raw = json.loads(physical[5]["content"])
+        raw["user_memory"] += " changed"
+        physical[5]["content"] = json.dumps(raw)
+    elif tamper == "mutation":
+        journal_path = tmp_path / "stage-w-journal.jsonl"
+        journal = read_rows(journal_path)
+        journal[0]["mutation"]["n_updates"] += 1
+        journal_path.write_text("".join(json.dumps(row) + "\n" for row in journal))
+    elif tamper == "budget":
+        with sqlite3.connect(tmp_path / "request-budget.sqlite") as connection:
+            connection.execute("UPDATE budget SET used=36")
+    elif tamper == "schema":
+        physical[0]["kwargs"]["response_format"]["json_schema"]["strict"] = False
+        physical[0]["request_sha256"] = physical[1]["request_sha256"] = object_sha256(physical[0]["kwargs"])
+    else:
+        physical[1]["finish_reason"] = "length"
+    path.write_text("".join(json.dumps(row) + "\n" for row in physical))
+    with pytest.raises(ValueError):
+        review_partial_records(tmp_path, **args)
+
+
 @pytest.mark.parametrize("failure", ["dirty_memory", "warmup_target", "wrong_positive", "duplicate_episode"])
 def test_episode_guard_fails_closed(failure):
     users, rows, _, agent, inputs = make_fixture()
