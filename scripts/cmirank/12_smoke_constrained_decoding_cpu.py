@@ -31,6 +31,13 @@ from src.memory.manager import MemRecManager
 RUN_ID = "cmirank-constrained-decoding-cpu-v7-20261007-hnv"
 
 
+def visible_write_ids(details: dict, fanout_cap: int) -> list[str]:
+    # The unchanged Stage-W prompt lists only neighbor_ids[:fanout_cap], not
+    # all selected Stage-R neighbors. Check visibility, not graph membership.
+    return sorted({f"{nb['type'].capitalize()}-{nb['id']}"
+                   for nb in details["pruned_subgraph"]["neighbors"][:fanout_cap]})
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -87,8 +94,7 @@ def main() -> None:
         elif stage == "rerank":
             matches = audit["allowed_candidate_ids"] == sorted(row["id"] for row in captured.candidates)
         else:
-            matches = audit["allowed_neighbor_ids"] == sorted({f"{nb['type'].capitalize()}-{nb['id']}"
-                                                             for nb in details["pruned_subgraph"]["neighbors"]})
+            matches = audit["allowed_neighbor_ids"] == visible_write_ids(details, config["agent"]["fanout_cap"])
         if not matches:
             raise ValueError("Parsed decoding domain differs from the original structured input")
         schema = response_schema(props)["json_schema"]["schema"]

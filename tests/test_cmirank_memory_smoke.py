@@ -456,6 +456,23 @@ def test_empty_propagation_domain_forbids_updates_without_invalid_empty_enum():
             {"neighbor_id": "Item-100", "memory_update": "test", "rationale": "test"}]}, schema)
 
 
+def test_control_write_domain_matches_visible_fanout_prefix_not_all_stage_r_neighbors():
+    from src.cmirank.constrained_decoding import constrain_id_properties
+    from src.memory.manager import MemRecManager
+    spec = importlib.util.spec_from_file_location("control_cpu_smoke", ROOT / "scripts/cmirank/12_smoke_constrained_decoding_cpu.py")
+    cpu = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cpu)
+    neighbors = [{"type": "item", "id": i} for i in range(100, 116)]
+    manager = MemRecManager(None)
+    messages = manager.build_stage_w_prompt(user_id=11, feedback={"action": "CLICK", "item_id": 200},
+        recent_facets=[], user_mem_keys=[], item_mem_keys={},
+        neighbor_ids=[f"Item-{nb['id']}" for nb in neighbors], fanout_cap=8)
+    _, audit = constrain_id_properties(messages, manager.get_stage_w_schema())
+    expected = cpu.visible_write_ids({"pruned_subgraph": {"neighbors": neighbors}}, 8)
+    assert audit["allowed_neighbor_ids"] == expected == [f"Item-{i}" for i in range(100, 108)]
+    assert "Item-108" not in expected  # Present in graph but never shown to the writer.
+
+
 def test_control_fails_closed_for_unrecognized_or_ambiguous_prompts():
     from src.cmirank.constrained_decoding import constrain_id_properties
     messages, properties = control_prompt_fixture("stage_r")
