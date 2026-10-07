@@ -261,7 +261,7 @@ def test_v2_binding_delta_preserves_entire_memory_experiment():
     assert effective == base
     assert sha != base_sha
     with pytest.raises(ValueError):
-        load_memory_contract(ROOT, 7)
+        load_memory_contract(ROOT, 8)
 
 
 def test_numeric_binding_requires_inventory_uuid_and_pci_order_agreement():
@@ -361,6 +361,150 @@ def test_v6_preserves_science_and_uses_only_fresh_compiler_namespace():
     assert delta["cache_names"] == ["TRITON_CACHE_DIR", "VLLM_CACHE_ROOT", "TORCHINDUCTOR_CACHE_DIR", "CUDA_CACHE_PATH"]
     v6["run_id"] = v5["run_id"]
     assert v6 == v5 and hash6 != hash5
+
+
+def test_v7_is_a_secondary_id_decoding_control_with_all_v6_science_preserved():
+    v6, hash6 = load_memory_contract(ROOT, 6)
+    v7, hash7 = load_memory_contract(ROOT, 7)
+    delta = v7.pop("constrained_decoding_delta")
+    assert delta["comparison_role"] == "secondary_control_not_primary_replacement"
+    assert delta["decoding_changes"] and not delta["model_prompt_data_temperature_changes"]
+    assert not delta["schema_numeric_text_and_fanout_changes"]
+    assert not delta["output_repair"] and not delta["training_ready"]
+    v7["run_id"] = v6["run_id"]
+    assert v7 == v6 and hash7 != hash6
+
+
+def test_constrained_fake_twenty_user_pipeline_has_no_prompt_or_label_changes():
+    from src.cmirank.constrained_decoding import constrain_id_properties, validate_constrained_output
+    from src.cmirank.memory_review import response_schema
+    calls = []
+
+    class ControlFake(FakeJSONClient):
+        def generate_json(self, messages, properties, **kwargs):
+            before_messages, before_properties = deepcopy(messages), deepcopy(properties)
+            controlled, audit = constrain_id_properties(messages, properties)
+            result = super().generate_json(messages, controlled, **kwargs)
+            validate_constrained_output(result, response_schema(controlled)["json_schema"]["schema"])
+            assert messages == before_messages and properties == before_properties
+            calls.append(audit)
+            return result
+
+    users, rows, client, agent, inputs = make_fixture(ControlFake)
+    result = run_memory_smoke(agent, inputs=inputs, rows=rows, user_ids=users,
+                             candidate_context_warning=True, emit=lambda *_: None)
+    assert len(calls) == client.total_physical_requests == 100
+    assert [x["stage"] for x in calls] == ["stage_r", "rerank", "stage_w"] * 20 + ["stage_r", "rerank"] * 20
+    assert not result["training_ready"] and not result["semantic_memory_grounding_proven"]
+    assert all(not x["label_accessed"] and not x["output_repair"] and not x["prompt_modified"] for x in calls)
+
+
+def control_prompt_fixture(stage):
+    from src.memory.manager import MemRecManager
+    from src.models.reranker_llm import LLMReranker
+    manager = MemRecManager(None)
+    if stage == "stage_r":
+        return manager.build_stage_r_prompt(11, "User-999 is mentioned in text, not a neighbor heading",
+            "[Item-200] neighbor\n[User-7] neighbor", "\n".join(f"{i+1}. [{100+i}] Book" for i in range(10))), manager.get_stage_r_schema()
+    if stage == "rerank":
+        reranker = LLMReranker(None)
+        return reranker.build_rerank_prompt(user_id=11, facets=[],
+            candidates=[{"id": i, "title": f"Book {i}"} for i in range(100, 110)]), reranker.get_rerank_schema()
+    return manager.build_stage_w_prompt(user_id=11, feedback={"action": "CLICK", "item_id": 100},
+        recent_facets=[], user_mem_keys=[], item_mem_keys={}, neighbor_ids=["Item-200", "User-7"]), manager.get_stage_w_schema()
+
+
+@pytest.mark.parametrize("stage", ["stage_r", "rerank", "stage_w"])
+def test_control_id_domains_are_only_input_roles_and_reject_unknown_ids(stage):
+    from src.cmirank.constrained_decoding import constrain_id_properties, validate_constrained_output
+    from src.cmirank.memory_review import response_schema
+    messages, properties = control_prompt_fixture(stage)
+    before = deepcopy(properties)
+    controlled, audit = constrain_id_properties(messages, properties)
+    assert properties == before
+    if stage == "stage_r":
+        assert audit["allowed_source_ids"] == [*[f"Item-{i}" for i in range(100, 110)], "Item-200", "User-11", "User-7"]
+        assert "User-999" not in audit["allowed_source_ids"]
+        raw = {"facets": [{"facet": "test", "confidence": .8, "supporting_neighbors": ["Item-999"]}], "support_edges": []}
+    elif stage == "rerank":
+        assert audit["allowed_candidate_ids"] == list(range(100, 110))
+        raw = {"scores": [{"item_id": 999, "score": .5, "rationale": "test"}]}
+    else:
+        assert audit["allowed_neighbor_ids"] == ["Item-200", "User-7"]
+        assert "Item-29300" not in audit["allowed_neighbor_ids"]  # Upstream example is not an available entity.
+        raw = {"user_memory": "test", "item_memory": "test", "neighbor_updates": [
+            {"neighbor_id": "Item-999", "memory_update": "test", "rationale": "test"}]}
+    original_raw = deepcopy(raw)
+    with pytest.raises(ValueError, match="identity enum"):
+        validate_constrained_output(raw, response_schema(controlled)["json_schema"]["schema"])
+    assert raw == original_raw
+
+
+def test_empty_propagation_domain_forbids_updates_without_invalid_empty_enum():
+    from src.cmirank.constrained_decoding import constrain_id_properties, validate_constrained_output
+    from src.cmirank.memory_review import response_schema
+    from src.memory.manager import MemRecManager
+    manager = MemRecManager(None)
+    messages = manager.build_stage_w_prompt(user_id=11, feedback={"action": "CLICK", "item_id": 100},
+        recent_facets=[], user_mem_keys=[], item_mem_keys={}, neighbor_ids=[])
+    props, audit = constrain_id_properties(messages, manager.get_stage_w_schema())
+    assert audit["allowed_neighbor_ids"] == [] and props["neighbor_updates"]["maxItems"] == 0
+    schema = response_schema(props)["json_schema"]["schema"]
+    validate_constrained_output({"user_memory": "test", "item_memory": "test", "neighbor_updates": []}, schema)
+    with pytest.raises(ValueError, match="empty propagation"):
+        validate_constrained_output({"user_memory": "test", "item_memory": "test", "neighbor_updates": [
+            {"neighbor_id": "Item-100", "memory_update": "test", "rationale": "test"}]}, schema)
+
+
+def test_control_fails_closed_for_unrecognized_or_ambiguous_prompts():
+    from src.cmirank.constrained_decoding import constrain_id_properties
+    messages, properties = control_prompt_fixture("stage_r")
+    messages[0]["content"] += "\n**Context (Candidate Items):**\n"
+    with pytest.raises(ValueError, match="Ambiguous"):
+        constrain_id_properties(messages, properties)
+    with pytest.raises(ValueError, match="Unrecognized"):
+        constrain_id_properties([{"role": "user", "content": "test"}], {"unexpected": {}})
+
+
+@pytest.mark.parametrize("invalid", [False, True])
+def test_observed_control_journals_actual_schema_and_never_repairs_backend_output(tmp_path, monkeypatch, invalid):
+    from openai.resources.chat.completions import Completions
+    from openai.types.chat import ChatCompletion
+    runner = load_runner()
+    config, _ = load_memory_contract(ROOT, 7)
+    seen = []
+
+    def fake_create(self, **kwargs):
+        seen.append(deepcopy(kwargs))
+        raw = {"facets": [{"facet": "test", "confidence": .8, "supporting_neighbors": ["Item-999" if invalid else "Item-200"]}],
+               "support_edges": []}
+        return ChatCompletion(id="fake", object="chat.completion", created=0, model=config["model_id"],
+            choices=[{"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": json.dumps(raw)}}],
+            usage={"prompt_tokens": 12, "completion_tokens": 20, "total_tokens": 32})
+
+    monkeypatch.setattr(Completions, "create", fake_create)
+    monkeypatch.delenv("MEMREC_LLM_CACHE_DB", raising=False)
+    client = runner.ObservedClient(tmp_path, config, "test-v7-control", 18105)
+    client.set_episode("user-11-warmup")
+    messages, props = control_prompt_fixture("stage_r")
+    original = deepcopy(messages)
+    try:
+        if invalid:
+            with pytest.raises(ValueError, match="identity enum"):
+                client.generate_json(messages, props, temperature=0., max_tokens=4000)
+        else:
+            assert client.generate_json(messages, props, temperature=0., max_tokens=4000)["facets"][0]["supporting_neighbors"] == ["Item-200"]
+        assert client.total_physical_requests == 1 and messages == original == seen[0]["messages"]
+        physical = [json.loads(x) for x in (tmp_path / "physical-requests.jsonl").read_text().splitlines()]
+        assert physical[0]["kwargs"] == seen[0] and len(physical) == 2
+        assert "enum" in seen[0]["response_format"]["json_schema"]["schema"]["properties"]["facets"]["items"]["properties"]["supporting_neighbors"]["items"]
+        decoding = [json.loads(x) for x in (tmp_path / "decoding-contracts.jsonl").read_text().splitlines()]
+        assert len(decoding) == 1 and decoding[0]["stage"] == "stage_r"
+        if invalid:
+            assert "Item-999" in physical[1]["content"]  # Kept verbatim, no repair/retry.
+    finally:
+        client.client.close()
+        client.request_budget.connection.close()
 
 
 def test_candidate_role_classification_is_independent_of_positive_labels():

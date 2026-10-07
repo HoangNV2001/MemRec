@@ -1,0 +1,20 @@
+{
+  "schema_version": 7,
+  "approval_status": "researcher_approved_secondary_decoding_control_2026-10-07",
+  "predecessor_contract_sha256": "9d7f731ade5f3ad0bd99f9448e324dce3bc80f2abeebfdc6f6d43d927b612e7e",
+  "offline_v6_review_sha256": "b1a64149975c09514d439dafafa36702d89c96312eaacbdb77af5ff2ad052d6b",
+  "run_id": "cmirank-real-memory-constrained-smoke-v7-20261007-hnv",
+  "change_only": "label_blind_input_id_enums_in_structured_decoding",
+  "comparison_role": "secondary_control_not_primary_replacement",
+  "stage_r_source_ids": "packed_neighbor_headers_plus_visible_candidates_plus_current_user",
+  "stage_r_edge_targets": "current_user_only",
+  "rerank_item_ids": "visible_candidate_ids_only",
+  "stage_w_neighbor_ids": "listed_propagation_neighbors_only_empty_domain_max_items_zero",
+  "schema_numeric_text_and_fanout_changes": false,
+  "model_prompt_data_temperature_changes": false,
+  "decoding_changes": true,
+  "unknown_id_schema_provenance_stage_w_gates": "unchanged_hard_fail",
+  "candidate_context_citations": "retain_raw_output_and_role_warning",
+  "output_repair": false,
+  "training_ready": false
+}

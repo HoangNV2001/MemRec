@@ -1,5 +1,7 @@
 """Real-memory smoke gates; unchanged MemRec prompts and no policy training.
 
+V7 is an explicit secondary decoding control, not unchanged upstream decoding.
+
 The common graph covers 1,797 query users, but this diagnostic warms ONLY the
 20 predeclared smoke users. Its final requests cannot stand in for a full
 1,797-user warmed cache. Semantic grounding is not proven by these guards.
@@ -26,7 +28,7 @@ def load_memory_contract(root: Path, version: int) -> tuple[dict, str]:
     base_sha = file_sha256(base_path)
     if version == 1:
         return config, base_sha
-    if version not in (2, 3, 4, 5, 6):
+    if version not in (2, 3, 4, 5, 6, 7):
         raise ValueError("Unsupported memory smoke version")
     delta_path = root / "configs/cmirank/real_memory_smoke_v2.json"
     delta = json.loads(delta_path.read_text())
@@ -83,7 +85,7 @@ def load_memory_contract(root: Path, version: int) -> tuple[dict, str]:
         config["run_id"] = resource_delta["run_id"]
         config["generator_mask_delta"] = resource_delta
         hashes["generator_mask_delta_sha256"] = file_sha256(resource_path)
-    if version == 6:
+    if version >= 6:
         cache_path = root / "configs/cmirank/real_memory_smoke_v6.json"
         cache_delta = json.loads(cache_path.read_text())
         expected = {"schema_version": 6,
@@ -99,6 +101,28 @@ def load_memory_contract(root: Path, version: int) -> tuple[dict, str]:
         config["run_id"] = cache_delta["run_id"]
         config["compiler_cache_delta"] = cache_delta
         hashes["compiler_cache_delta_sha256"] = file_sha256(cache_path)
+    if version == 7:
+        control_path = root / "configs/cmirank/real_memory_smoke_v7.json"
+        control_delta = json.loads(control_path.read_text())
+        expected = {"schema_version": 7,
+            "approval_status": "researcher_approved_secondary_decoding_control_2026-10-07",
+            "predecessor_contract_sha256": hashes["compiler_cache_delta_sha256"],
+            "offline_v6_review_sha256": "b1a64149975c09514d439dafafa36702d89c96312eaacbdb77af5ff2ad052d6b",
+            "run_id": "cmirank-real-memory-constrained-smoke-v7-20261007-hnv",
+            "change_only": "label_blind_input_id_enums_in_structured_decoding",
+            "comparison_role": "secondary_control_not_primary_replacement",
+            "stage_r_source_ids": "packed_neighbor_headers_plus_visible_candidates_plus_current_user",
+            "stage_r_edge_targets": "current_user_only", "rerank_item_ids": "visible_candidate_ids_only",
+            "stage_w_neighbor_ids": "listed_propagation_neighbors_only_empty_domain_max_items_zero",
+            "schema_numeric_text_and_fanout_changes": False, "model_prompt_data_temperature_changes": False,
+            "decoding_changes": True, "unknown_id_schema_provenance_stage_w_gates": "unchanged_hard_fail",
+            "candidate_context_citations": "retain_raw_output_and_role_warning",
+            "output_repair": False, "training_ready": False}
+        if control_delta != expected:
+            raise ValueError("V7 changes only ID decoding domains as a separately approved control")
+        config["run_id"] = control_delta["run_id"]
+        config["constrained_decoding_delta"] = control_delta
+        hashes["constrained_decoding_delta_sha256"] = file_sha256(control_path)
     return config, object_sha256(hashes)
 
 

@@ -16,14 +16,15 @@ chính sách loại dần candidate, fine-tune **Qwen/Qwen3.5-4B bằng PPO** v�
 | Benchmark đối chứng | Full MemRec NDCG@5 **0,747918**, SASRec **0,343320**, cùng 200 dev users/candidates; MemRec warm-up 700 users, không phải full-data/paper replication |
 | Data/protocol CM-IRank | Khóa 1.497 train / 300 validation; snapshot target-blind và 3.594 candidate sets v2 đã audit CPU, không có cờ trong 7 probe cố định; chưa chứng minh không còn shortcut |
 | Policy infrastructure | RankRequest/replay, N−1, parser, MPSS có CPU tests; Qwen3.5 synthetic smoke 20/20 và một optimizer update bỏ đi đã pass; **chưa train PPO** |
-| Real memory smoke v6 | **Fail** sau 35 requests, 11/20 warm-ups, 0 pseudo episodes: một Stage-R citation ID ngoài input; GPU đã nhả, không promote cache |
+| Real memory smoke v6 | **Fail** sau 35 requests, 11/20 warm-ups, 0 pseudo episodes: một Stage-R citation ID ngoài input; CPU review/replay đã hoàn tất, GPU đã nhả, không promote cache |
 | Method result | **Chưa có checkpoint/score CM-IRank**; held-out 5.377 users vẫn niêm phong |
 
 Kế hoạch và đánh giá khả thi mới nhất: [design §0.14](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#014-overall-review-and-next-gates--2026-10-07).
-Đang làm offline CPU review raw requests, schema, provenance và replay Stage-W;
+CPU review v6 đã đối chiếu 35 request/schema và replay đúng 11 lần Stage-W;
 không sửa ID, bỏ user, tune prompt hay nới hard gate để thông qua smoke.
-Đối chứng constrained decoding chỉ là đề xuất cần researcher duyệt, chưa thay
-upstream-aligned primary. Sau memory gate mới tới real N−1/direct smoke,
+Researcher đã duyệt **v7 constrained-decoding secondary control**: schema chỉ cho
+phép ID từ input, không thay upstream-aligned primary; cần compile schema CPU
+rồi smoke thật 20 user/100 calls và review riêng ([§0.15](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#015-approved-secondary-input-id-decoding-control--2026-10-07)). Sau memory gate mới tới real N−1/direct smoke,
 one-card PPO compatibility và tiny PPO; không tự nối sang full training.
 
 Migration và cleanup nguồn cũ đã hoàn tất, CPU smoke sau cleanup pass. Mọi compute

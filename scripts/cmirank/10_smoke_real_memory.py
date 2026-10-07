@@ -58,6 +58,7 @@ class ObservedClient(LLMClient):
             str(run / "request-budget.sqlite"), contract_sha)
         self.last_request = None
         self.episode_id = None
+        self.run, self.id_control = run, "constrained_decoding_delta" in config
         original = self.client.chat.completions.create
 
         def observed(**kwargs):
@@ -79,6 +80,19 @@ class ObservedClient(LLMClient):
 
     def set_episode(self, episode_id: str) -> None:
         self.episode_id = episode_id
+
+    def generate_json(self, messages, properties, **kwargs):
+        if not self.id_control:
+            return super().generate_json(messages, properties, **kwargs)
+        from src.cmirank.constrained_decoding import constrain_id_properties, validate_constrained_output
+        constrained, audit = constrain_id_properties(messages, properties)
+        append_row(self.run, "decoding-contracts", {"episode_id": self.episode_id,
+            "messages_sha256": object_sha256(messages), "original_properties_sha256": object_sha256(properties),
+            "constrained_properties_sha256": object_sha256(constrained), **audit})
+        result = super().generate_json(messages, constrained, **kwargs)
+        validate_constrained_output(result, {"type": "object", "properties": constrained,
+            "required": list(constrained), "additionalProperties": False})
+        return result
 
 
 def verify_audit(audit_dir: Path, config: dict, inputs: dict, recipes: dict) -> None:
@@ -138,7 +152,7 @@ def main() -> None:
     parser.add_argument("--index-dir", type=Path, required=True)
     parser.add_argument("--candidate-run-dir", type=Path, required=True)
     parser.add_argument("--audit-dir", type=Path, required=True)
-    parser.add_argument("--contract-version", choices=(1, 2, 3, 4, 5, 6), type=int, default=4)
+    parser.add_argument("--contract-version", choices=(1, 2, 3, 4, 5, 6, 7), type=int, default=4)
     parser.add_argument("--owner-confirmed-generator-step")
     args = parser.parse_args()
     config, contract_sha = load_memory_contract(ROOT, args.contract_version)
@@ -154,8 +168,8 @@ def main() -> None:
             or subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=no"], cwd=ROOT, text=True)):
         raise ValueError("Exact clean deployed source required")
     job = require_allocation()
-    if args.owner_confirmed_generator_step and args.contract_version not in (4, 5):
-        raise ValueError("Owner-confirmed handoff is limited to v4 and its resource-only retry")
+    if args.owner_confirmed_generator_step and args.contract_version not in (4, 5, 7):
+        raise ValueError("Owner-confirmed handoff is limited to v4/v5 or the approved v7 control")
     os.environ["CUDA_VISIBLE_DEVICES"] = ""  # CPU preparation never selects CUDA.
     run.mkdir()
     server, card, client, server_log = None, None, None, None
@@ -174,6 +188,19 @@ def main() -> None:
             raise ValueError("Wrong candidate run")
         rows = verify_candidate_run(args.candidate_run_dir, config, inputs, recipes)
         verify_audit(args.audit_dir, config, inputs, recipes)
+        if args.contract_version == 7:
+            review_path = private_root / "runs/cmirank-real-memory-review-v6-20261007-hnv/review.json"
+            if file_sha256(review_path) != config["constrained_decoding_delta"]["offline_v6_review_sha256"]:
+                raise ValueError("V7 requires the independent completed v6 review")
+            cpu_dir = private_root / "runs/cmirank-constrained-decoding-cpu-v7-20261007-hnv"
+            cpu_report = json.loads((cpu_dir / "report.json").read_text())
+            if (cpu_report["status"] != "CPU_INPUT_ID_GRAMMAR_SMOKE_PASS_GPU_SMOKE_AND_REVIEW_STILL_REQUIRED"
+                    or cpu_report["source_commit"] != commit or cpu_report["config_sha256"] != contract_sha
+                    or cpu_report["decoder_code_sha256"] != file_sha256(ROOT / "src/cmirank/constrained_decoding.py")
+                    or cpu_report["schemas_compiled"] != 36 or not cpu_report["exact_structured_input_domain_parity"]
+                    or cpu_report["new_llm_requests"] != 0 or cpu_report["gpu_requested"]
+                    or file_sha256(cpu_dir / "compiled-input-domains.jsonl") != cpu_report["schema_domains_sha256"]):
+                raise ValueError("V7 requires exact-source completed CPU input-domain/grammar smoke")
         user_ids = smoke_user_ids(sorted(inputs["warmups"]), recipes["episode_config"])
         metadata_path = ROOT / "data/processed/instructrec-books/instructrec-books.meta"
         if file_sha256(metadata_path) != recipes["config"]["metadata_sha256"]:
@@ -207,6 +234,9 @@ def main() -> None:
                         ("TRITON_CACHE_DIR", "VLLM_CACHE_ROOT", "TORCHINDUCTOR_CACHE_DIR", "CUDA_CACHE_PATH")},
                     "python_version": sys.version,
                     "versions": {n: importlib.metadata.version(n) for n in ("torch", "transformers", "vllm", "openai")}}
+        if args.contract_version == 7:
+            manifest["cpu_decoding_smoke_report_sha256"] = file_sha256(cpu_dir / "report.json")
+            manifest["decoder_code_sha256"] = file_sha256(ROOT / "src/cmirank/constrained_decoding.py")
         (run / "manifest.json").write_text(artifact_json_dumps(manifest))
         if args.owner_confirmed_generator_step:
             # All data/checkpoint/metadata preparation is complete: only now
@@ -306,6 +336,14 @@ def main() -> None:
                        "artifact_sha256": {p.name: file_sha256(p) for p in run.glob("*.jsonl")}})
         if result["candidate_context_citation_occurrences"]:
             result["status"] = "REAL_MEMORY_SMOKE_PASS_WITH_ROLE_WARNINGS_CLEANUP_AND_SEMANTIC_REVIEW_REQUIRED"
+        if args.contract_version == 7:
+            decoding_rows = [json.loads(line) for line in (run / "decoding-contracts.jsonl").read_text().splitlines()]
+            if len(decoding_rows) != 100:
+                raise ValueError("Not one input-only decoding contract per logical request")
+            result.update({"status": "SECONDARY_CONSTRAINED_MEMORY_SMOKE_PASS_CLEANUP_AND_SEMANTIC_REVIEW_REQUIRED",
+                "comparison_role": "secondary_control_not_primary_replacement", "primary_provider_replaced": False,
+                "controlled_decoding_logical_requests": len(decoding_rows),
+                "candidate_role_warnings_present": bool(result["candidate_context_citation_occurrences"])})
         (run / "report.json").write_text(artifact_json_dumps(result))
         exit_code = 0
     except BaseException as error:

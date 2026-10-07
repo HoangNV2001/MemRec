@@ -19,7 +19,7 @@ if [[ "$(git rev-parse HEAD)" != "$MEMREC_EXPECTED_COMMIT" || \
 fi
 MEMREC_PYTHON="$MEMREC_ROOT/envs/llm-hnv/bin/python"
 MEMREC_CONTRACT_VERSION=${1:-4}
-case "$MEMREC_CONTRACT_VERSION" in 1|2|3|4|5|6) ;; *) echo 'Unsupported smoke version' >&2; exit 2;; esac
+case "$MEMREC_CONTRACT_VERSION" in 1|2|3|4|5|6|7) ;; *) echo 'Unsupported smoke version' >&2; exit 2;; esac
 RUN_ID=$("$MEMREC_PYTHON" - "$MEMREC_CONTRACT_VERSION" <<'PY'
 from pathlib import Path
 import sys
@@ -40,7 +40,7 @@ export TRITON_CACHE_DIR="$MEMREC_ROOT/cache/triton"
 export VLLM_CACHE_ROOT="$MEMREC_ROOT/cache/vllm"
 export TORCHINDUCTOR_CACHE_DIR="$MEMREC_ROOT/cache/torchinductor"
 export CUDA_CACHE_PATH="$MEMREC_ROOT/cache/nv/ComputeCache"
-if [[ "$MEMREC_CONTRACT_VERSION" == 6 ]]; then
+if [[ "$MEMREC_CONTRACT_VERSION" -ge 6 ]]; then
   # Copied generated kernels can embed old absolute autotune paths. Retain
   # those forensic cache bytes, but compile this fresh run in its own namespace.
   MEMREC_COMPILER_CACHE_ROOT="$MEMREC_ROOT/cache/runtime-hnv/$RUN_ID"
@@ -112,7 +112,7 @@ trap 'exit 143' TERM
 SMOKE_TIMEOUT_MINUTES=$("$MEMREC_PYTHON" -c 'import json; print(json.load(open("configs/cmirank/real_memory_smoke_v1.json"))["timeout_minutes"])')
 HANDOFF_ARGS=()
 if [[ -n "${MEMREC_OWNER_CONFIRMED_GPU1_STEP:-}" ]]; then
-  if [[ ( "$MEMREC_CONTRACT_VERSION" != 4 && "$MEMREC_CONTRACT_VERSION" != 5 ) || \
+  if [[ ( "$MEMREC_CONTRACT_VERSION" != 4 && "$MEMREC_CONTRACT_VERSION" != 5 && "$MEMREC_CONTRACT_VERSION" != 7 ) || \
         ! "$MEMREC_OWNER_CONFIRMED_GPU1_STEP" =~ ^${SLURM_JOB_ID}\.[1-9][0-9]*$ ]]; then
     echo 'Handoff must name the owner-confirmed numeric step in this allocation and current smoke scope' >&2
     exit 2
