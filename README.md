@@ -46,6 +46,14 @@ không nhãn Books/tune ranking;340 tests pass. CPU data/mask/token/hash gate đ
 256 examples +20 holdout /80 prompt audit. Đã có xác nhận keeper0; v1 GPU preflight
 dừng trước reclaim vì GPU1 đổi sang workload TTS. V2 sửa guard để GPU1 luôn
 read-only, giữ nguyên SFT recipe; tiến độ và receipts ở design §0.19–0.20.
+**SFT smoke PASS:**5 updates/134,44s; synthetic N−1/direct20/20; save/reload20
+logit probes delta0. GPU đã unload và keeper bật lại. Sau review và xác nhận mới,
+**Full SFT đã xong:**64 updates/11,31 phút; N−1/direct đều20/20 trên synthetic
+và cùng20 Books inputs; save/reload delta0,24 artifacts hash-match. GPU đã unload,
+keeper chạy lại. Đây chỉ là **format initializer**, chưa có gain NDCG/Hit.
+Bước tiếp: PPO actor/critic/reference compatibility trong env riêng; cần chốt
+stack CUDA12-compatible vì native VeRL pins dùng CUDA13, driver hiện tại550
+(design §0.22). Không đổi driver/env baseline, không tự dùng GRPO/LoRA/2GPU.
 Chưa có score/checkpoint PPO CM-IRank hoặc quyết định thay primary.
 
 Migration và cleanup nguồn cũ đã hoàn tất, CPU smoke sau cleanup pass. Mọi compute
