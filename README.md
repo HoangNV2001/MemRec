@@ -34,7 +34,9 @@ keeper theo runbook, kể cả khi còn CPU review. GPU0/job reserved được g
 Independent review đã xác nhận exact schemas/domains, 20 raw writes và 20 pseudo
 inputs read-only, không có unknown ID. Bước hiện tại: **N−1/direct functional
 smoke của Qwen3.5-4B**, 20 frozen inputs secondary / tối đa 200 generations,
-CPU token audit trước GPU, tự handback keeper sau task (§0.17). Chưa có
+CPU token audit đã pass **40 prompts / 709–1.044 tokens**, 319 tests pass;
+còn cần xác nhận exclusive ownership hiện tại trước GPU, tự handback keeper
+sau task (§0.17). Chưa có
 checkpoint/score CM-IRank hay quyết định thay primary.
 
 Migration và cleanup nguồn cũ đã hoàn tất, CPU smoke sau cleanup pass. Mọi compute
