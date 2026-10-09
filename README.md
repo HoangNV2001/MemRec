@@ -42,7 +42,9 @@ khớp. Lỗi format dẫn tới đề xuất **format-only SFT trước PPO**
 ([§0.18](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#018-real-qwen35-n1direct-smoke-outcome-and-format-decision--2026-10-09)).
 Researcher đã cho tiếp tục: **format-only SFT**256 synthetic examples,64 updates
 đã khóa; trước đó smoke20 examples/5 updates và save/reload. Giữ no-SFT controls,
-không nhãn Books/tune ranking;340 tests pass, implementation và runtime gates ở design §0.19.
+không nhãn Books/tune ranking;340 tests pass. CPU data/mask/token/hash gate đã pass
+256 examples +20 holdout /80 prompt audit; GPU smoke đang chờ xác nhận keeper0
+hiện tại. Implementation và receipts ở design §0.19.
 Chưa có score/checkpoint PPO CM-IRank hoặc quyết định thay primary.
 
 Migration và cleanup nguồn cũ đã hoàn tất, CPU smoke sau cleanup pass. Mọi compute
