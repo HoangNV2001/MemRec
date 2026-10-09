@@ -38,9 +38,12 @@ CPU token audit đã pass **40 prompts / 709–1.044 tokens**, 319 tests pass;
 **V2 GPU0 terminal:** 86,51 giây /177 generations, N−1 hợp lệ **14/20**, direct
 **0/20** vì thiếu answer tags (không truncation/repair). GPU đã unload rồi
 keeper0 chạy lại; GPU1/job được bảo vệ. 20/20 artifacts hash-match và CPU replay
-khớp. Cần researcher chốt có thêm **format-only SFT trước PPO** không
+khớp. Lỗi format dẫn tới đề xuất **format-only SFT trước PPO**
 ([§0.18](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#018-real-qwen35-n1direct-smoke-outcome-and-format-decision--2026-10-09)).
-Chưa có score/checkpoint CM-IRank, PPO pass hoặc quyết định thay primary.
+Researcher đã cho tiếp tục: **format-only SFT**256 synthetic examples,64 updates
+đã khóa; trước đó smoke20 examples/5 updates và save/reload. Giữ no-SFT controls,
+không nhãn Books/tune ranking;340 tests pass, implementation và runtime gates ở design §0.19.
+Chưa có score/checkpoint PPO CM-IRank hoặc quyết định thay primary.
 
 Migration và cleanup nguồn cũ đã hoàn tất, CPU smoke sau cleanup pass. Mọi compute
 mới theo root/account/allocation hiện hành trong runbook nội bộ; SSH dùng chung

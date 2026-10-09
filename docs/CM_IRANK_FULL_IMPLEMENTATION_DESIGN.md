@@ -531,6 +531,37 @@ The new **v2 resource-only contract** (`configs/cmirank/real_policy_smoke_v2.jso
 
 **Decision required before changing training initialization:** recommend a small **format-only SFT warm-start** (the option already anticipated in §35) followed by the same primary PPO/GAE + MPSS, rather than changing the method or repairing predictions. Proposed scope: synthetic contexts/candidate labels independent of all Books target outcomes; supervise only the ranking protocol (single active padded label or complete unique-label permutation, correct answer tags), not target-aware recommendation quality. Freeze recipe/seed/budget and separate synthetic holdout **before training**; smoke20–30 examples first, retain failed base run unchanged. Apply the same accepted initialization to direct/R1-reward/terminal-only/MPSS arms and retain explicit no-SFT controls so SFT and RL gains are not conflated. Do not assume SFT will work or improve ranking. Ask researcher whether to add this training stage/ablation; no SFT data, weight update or new GPU task has started. If approved, define and test that contract, then format smoke and the isolated pinned PPO compatibility gate. If declined, leave this failure visible and prepare an explicitly agreed PPO-from-base route with its invalid-action penalty—do not silently loosen parser/schema.
 
+### 0.19 Approved format-only SFT recipe and smoke-first execution — 2026-10-09
+
+**Researcher continuation:** “chạy tiếp đi” in response to the format-only SFT proposal is interpreted as approval to implement that warm-start/required ablation, retaining Qwen3.5-4B full-text training and primary PPO/GAE + MPSS. It does not authorize target-aware teacher supervision, a memory-provider replacement, a LoRA/GRPO substitute or held-out scoring. The GPU0-only scoped keeper/release/handback policy is unchanged; a freshly observed keeper's unresolved PID namespace still requires current exclusivity confirmation, not a reused old numeric-step attestation.
+
+**Before-outcome contract:** `configs/cmirank/format_sft_v1.json`; no budget/seed/LR/epoch/prompt/parser/checkpoint selection search.
+
+| Component | Frozen recipe |
+|---|---|
+| Model/environment | Official pinned `851bf6e…` Qwen3.5-4B; existing isolated Torch2.8 / Transformers5.13; unchanged conditional-generation loader |
+| Training parameter scope | All **4,205,751,296 text parameters**, **333,514,240 vision parameters frozen**, no adapters |
+| Synthetic training | **256 examples**,128 iterative/128 direct, negative synthetic user/item identities; twelve topics; no Books loaders, outcomes or teacher-quality labels |
+| Protocol targets | Uniform random active label or ten-label permutation; iterative active-set sizes2–10; separate SHA-derived context/active/completion RNG streams |
+| Meaning of targets | Synthetic books share the same topic-level preference and have no known relative relevance; ordering is an exchangeable **structural tie-break**, not a recommendation oracle |
+| Loss | Completion + official EOS only; prompt tokens `-100`; exact inference chat prefix/thinking-disabled; no padding/packing/truncation |
+| Optimizer | BF16 full-text parameters and BF16-state Torch AdamW (`foreach=False`), LR`1e-5`, betas`.9/.999`, eps`1e-8`, decay0, gradient clip1, constant LR |
+| Infrastructure smoke | First **20 training examples**,1 epoch, accumulation4 → **5 updates**, separate checkpoint; never used to initialize the full run |
+| Fixed warm-start | Restart from official base;256 examples ×2 epochs, accumulation8 → **64 updates**; batch1/gradient checkpointing |
+| Checkpoint choice | Only fixed final step; save/unload/reload, compare twenty synthetic prompt-end full-vocabulary logits (`atol=.001`, rtol0), no metric-based choice |
+| Holdout/transfer diagnostics | **20 disjoint synthetic users** N−1/direct; after fixed warm-start only, same20 reviewed secondary Books requests N−1/direct, no target/reward/metric |
+| Resources | One exclusive GPU0; allocator fraction`.90` within the approved80GB card limit,40-minute hard cap per phase; model/optimizer released before CPU hash/review and keeper restored |
+
+**Qualification:** random structural completion supervision can introduce choice noise or forget preferences; no ranking gain is predicted from SFT itself. Its goal is to make the locked interface usable, not to repair malformed output after inference. Keep no-SFT base controls and share an accepted initialization across direct/R1/terminal/MPSS arms. Compare outcome-quality later on the locked pseudo-validation under the same initializer; these synthetic format diagnostics are not that comparison.
+
+**Acceptance and sequencing:** local CPU tests → exact clean GitHub deployment → CPU twenty-example mask/token/strict-parser smoke, then prepare all256 + disjoint20 and audit80 full diagnostic prompts; verify official checkpoint file hashes with keepers running. A fresh GPU process consumes a source/config/code/data/tokenizer-bound receipt before stopping the exact approved keeper0. The twenty-example GPU smoke must establish finite response-only loss/gradients, an actual text-head change, unchanged frozen vision, five exact updates and20-prompt checkpoint logit round-trip. Its synthetic generation validity is logged even if five updates are insufficient; **infrastructure pass permits only the already-frozen full learning schedule**, not benchmark/PPO promotion. Full stage verifies that smoke plus GPU-release/keeper receipts, restarts from base, and finishes exactly64 updates. Format transfer failure remains a failure; no automatic second LR/seed/epoch attempt, parser repair or outcome-dependent prompt edit. Collect raw outputs, losses, hashes, resource receipts and the final format-only checkpoint; then review before any PPO promotion.
+
+**Implementation:** `format_sft.py`, `15_prepare_format_sft_cpu.py`, `16_train_format_sft_gpu.py`; existing task-owned worker/controller extended with an explicit `MEMREC_TASK_KIND=format_sft` and `smoke/full` phase. They retain one-card/no-fallback/exact-step-only cancellation, timeout/finally cleanup and mandatory keeper handback. CPU contract tests cover deterministic/balanced targets, train/holdout separation, parser-valid completions, response/EOS masks, no truncation, hash tampering and source/roundtrip/release/keeper promotion gates. Neither model nor dependency stack is upgraded. Runtime receipts/results pending.
+
+**Local gate:** **340 tests passed**, including thirteen new structural-data/mask/source/receipt tests; compilation, shell syntax and whitespace checks pass. CPU preparation/deployment pending; no SFT optimizer update/checkpoint exists yet.
+
+Implementation references only: [pinned official Qwen model card](https://huggingface.co/Qwen/Qwen3.5-4B/blob/851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a/README.md), [Torch AdamW API](https://docs.pytorch.org/docs/stable/generated/torch.optim.AdamW.html). These document model/API behavior, **not** a published endorsement or optimality claim for the project-authored synthetic recipe.
+
 ---
 
 # 1. Executive decision
