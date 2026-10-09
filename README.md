@@ -35,10 +35,12 @@ Independent review đã xác nhận exact schemas/domains, 20 raw writes và 20 
 inputs read-only, không có unknown ID. Bước hiện tại: **N−1/direct functional
 smoke của Qwen3.5-4B**, 20 frozen inputs secondary / tối đa 200 generations,
 CPU token audit đã pass **40 prompts / 709–1.044 tokens**, 319 tests pass;
-Researcher vừa chuyển lượt này sang **GPU0**, xác nhận chỉ có keeper0;
-v2 chỉ đổi tài nguyên/namespace, sẽ audit CPU lại trên exact source rồi smoke
-và tự bật lại keeper0; GPU1/job được bảo vệ (§0.17). Chưa có
-checkpoint/score CM-IRank hay quyết định thay primary.
+**V2 GPU0 terminal:** 86,51 giây /177 generations, N−1 hợp lệ **14/20**, direct
+**0/20** vì thiếu answer tags (không truncation/repair). GPU đã unload rồi
+keeper0 chạy lại; GPU1/job được bảo vệ. 20/20 artifacts hash-match và CPU replay
+khớp. Cần researcher chốt có thêm **format-only SFT trước PPO** không
+([§0.18](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#018-real-qwen35-n1direct-smoke-outcome-and-format-decision--2026-10-09)).
+Chưa có score/checkpoint CM-IRank, PPO pass hoặc quyết định thay primary.
 
 Migration và cleanup nguồn cũ đã hoàn tất, CPU smoke sau cleanup pass. Mọi compute
 mới theo root/account/allocation hiện hành trong runbook nội bộ; SSH dùng chung

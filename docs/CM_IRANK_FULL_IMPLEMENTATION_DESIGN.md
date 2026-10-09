@@ -508,6 +508,29 @@ The new **v2 resource-only contract** (`configs/cmirank/real_policy_smoke_v2.jso
 
 **V2 local gate:** **327 tests passed**; compilation/shell syntax/whitespace checks pass. Added coverage for GPU0 step-only cancellation, protected GPU1, rejecting wrong CUDA masks/card fallback/duplicate keepers and scientific-field changes to the resource amendment. Real inference and cleanup/keeper receipts are still pending; these CPU tests alone do not establish a model result.
 
+### 0.18 Real Qwen3.5 N−1/direct smoke outcome and format decision — 2026-10-09
+
+**Terminal outcome: `FUNCTIONAL_SMOKE_FAILED_NO_PROMOTION`.** Source `c9f7f4b2e366e5d8fd3528c78b7a8966ea278fd0`, run `cmirank-qwen35-real-nminus1-direct-smoke-v2-gpu0-20261009-hnv`, unchanged twenty v7 secondary requests and official base revision. Fresh CPU gate audited the same40 prompts/709–1,044 tokens in **5.598s**; report SHA `a76c93d51106dd95e2e0cc90976db56892bf48f9a8b6cafa570ead82d212381d`. Token-audit bytes exactly match v1; source/config-bound receipts are separate and neither old run was overwritten.
+
+| Functional diagnostic | Iterative N−1 | Same-4B direct |
+|---|---:|---:|
+| Valid complete ten-item permutations /20 users | **14/20** | **0/20** |
+| Actual generations | 157 | 20 |
+| Input tokens | 112,278 | 17,407 |
+| Output tokens | 1,699 | 863 |
+| Sum of measured generation time | 50.757s | 19.347s |
+| Truncations | 0 | 0 |
+
+**Total:** **86.508s**,177 physical generations/132,247 total tokens, zero repair/retry/update/target access/metric. The200-call figure is a cap, not a quota: six invalid iterative episodes terminate early and stay in the denominator. Peak Torch allocator **8,968.737MiB allocated /9,160MiB reserved**; these are allocator peaks, not a sampled whole-card peak. Model loading had no missing/unexpected/mismatched/error keys. Physical/logical GPU0 binding passed; only the owner-attested keeper0 step was cancelled. On model exit GPU0 returned to **1MiB/no compute process**, reservation stayed RUNNING; keeper0 was restarted and verified, protected GPU1 keeper retained. No model remained resident for CPU review.
+
+**Raw failure analysis, not a relaxed evaluator:** six iterative failures are missing answer spans (`C04`, `C07`, `<C06>`, etc.), not inactive labels or context/output truncation. Every direct output lacks the required `<answer>…</answer>` span; some use display brackets. A separate diagnostic regex finds all ten unique allowed labels in18/20 direct raw outputs and missing/repeated labels in2/20. **None is repaired or counted as valid.** Failure users are retained in `episode.jsonl`; no resampling, prompt tuning, parser relaxation or increased token cap occurred. These are structural compliance rates, **not ranking accuracy/NDCG**; direct0/20 does not show its semantic ranking quality is zero or that N−1 is better at recommendation.
+
+**Offline review:** all20 server artifacts SHA256-match locally (`remote-sha256.json`); raw177 calls replay through the existing CPU harness with byte-equivalent JSON episode/generation rows after ordinary tuple/list serialization. Independent answer extraction/active-set elimination/reverse-exclusion reconstruction agrees on14/20 vs0/20; initial rendered-prompt hashes and token counts match the CPU receipt for both arms. Invalid rankings remain empty. Release, exact scoped handoff and keeper handback receipts agree. Source report SHA **`f8c7f21d63efa920a2bff9f7884be627fe873813f092b35bb139355e83d2867d`**; local receipt `results/cmirank-qwen35-real-nminus1-direct-smoke-v2-gpu0-20261009-hnv/local-review.json`. This review verifies the failed diagnostic, **does not promote** primary memory, benchmark evaluation, PPO readiness or a policy checkpoint.
+
+**Feasibility assessment:** base4B inference/real evidence/N−1 plumbing fits easily on one80GB H100, but nine-turn validity is not robust enough for a quality comparison under the locked contract. Short, terminated outputs rule out simply raising output128 as the demonstrated fix. PPO actor/reference/critic/offload/log-probability/mask/save-reload compatibility remains a separate unproved gate; this inference footprint is not a PPO memory estimate. Semantic headroom remains **unknown**, because no reward/held-out outcome was inspected.
+
+**Decision required before changing training initialization:** recommend a small **format-only SFT warm-start** (the option already anticipated in §35) followed by the same primary PPO/GAE + MPSS, rather than changing the method or repairing predictions. Proposed scope: synthetic contexts/candidate labels independent of all Books target outcomes; supervise only the ranking protocol (single active padded label or complete unique-label permutation, correct answer tags), not target-aware recommendation quality. Freeze recipe/seed/budget and separate synthetic holdout **before training**; smoke20–30 examples first, retain failed base run unchanged. Apply the same accepted initialization to direct/R1-reward/terminal-only/MPSS arms and retain explicit no-SFT controls so SFT and RL gains are not conflated. Do not assume SFT will work or improve ranking. Ask researcher whether to add this training stage/ablation; no SFT data, weight update or new GPU task has started. If approved, define and test that contract, then format smoke and the isolated pinned PPO compatibility gate. If declined, leave this failure visible and prepare an explicitly agreed PPO-from-base route with its invalid-action penalty—do not silently loosen parser/schema.
+
 ---
 
 # 1. Executive decision
