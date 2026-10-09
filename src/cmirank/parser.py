@@ -18,6 +18,27 @@ class ParsedAction:
     failure_reason: str | None = None
 
 
+@dataclass(frozen=True)
+class ParsedRanking:
+    labels: tuple[str, ...]
+    valid: bool
+    failure_reason: str | None = None
+
+
+def parse_direct_ranking(raw: str, allowed_labels: Sequence[str]) -> ParsedRanking:
+    """No sorting, missing-ID completion, deduplication or extra repair call."""
+    if not isinstance(raw, str):
+        return ParsedRanking((), False, "non_text_output")
+    spans = _ANSWER.findall(raw)
+    if len(spans) != 1:
+        return ParsedRanking((), False, "answer_span_count")
+    labels = tuple(spans[0].strip().upper().split())
+    if (len(labels) != len(allowed_labels) or len(set(labels)) != len(labels)
+            or set(labels) != set(allowed_labels) or any(not _LABEL.fullmatch(label) for label in labels)):
+        return ParsedRanking((), False, "not_complete_label_permutation")
+    return ParsedRanking(labels, True)
+
+
 def parse_action(raw: str, active_labels: Sequence[str]) -> ParsedAction:
     if not isinstance(raw, str):
         return ParsedAction(None, False, "non_text_output")

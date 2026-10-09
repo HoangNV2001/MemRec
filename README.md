@@ -9,14 +9,14 @@ thesis đã được xác nhận.
 Hướng hiện tại là **CM-IRank**: giữ Stage-R/Stage-W, thay Stage-ReRank bằng
 chính sách loại dần candidate, fine-tune **Qwen/Qwen3.5-4B bằng PPO** với MPSS.
 
-## Trạng thái hiện hành — 2026-10-07
+## Trạng thái hiện hành — 2026-10-09
 
 | Phần việc | Bằng chứng / giới hạn |
 |---|---|
 | Benchmark đối chứng | Full MemRec NDCG@5 **0,747918**, SASRec **0,343320**, cùng 200 dev users/candidates; MemRec warm-up 700 users, không phải full-data/paper replication |
 | Data/protocol CM-IRank | Khóa 1.497 train / 300 validation; snapshot target-blind và 3.594 candidate sets v2 đã audit CPU, không có cờ trong 7 probe cố định; chưa chứng minh không còn shortcut |
 | Policy infrastructure | RankRequest/replay, N−1, parser, MPSS có CPU tests; Qwen3.5 synthetic smoke 20/20 và một optimizer update bỏ đi đã pass; **chưa train PPO** |
-| Real memory | V6 fail đã review; **v7 secondary control hoàn tất 20/20 user, 100 calls**, 20 warm-up writes / 0 pseudo writes, GPU đã nhả; independent CPU review đang thực hiện |
+| Real memory | V6 fail đã review; **v7 secondary control + independent review pass**, 20/20 user, 100 calls, 20 warm-up writes / 0 pseudo writes; không chứng minh semantic grounding hay thay primary |
 | Method result | **Chưa có checkpoint/score CM-IRank**; held-out 5.377 users vẫn niêm phong |
 
 Kế hoạch và đánh giá khả thi mới nhất: [design §0.14](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#014-overall-review-and-next-gates--2026-10-07).
@@ -31,8 +31,11 @@ one-card PPO compatibility và tiny PPO; không tự nối sang full training.
 semantic grounding. 26/26 artifacts hash-match; GPU về 1 MiB trước handback.
 `omni-gen-1` đã chạy lại; từ nay GPU task xong phải unload rồi bật lại riêng
 keeper theo runbook, kể cả khi còn CPU review. GPU0/job reserved được giữ nguyên.
-Independent review kiểm exact schemas/domains, 20 raw writes và 20 pseudo inputs
-read-only; chưa có checkpoint/score CM-IRank hay quyết định thay primary (§0.16).
+Independent review đã xác nhận exact schemas/domains, 20 raw writes và 20 pseudo
+inputs read-only, không có unknown ID. Bước hiện tại: **N−1/direct functional
+smoke của Qwen3.5-4B**, 20 frozen inputs secondary / tối đa 200 generations,
+CPU token audit trước GPU, tự handback keeper sau task (§0.17). Chưa có
+checkpoint/score CM-IRank hay quyết định thay primary.
 
 Migration và cleanup nguồn cũ đã hoàn tất, CPU smoke sau cleanup pass. Mọi compute
 mới theo root/account/allocation hiện hành trong runbook nội bộ; SSH dùng chung

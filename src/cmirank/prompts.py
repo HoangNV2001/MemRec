@@ -8,11 +8,11 @@ from .labels import label_to_item
 from .request import RankRequest
 
 
-def render_static_context(request: RankRequest) -> str:
+def render_static_context(request: RankRequest, *, instruction: str | None = None) -> str:
     if request.vanilla_mode:
         raise ValueError("CM-IRank v1 only supports full-MemRec memory context")
     parts = [
-        "You are a ranking policy. At each turn, remove exactly one remaining "
+        instruction if instruction is not None else "You are a ranking policy. At each turn, remove exactly one remaining "
         "book that is LEAST likely to satisfy the user's request. Use only "
         "the evidence provided. Do not invent candidates.\n",
         f"Target user: {request.user_id}\n",
@@ -27,6 +27,25 @@ def render_static_context(request: RankRequest) -> str:
             parts.append(f"- {text} (confidence: {confidence:.2f})\n")
     else:
         parts.append("(No facets extracted)\n")
+    return "".join(parts)
+
+
+def render_direct_prompt(request: RankRequest) -> str:
+    """Same evidence and candidate payload as iterative ranking, no extra data."""
+    mapping = label_to_item([int(row["id"]) for row in request.candidates])
+    by_id = {int(row["id"]): row for row in request.candidates}
+    parts = [render_static_context(request, instruction=
+        "You are a ranking policy. Rank all provided books from MOST to LEAST "
+        "likely to satisfy the user's request. Use only the evidence provided. "
+        "Do not invent candidates.\n"), f"\nCANDIDATES ({len(mapping)}):\n"]
+    for label, item in mapping.items():
+        memory = request.item_memories.get(item, "(No memory recorded)")
+        if len(memory) > 150:
+            memory = memory[:150] + "..."
+        parts.append(f"[{label}] Title: {by_id[item].get('title', f'Item {item}')}\nItem memory: {memory}\n")
+    parts.append("Return every candidate label exactly once in MOST to LEAST suitable order, "
+                 "inside a single <answer>...</answer> span. Separate the bare labels "
+                 "with spaces; no brackets, quotes, commas, or extra text.\n")
     return "".join(parts)
 
 
