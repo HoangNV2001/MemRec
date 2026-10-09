@@ -1,0 +1,13 @@
+{
+  "schema_version": 2,
+  "inherits": "configs/cmirank/ppo_runtime_v1.json",
+  "run_id": "cmirank-ppo-runtime-cpu-v2-20261009-hnv",
+  "environment_name": "cmirank-ppo-cu129-v2-hnv",
+  "allowed_cuda_toolkit_version": "12.9.1",
+  "additional_versions": {
+    "cuda-toolkit": "12.9.1",
+    "cuda-bindings": "12.9.9",
+    "cuda-tile": "1.6.0"
+  },
+  "reason": "V1 guard incorrectly rejected the official cu129 Torch wheel's CUDA12 runtime metapackage. Allow only this exact private-env CUDA12 version, never driver/system/global changes or CUDA13 extras."
+}

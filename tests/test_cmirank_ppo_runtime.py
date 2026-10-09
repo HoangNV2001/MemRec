@@ -4,13 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from src.cmirank.ppo_runtime import locked_requirements, require_new_environment, response_reward_layout, verify_resolution
+from src.cmirank.ppo_runtime import load_runtime_config, locked_requirements, require_new_environment, response_reward_layout, verify_resolution
 from src.cmirank.rewards import mpss_rewards, ndcg_at_k
 
 
 def profile():
     root = Path(__file__).resolve().parents[1]
-    return json.loads((root / "configs/cmirank/ppo_runtime_v1.json").read_text())
+    return load_runtime_config(root)[0]
 
 
 def resolution():
@@ -32,7 +32,15 @@ def test_exact_cuda12_profile_and_artifact_lock():
     assert cfg["gamma"] == 1 and cfg["algorithm"] == "ppo_with_gae"
     assert verify_resolution(resolution(), cfg)["vllm"] == "0.20.0+cu129"
     lock = locked_requirements(resolution())
-    assert len(lock) == 8 and all("#sha256=" in r or cfg["verl_commit"] in r for r in lock)
+    assert len(lock) == 11 and all("#sha256=" in r or cfg["verl_commit"] in r for r in lock)
+
+
+def test_only_inspected_cuda12_runtime_metapackage_allowed_in_private_env():
+    root = Path(__file__).resolve().parents[1]
+    cfg, _ = load_runtime_config(root, 1)
+    with pytest.raises(ValueError, match="CUDA13/toolkit"):
+        verify_resolution(resolution(), cfg)
+    assert verify_resolution(resolution(), profile())["cuda-toolkit"] == "12.9.1"
 
 
 @pytest.mark.parametrize("name,version", [("nvidia-cuda-runtime-cu13", "13.0"), ("cuda-bindings", "13.0.1"),

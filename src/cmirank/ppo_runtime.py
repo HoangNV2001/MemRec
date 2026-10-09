@@ -3,12 +3,31 @@
 from __future__ import annotations
 
 import re
+import json
 from pathlib import Path
 from urllib.parse import urlparse
 
 
 def canonical_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def load_runtime_config(root: Path, version: int = 2) -> tuple[dict, Path]:
+    if version not in (1, 2):
+        raise ValueError("Unknown runtime profile")
+    base = json.loads((root / "configs/cmirank/ppo_runtime_v1.json").read_text())
+    path = root / f"configs/cmirank/ppo_runtime_v{version}.json"
+    if version == 2:
+        retry = json.loads(path.read_text())
+        allowed = {"schema_version", "inherits", "run_id", "environment_name", "allowed_cuda_toolkit_version",
+                   "additional_versions", "reason"}
+        if (set(retry) != allowed or retry["inherits"] != "configs/cmirank/ppo_runtime_v1.json"
+                or retry["additional_versions"] != {"cuda-toolkit": "12.9.1", "cuda-bindings": "12.9.9", "cuda-tile": "1.6.0"}
+                or retry["allowed_cuda_toolkit_version"] != "12.9.1"):
+            raise ValueError("Resource retry cannot modify model/algorithm/core stack")
+        base = {**base, **{k: v for k, v in retry.items() if k != "additional_versions"},
+                "versions": {**base["versions"], **retry["additional_versions"]}}
+    return base, path
 
 
 def verify_resolution(report: dict, config: dict) -> dict:
@@ -22,7 +41,8 @@ def verify_resolution(report: dict, config: dict) -> dict:
             raise ValueError("Duplicate dependency in resolver receipt")
         versions[name] = version
         if ("-cu13" in name or "+cu13" in version or "cu130" in url
-                or name == "cuda-toolkit" or (name.startswith("cuda-") and version.startswith("13."))):
+                or (name == "cuda-toolkit" and version != config.get("allowed_cuda_toolkit_version"))
+                or (name.startswith("cuda-") and version.startswith("13."))):
             raise ValueError("CUDA13/toolkit dependency is not authorized")
         if urlparse(url).scheme != "https":
             raise ValueError("Dependencies must originate from HTTPS sources")

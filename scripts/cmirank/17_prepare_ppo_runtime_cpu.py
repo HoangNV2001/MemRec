@@ -9,7 +9,6 @@ Tiny class probes are expressly not production PPO or full one-H100 proof.
 from __future__ import annotations
 
 import argparse
-import importlib.metadata
 import json
 import os
 from pathlib import Path
@@ -20,18 +19,18 @@ import time
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from src.cluster_runtime import require_allocation, require_project_root
-from src.cmirank.ppo_runtime import locked_requirements, require_new_environment, verify_resolution
+from src.cmirank.ppo_runtime import load_runtime_config, locked_requirements, require_new_environment, verify_resolution
 from src.cmirank.provenance import artifact_json_dumps, file_sha256
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", type=Path, required=True)
+    parser.add_argument("--profile-version", type=int, choices=(1, 2), default=2)
     args = parser.parse_args()
     private = require_project_root(Path(os.environ["MEMREC_ROOT"]))
     job = require_allocation()
-    config_path = ROOT / "configs/cmirank/ppo_runtime_v1.json"
-    config = json.loads(config_path.read_text())
+    config, config_path = load_runtime_config(ROOT, args.profile_version)
     run = args.run_dir.resolve()
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     if (run != private / "runs" / config["run_id"] or run.exists()
@@ -60,7 +59,8 @@ def main():
                                     timeout=timeout)
         if result.returncode:
             raise RuntimeError(f"{label} failed; see scoped run log (exit {result.returncode})")
-    manifest = {"source_commit": commit, "config_sha256": file_sha256(config_path),
+    manifest = {"source_commit": commit, "config_sha256": file_sha256(config_path), "profile_version": args.profile_version,
+                "base_config_sha256": file_sha256(ROOT / "configs/cmirank/ppo_runtime_v1.json"),
                 "slurm_job_id": job, "python_version": sys.version, "environment": str(env),
                 "gpu_requested": False, "gpu_step_cancelled": False, "model_weights_loaded": False,
                 "existing_envs_mutated": False, "training_ready": False}
@@ -85,7 +85,7 @@ def main():
         with (run / "pip-freeze.txt").open("w") as handle:
             subprocess.run([python, "-m", "pip", "freeze", "--all"], env=child_env, stdout=handle, check=True)
         command([python, str(ROOT / "scripts/cmirank/18_smoke_ppo_classes_cpu.py"),
-                 "--run-dir", str(run)], "miniature-cpu-smoke", timeout=600)
+                 "--run-dir", str(run), "--profile-version", str(args.profile_version)], "miniature-cpu-smoke", timeout=600)
         report = {**manifest, "status": "PPO_DEPENDENCY_AND_MINIATURE_CPU_GATE_PASS_GPU_GATES_REMAIN",
                   "versions": versions, "elapsed_seconds": time.monotonic() - started,
                   "artifact_sha256": {p.name: file_sha256(p) for p in run.iterdir() if p.is_file()}}

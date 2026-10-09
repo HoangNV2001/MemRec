@@ -20,7 +20,7 @@ import time
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from src.cluster_runtime import require_allocation, require_project_root
-from src.cmirank.ppo_runtime import response_reward_layout
+from src.cmirank.ppo_runtime import load_runtime_config, response_reward_layout
 from src.cmirank.provenance import artifact_json_dumps, file_sha256
 from src.cmirank.rewards import mpss_rewards, ndcg_at_k
 
@@ -28,10 +28,11 @@ from src.cmirank.rewards import mpss_rewards, ndcg_at_k
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", type=Path, required=True)
+    parser.add_argument("--profile-version", type=int, choices=(1, 2), default=2)
     args = parser.parse_args()
     private = require_project_root(Path(os.environ["MEMREC_ROOT"]))
     require_allocation()
-    config = json.loads((ROOT / "configs/cmirank/ppo_runtime_v1.json").read_text())
+    config, _ = load_runtime_config(ROOT, args.profile_version)
     run = args.run_dir.resolve()
     if (run != private / "runs" / config["run_id"] or os.environ.get("CUDA_VISIBLE_DEVICES") != ""
             or int(os.environ.get("SLURM_CPUS_PER_TASK", 0)) != 4
@@ -95,7 +96,7 @@ def main():
     rows = []
     labels = [f"C{i:02d}" for i in range(10)]
     for i in range(config["cpu_samples"]):
-        rendered = tokenizer.apply_chat_template([{"role": "user", "content": "Exclude one: C00, C01."}],
+        rendered = tokenizer.apply_chat_template([{"role": "user", "content": f"Probe {i}: exclude one: C00, C01."}],
             tokenize=False, add_generation_prompt=True, enable_thinking=False)
         prompt_ids = tokenizer.encode(rendered, add_special_tokens=False)
         response = tokenizer.encode(f"<answer>C{i % 2:02d}</answer>" + tokenizer.eos_token, add_special_tokens=False)
