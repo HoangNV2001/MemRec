@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "run_id": "cmirank-ppo-runtime-cpu-v1-20261009-hnv",
+  "environment_name": "cmirank-ppo-cu129-v1-hnv",
+  "purpose": "isolated_dependency_and_miniature_cpu_compatibility_only",
+  "training_ready": false,
+  "model_id": "Qwen/Qwen3.5-4B",
+  "model_revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+  "checkpoint_marker_sha256": "6a554f16abfada5d2e3730b63b4d30b007bd5485cb6a2b3b45d448d09358a075",
+  "algorithm": "ppo_with_gae",
+  "gamma": 1.0,
+  "cpu_samples": 20,
+  "cpus": 4,
+  "gpu_requested": false,
+  "driver_mutation_allowed": false,
+  "existing_environment_mutation_allowed": false,
+  "verl_commit": "483b8a009ba3a97563edee3a19887e4862b8094a",
+  "versions": {
+    "torch": "2.11.0+cu129",
+    "torchvision": "0.26.0+cu129",
+    "torchaudio": "2.11.0+cu129",
+    "vllm": "0.20.0+cu129",
+    "transformers": "5.10.1",
+    "trl": "0.25.1",
+    "tensordict": "0.10.0"
+  },
+  "wheels": {
+    "torch": {
+      "url": "https://download.pytorch.org/whl/cu129/torch-2.11.0%2Bcu129-cp310-cp310-manylinux_2_28_x86_64.whl",
+      "sha256": "122ddc42014db65cd1d0cba8c5097971ea7b33b8f8d2f30c91b281e2762c12f9"
+    },
+    "torchvision": {
+      "url": "https://download.pytorch.org/whl/cu129/torchvision-0.26.0%2Bcu129-cp310-cp310-manylinux_2_28_x86_64.whl",
+      "sha256": "3829fca90e9c0faed0c6d3a284d47bb776b467d76f81b1a475992283d3d9706a"
+    },
+    "torchaudio": {
+      "url": "https://download.pytorch.org/whl/cu129/torchaudio-2.11.0%2Bcu129-cp310-cp310-manylinux_2_28_x86_64.whl",
+      "sha256": "5d390ac4a3a7027e5e6498765e88ec65d64effb73fef0621679f8614c77b69f2"
+    },
+    "vllm": {
+      "url": "https://github.com/vllm-project/vllm/releases/download/v0.20.0/vllm-0.20.0%2Bcu129-cp38-abi3-manylinux_2_31_x86_64.whl",
+      "sha256": "b687351527b0bca7f6b0f367b6c93499e19b06f0c9a05b01084c043f7ec50ce7"
+    }
+  },
+  "sources": [
+    "https://github.com/verl-project/verl/blob/483b8a009ba3a97563edee3a19887e4862b8094a/setup.py",
+    "https://github.com/vllm-project/vllm/releases/tag/v0.20.0",
+    "https://docs.vllm.ai/en/v0.20.0/getting_started/installation/gpu/",
+    "https://download.pytorch.org/whl/cu129/torch/",
+    "https://github.com/huggingface/trl/blob/v0.25.1/trl/models/modeling_value_head.py"
+  ],
+  "not_proven_by_cpu_gate": [
+    "full_4B_actor_reference_critic_loading_or_one_GPU_memory_fit",
+    "production_FSDP_valuehead_loader_and_flash_attention",
+    "vLLM_CUDA_driver_kernels_and_rollout_trainer_logprob_parity",
+    "PPO_worker_optimizer_update_or_checkpoint_roundtrip",
+    "canonical_primary_memory_or_Books_ranking_improvement"
+  ]
+}

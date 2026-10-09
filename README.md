@@ -51,9 +51,12 @@ logit probes delta0. GPU đã unload và keeper bật lại. Sau review và xác
 **Full SFT đã xong:**64 updates/11,31 phút; N−1/direct đều20/20 trên synthetic
 và cùng20 Books inputs; save/reload delta0,24 artifacts hash-match. GPU đã unload,
 keeper chạy lại. Đây chỉ là **format initializer**, chưa có gain NDCG/Hit.
-Bước tiếp: PPO actor/critic/reference compatibility trong env riêng; cần chốt
-stack CUDA12-compatible vì native VeRL pins dùng CUDA13, driver hiện tại550
-(design §0.22). Không đổi driver/env baseline, không tự dùng GRPO/LoRA/2GPU.
+Bước tiếp: PPO actor/critic/reference compatibility trong env riêng. Researcher
+đã đồng ý chọn/re-pin CUDA12-compatible (design §0.23); profile CPU đầu tiên là
+VeRL0.9 /Torch2.11+cu129 /vLLM0.20+cu129 /Transformers5.10.1 /TRL0.25.1.
+Đây là **candidate runtime**, chưa phải stack PPO đã xác nhận: resolver/pip-check,
+20 miniature CPU probes rồi full4B one-card gates phải pass trước training.
+Không đổi driver/env baseline, không tự dùng GRPO/LoRA/2GPU.
 Chưa có score/checkpoint PPO CM-IRank hoặc quyết định thay primary.
 
 Migration và cleanup nguồn cũ đã hoàn tất, CPU smoke sau cleanup pass. Mọi compute
