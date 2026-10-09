@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Probe/verify mandatory GPU1 keeper handback; no cancellation or CUDA load."""
+"""Probe/verify the selected keeper handback; no cancellation or CUDA load."""
 
 import argparse
 import json
@@ -12,15 +12,16 @@ import time
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from src.cluster_runtime import require_allocation, require_project_root
-from src.cmirank.gpu_resources import select_reserved_gpu1
-from src.cmirank.reserved_handoff import gpu_snapshot, inspect, step_rows
+from src.cmirank.gpu_resources import select_reserved_gpu
+from src.cmirank.reserved_handoff import gpu_snapshot, inspect, keeper_names, step_rows
 
 
-def handback_state(job: str, rows: list[dict], uid: int) -> tuple[str, str | None, str]:
-    protected = [r for r in rows if r.get("Name") == "omni-gen-0" and r.get("State") == "RUNNING"]
-    active = [r for r in rows if r.get("Name") == "omni-gen-1" and r.get("State") == "RUNNING"]
+def handback_state(job: str, rows: list[dict], uid: int, *, gpu_index=1) -> tuple[str, str | None, str]:
+    selected_name, protected_name = keeper_names(gpu_index)
+    protected = [r for r in rows if r.get("Name") == protected_name and r.get("State") == "RUNNING"]
+    active = [r for r in rows if r.get("Name") == selected_name and r.get("State") == "RUNNING"]
     if len(protected) != 1 or protected[0].get("UserId") != str(uid):
-        raise ValueError("Protected GPU0 generator is not uniquely established")
+        raise ValueError(f"Protected GPU{1 - gpu_index} generator is not uniquely established")
     if len(active) > 1 or any(r.get("UserId") != str(uid) for r in active):
         raise ValueError("Duplicate/foreign generator; do not start another keeper")
     for row in protected + active:
@@ -28,7 +29,7 @@ def handback_state(job: str, rows: list[dict], uid: int) -> tuple[str, str | Non
         parts = target.split(".")
         if len(parts) != 2 or parts[0] != job or not parts[1].isdigit() or int(parts[1]) == 0:
             raise ValueError("Not current numeric generator steps")
-    return ("ALREADY_RUNNING" if active else "START_GPU1_KEEPER", active[0]["StepId"] if active else None,
+    return ("ALREADY_RUNNING" if active else f"START_GPU{gpu_index}_KEEPER", active[0]["StepId"] if active else None,
             protected[0]["StepId"])
 
 
@@ -36,6 +37,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", required=True, type=Path)
     parser.add_argument("--verify", action="store_true")
+    parser.add_argument("--gpu-index", type=int, choices=(0, 1), default=1)
     args = parser.parse_args()
     private = require_project_root(Path(os.environ["MEMREC_ROOT"]))
     job = require_allocation()
@@ -43,21 +45,21 @@ def main():
         raise ValueError("CPU-only scoped handback required")
     run = args.run_dir
     rows = step_rows(subprocess.check_output(["scontrol", "show", "step", job, "-o"], text=True))
-    state, active, protected = handback_state(job, rows, os.geteuid())
+    state, active, protected = handback_state(job, rows, os.geteuid(), gpu_index=args.gpu_index)
     if not args.verify:
-        if state == "START_GPU1_KEEPER":
+        if state == f"START_GPU{args.gpu_index}_KEEPER":
             cards, apps, _, _ = gpu_snapshot()
-            card = select_reserved_gpu1(cards, set(apps))
+            card = select_reserved_gpu(cards, set(apps), gpu_index=args.gpu_index)
             wrapper = Path("/mnt/data/users/hoangnv242/omni-gen-hnv/omni_gen.sh")
             if not wrapper.is_file() or wrapper.with_name("STOP").exists():
                 raise ValueError("Approved wrapper missing/shared STOP set; do not modify either")
-            # Do not start while another workload owns any physical GPU1 VRAM/PID.
+            # Do not start while another workload owns the selected card's VRAM/PID.
             evidence = {"status": state, "gpu_uuid": card.uuid, "protected_step": protected, "job": job}
         else:
             # Existing keeper must match current UID/cgroup/command/device guards.
-            proof = inspect(job, active)
+            proof = inspect(job, active, gpu_index=args.gpu_index)
             evidence = {"status": state, "generator_step": active, "protected_step": protected,
-                        "job": job, "gpu_uuid": proof["gpu1_uuid"], "pid_mapping": "NOT_OBSERVED"}
+                        "job": job, "gpu_uuid": proof[f"gpu{args.gpu_index}_uuid"], "pid_mapping": "NOT_OBSERVED"}
         if run.is_dir():
             (run / "keeper-probe.json").write_text(json.dumps(evidence,sort_keys=True,indent=2)+"\n")
         print(json.dumps(evidence, sort_keys=True), flush=True)
@@ -66,18 +68,18 @@ def main():
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
         rows = step_rows(subprocess.check_output(["scontrol", "show", "step", job, "-o"], text=True))
-        state, active, protected = handback_state(job, rows, os.geteuid())
+        state, active, protected = handback_state(job, rows, os.geteuid(), gpu_index=args.gpu_index)
         if active:
             try:
-                proof = inspect(job, active)
+                proof = inspect(job, active, gpu_index=args.gpu_index)
                 cards, apps, _, _ = gpu_snapshot()
-                card = next(c for c in cards if c.index == 1)
+                card = next(c for c in cards if c.index == args.gpu_index)
                 if card.used_mib > 512 and len(apps.get(card.uuid, set())) == 1:
-                    evidence = {"status": "KEEPER_GPU1_HANDBACK_VERIFIED", "job": job,
+                    evidence = {"status": f"KEEPER_GPU{args.gpu_index}_HANDBACK_VERIFIED", "job": job,
                         "generator_step": active, "protected_step": protected, "gpu_uuid": card.uuid,
                         "gpu_used_mib": card.used_mib, "gpu_utilization_percent": card.utilization,
                         "members": proof["members"], "pid_mapping": "NOT_OBSERVED",
-                        "reserved_job_cancelled": False, "gpu0_signalled": False}
+                        "reserved_job_cancelled": False, f"gpu{1 - args.gpu_index}_signalled": False}
                     if run.is_dir():
                         (run / "keeper-handback.json").write_text(json.dumps(evidence,sort_keys=True,indent=2)+"\n")
                     print(json.dumps(evidence, sort_keys=True), flush=True)

@@ -72,7 +72,7 @@ def setup_fake_handoff(monkeypatch):
     proof = {"target": "21273.19", "protected_step": "21273.20", "gpu1_uuid": "GPU-one",
              "nvml_gpu1_pids": [999], "members": [{"pid": 123, "role": "python"}],
              "pid_mapping": "NOT_OBSERVED_OWNER_ATTESTED_CURRENT_STEP_EXCLUSIVITY"}
-    monkeypatch.setattr(handoff, "inspect", lambda *a: dict(proof))
+    monkeypatch.setattr(handoff, "inspect", lambda *a, **kw: dict(proof))
     calls = []
     monkeypatch.setattr(handoff.subprocess, "run", lambda args, **kw: calls.append(args))
     monkeypatch.setattr(handoff.subprocess, "check_output", lambda *a, **kw:
@@ -109,3 +109,45 @@ def test_handoff_job_target_is_rejected_before_any_inspection_or_signal(monkeypa
     with pytest.raises(ValueError):
         handoff.handoff(tmp_path, "21273")
     assert calls == []
+
+
+def test_gpu0_attestation_swaps_target_and_protected_step_without_fallback(monkeypatch):
+    from src.cmirank.gpu_resources import select_reserved_gpu
+    assert handoff.confirmed_target("21273", "21273.20", ROWS, 1052, gpu_index=0) == "21273.19"
+    with pytest.raises(ValueError):
+        handoff.confirmed_target("21273", "21273.19", ROWS, 1052, gpu_index=0)
+    with pytest.raises(ValueError):
+        handoff.confirmed_target("21273", "21273.20", ROWS, 1052, gpu_index=2)
+    cards = [GPUCard(0, "GPU-zero", "H100", 0, 9000, 81559), GPUCard(1, "GPU-one", "H100", 0, 1, 81559)]
+    with pytest.raises(ValueError):
+        select_reserved_gpu(cards, {"GPU-zero"}, gpu_index=0)
+    with pytest.raises(ValueError):
+        select_reserved_gpu(cards, set(), gpu_index=False)
+    monkeypatch.setattr(handoff.pwd, "getpwnam", lambda _: SimpleNamespace(pw_uid=1052))
+    env = {"SLURM_JOB_ID": "21273", "SLURM_STEP_ID": "20", "CUDA_VISIBLE_DEVICES": "0", "GPU": "0"}
+    group = "0::/system.slice/slurmstepd.scope/job_21273/step_20/user/task_0\n"
+    python = ["/mnt/data/users/hoangnv242/envs/omnidistill/bin/python", str(handoff.GENERATOR_ROOT / "omni_gen.py")]
+    assert handoff.validate_task("21273", "20", 1052, python, group, env, gpu_index=0) == "python"
+    for mask in ("1", "0,1"):
+        with pytest.raises(ValueError):
+            handoff.validate_task("21273", "20", 1052, python, group, {**env, "CUDA_VISIBLE_DEVICES": mask}, gpu_index=0)
+
+
+def test_gpu0_handoff_cancels_only_gpu0_keeper_and_preserves_gpu1(monkeypatch, tmp_path):
+    calls = setup_fake_handoff(monkeypatch)
+    proof = {"target": "21273.20", "protected_step": "21273.19", "gpu0_uuid": "GPU-zero",
+             "nvml_gpu0_pids": [999], "members": [{"pid": 123, "role": "python"}],
+             "pid_mapping": "NOT_OBSERVED_OWNER_ATTESTED_CURRENT_STEP_EXCLUSIVITY"}
+    def inspect_zero(job, target, *, gpu_index):
+        assert (job, target, gpu_index) == ("21273", "21273.20", 0)
+        return dict(proof)
+    monkeypatch.setattr(handoff, "inspect", inspect_zero)
+    monkeypatch.setattr(handoff.subprocess, "check_output", lambda *a, **kw:
+        "StepId=21273.19 UserId=1052 State=RUNNING Name=omni-gen-1\n")
+    cards = [GPUCard(0, "GPU-zero", "H100", 0, 1, 81559), GPUCard(1, "GPU-one", "H100", 100, 9000, 81559)]
+    monkeypatch.setattr(handoff, "gpu_snapshot", lambda: (cards, {"GPU-one": {77}}, "cards", "apps"))
+    result = handoff.handoff(tmp_path, "21273.20", gpu_index=0)
+    assert calls == [["scancel", "21273.20"]]
+    assert result["gpu0_idle"] and not result["gpu1_signalled"] and not result["reserved_job_cancelled"]
+    assert (tmp_path / "gpu0-handoff.json").is_file()
+    assert not (tmp_path / "gpu1-handoff.json").exists()

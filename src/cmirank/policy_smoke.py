@@ -12,6 +12,28 @@ from .provenance import file_sha256
 from .request import RankRequest
 
 
+def load_policy_smoke_contract(root: Path, version: int) -> tuple[dict, Path]:
+    """V2 is a resource-only GPU0 amendment; freeze every scientific V1 field."""
+    if type(version) is not int or version not in (1, 2):
+        raise ValueError("Unknown functional smoke contract")
+    path = root / f"configs/cmirank/real_policy_smoke_v{version}.json"
+    config = json.loads(path.read_text())
+    if version == 2:
+        base_path = root / "configs/cmirank/real_policy_smoke_v1.json"
+        base = json.loads(base_path.read_text())
+        added = {"cpu_run_id", "gpu_index", "resource_delta", "inherited_contract_sha256"}
+        if (config.get("inherited_contract_sha256") != file_sha256(base_path)
+                or set(config) != set(base) | added or config["gpu_index"] != 0
+                or type(config["gpu_index"]) is not int
+                or config["resource_delta"] != "researcher_authorized_gpu0_only_restore_omni_gen_0_protect_gpu1"
+                or config["cpu_run_id"] != "cmirank-qwen35-real-policy-cpu-v2-gpu0-20261009-hnv"
+                or config["run_id"] != "cmirank-qwen35-real-nminus1-direct-smoke-v2-gpu0-20261009-hnv"
+                or config["schema_version"] != 2
+                or any(config[key] != value for key, value in base.items() if key not in ("schema_version", "run_id"))):
+            raise ValueError("GPU0 amendment must not change the frozen scientific contract")
+    return config, path
+
+
 def load_secondary_inputs(run: Path, review: Path, *, expected_review_sha: str) -> tuple[list[RankRequest], dict]:
     if file_sha256(review) != expected_review_sha:
         raise ValueError("Functional smoke requires the independently reviewed v7 control")

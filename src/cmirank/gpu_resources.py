@@ -64,7 +64,14 @@ def select_reserved_gpu1(cards: list[GPUCard], occupied: set[str]) -> GPUCard:
     This function NEVER stops a step/job and never shares/falls back to GPU 0.
     A separate, verified handoff must make GPU 1 idle before a model launcher.
     """
-    return select_idle_h100([card for card in cards if card.index == 1], occupied)
+    return select_reserved_gpu(cards, occupied, gpu_index=1)
+
+
+def select_reserved_gpu(cards: list[GPUCard], occupied: set[str], *, gpu_index: int) -> GPUCard:
+    """Explicitly authorized single card only; never fall back to another GPU."""
+    if type(gpu_index) is not int or gpu_index not in (0, 1):
+        raise ValueError("Reserved handoff supports only an explicitly authorized GPU0 or GPU1")
+    return select_idle_h100([card for card in cards if card.index == gpu_index], occupied)
 
 
 def generator_step_target(job: str, step: str, *, name: str, owner: str, state: str,

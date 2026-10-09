@@ -193,3 +193,31 @@ def test_handback_deduplicates_existing_keeper_and_only_starts_gpu1():
         keeper.handback_state("21820", rows + [rows[-1]], 1052)
     with pytest.raises(ValueError):
         keeper.handback_state("21820", [dict(rows[0], UserId="999")], 1052)
+
+
+def test_gpu0_handback_only_restores_gpu0_and_protects_gpu1():
+    keeper = keeper_module()
+    protected = {"StepId": "21820.93", "Name": "omni-gen-1", "State": "RUNNING", "UserId": "1052"}
+    active = {"StepId": "21820.35", "Name": "omni-gen-0", "State": "RUNNING", "UserId": "1052"}
+    assert keeper.handback_state("21820", [protected], 1052, gpu_index=0) == ("START_GPU0_KEEPER", None, "21820.93")
+    assert keeper.handback_state("21820", [protected, active], 1052, gpu_index=0) == ("ALREADY_RUNNING", "21820.35", "21820.93")
+    for rows in ([active], [active, protected, active], [dict(protected, UserId="999")],
+                 [dict(protected, StepId="21820.batch")]):
+        with pytest.raises(ValueError):
+            keeper.handback_state("21820", rows, 1052, gpu_index=0)
+
+
+@pytest.mark.parametrize("change", [{"seed": 43}, {"max_new_tokens": 256}, {"gpu_index": 1},
+                                  {"gpu_index": False}, {"output_repair": True}])
+def test_gpu0_resource_contract_cannot_change_scientific_fields(tmp_path, change):
+    from src.cmirank.policy_smoke import load_policy_smoke_contract
+    directory = tmp_path / "configs/cmirank"
+    directory.mkdir(parents=True)
+    for version in (1, 2):
+        (directory / f"real_policy_smoke_v{version}.json").write_bytes(
+            (ROOT / f"configs/cmirank/real_policy_smoke_v{version}.json").read_bytes())
+    config, path = load_policy_smoke_contract(tmp_path, 2)
+    assert config["gpu_index"] == 0
+    path.write_text(json.dumps({**config, **change}))
+    with pytest.raises(ValueError, match="scientific contract"):
+        load_policy_smoke_contract(tmp_path, 2)

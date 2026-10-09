@@ -35,8 +35,9 @@ Independent review đã xác nhận exact schemas/domains, 20 raw writes và 20 
 inputs read-only, không có unknown ID. Bước hiện tại: **N−1/direct functional
 smoke của Qwen3.5-4B**, 20 frozen inputs secondary / tối đa 200 generations,
 CPU token audit đã pass **40 prompts / 709–1.044 tokens**, 319 tests pass;
-còn cần xác nhận exclusive ownership hiện tại trước GPU, tự handback keeper
-sau task (§0.17). Chưa có
+Researcher vừa chuyển lượt này sang **GPU0**, xác nhận chỉ có keeper0;
+v2 chỉ đổi tài nguyên/namespace, sẽ audit CPU lại trên exact source rồi smoke
+và tự bật lại keeper0; GPU1/job được bảo vệ (§0.17). Chưa có
 checkpoint/score CM-IRank hay quyết định thay primary.
 
 Migration và cleanup nguồn cũ đã hoàn tất, CPU smoke sau cleanup pass. Mọi compute

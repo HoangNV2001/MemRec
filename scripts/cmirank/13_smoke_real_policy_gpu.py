@@ -23,11 +23,11 @@ sys.path.insert(0, str(ROOT))
 
 from src.cluster_runtime import require_allocation, require_project_root
 from src.cmirank.gpu_resources import (
-    canonical_gpu_uuid, compute_gpu_processes, parse_gpu_snapshot, select_reserved_gpu1,
+    canonical_gpu_uuid, compute_gpu_processes, parse_gpu_snapshot, select_reserved_gpu,
     verified_numeric_cuda_binding,
 )
 from src.cmirank.labels import make_labels
-from src.cmirank.policy_smoke import load_secondary_inputs, run_functional_smoke, verify_cpu_token_audit
+from src.cmirank.policy_smoke import load_policy_smoke_contract, load_secondary_inputs, run_functional_smoke, verify_cpu_token_audit
 from src.cmirank.prompts import render_direct_prompt, render_step_prompt
 from src.cmirank.provenance import artifact_json_dumps, file_sha256
 from src.cmirank.memory_smoke import object_sha256
@@ -51,6 +51,7 @@ def main():
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--owner-confirmed-generator-step")
     parser.add_argument("--cpu-audit-only", action="store_true")
+    parser.add_argument("--contract-version", type=int, choices=(1, 2), default=2)
     args = parser.parse_args()
     private = require_project_root(Path(os.environ["MEMREC_ROOT"]))
     job = require_allocation()
@@ -61,14 +62,15 @@ def main():
             or int(os.environ.get("SLURM_CPUS_PER_TASK", 0)) < 4
             or subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=no"], cwd=ROOT, text=True)):
         raise ValueError("Exact clean source, CPU preparation and authorized allocation required")
-    config_path = ROOT / "configs/cmirank/real_policy_smoke_v1.json"
-    config = json.loads(config_path.read_text())
+    config, config_path = load_policy_smoke_contract(ROOT, args.contract_version)
+    gpu_index = config.get("gpu_index", 1)
+    cpu_run_id = config.get("cpu_run_id", "cmirank-qwen35-real-policy-cpu-v1-20261008-hnv")
     if (config["users"] != 20 or config["generation_cap"] != 200 or config["nominal_generations"] != 200
             or config["training_ready"] or config["model_updates"] or config["ranking_metrics_computed"]
             or config["output_repair"] or config["do_sample"] or config["enable_thinking"]):
         raise ValueError("Not a locked secondary functional smoke")
     run = args.run_dir.resolve()
-    expected_run_id = "cmirank-qwen35-real-policy-cpu-v1-20261008-hnv" if args.cpu_audit_only else config["run_id"]
+    expected_run_id = cpu_run_id if args.cpu_audit_only else config["run_id"]
     if run != private / "runs" / expected_run_id or run.exists():
         raise ValueError("Fresh scoped output required")
     contract = json.loads((ROOT / config["model_contract"]).read_text())
@@ -115,7 +117,7 @@ def main():
         else:
             # The CPU tokenizer lives in a separate, exited process. Do not
             # import torch/transformers in this process until CVD is bound.
-            audit = verify_cpu_token_audit(private / "runs/cmirank-qwen35-real-policy-cpu-v1-20261008-hnv",
+            audit = verify_cpu_token_audit(private / "runs" / cpu_run_id,
                 commit=commit, config_sha=file_sha256(config_path),
                 prompt_sha=file_sha256(ROOT / "src/cmirank/prompts.py"), parser_sha=file_sha256(ROOT / "src/cmirank/parser.py"),
                 marker_sha=file_sha256(model_path / "download-complete-hnv.json"), provenance=provenance,
@@ -141,11 +143,16 @@ def main():
             print((run / "report.json").read_text(), flush=True)
             return
         from src.cmirank.reserved_handoff import handoff
-        manifest["gpu1_handoff"] = handoff(run, args.owner_confirmed_generator_step)
+        manifest[f"gpu{gpu_index}_handoff"] = handoff(run, args.owner_confirmed_generator_step, gpu_index=gpu_index)
         cards, apps = capture(run, "before")
-        card = select_reserved_gpu1(cards, set(apps))
+        card = select_reserved_gpu(cards, set(apps), gpu_index=gpu_index)
+        if card.uuid != manifest[f"gpu{gpu_index}_handoff"][f"gpu{gpu_index}_uuid"]:
+            raise ValueError("Selected card differs from the authorized handoff UUID")
         cards, apps = capture(run, "load-time")
-        card = select_reserved_gpu1(cards, set(apps))
+        rechecked = select_reserved_gpu(cards, set(apps), gpu_index=gpu_index)
+        if rechecked.uuid != card.uuid:
+            raise ValueError("Physical GPU identity changed before model load")
+        card = rechecked
         pci = subprocess.check_output(["nvidia-smi", "--query-gpu=index,uuid,pci.bus_id", "--format=csv,noheader,nounits"], text=True)
         (run / "gpu-pci-load-time.csv").write_text(pci)
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
@@ -153,7 +160,7 @@ def main():
         import torch
         from transformers import AutoTokenizer, Qwen3_5ForConditionalGeneration
         if torch.cuda.device_count() != 1 or canonical_gpu_uuid(str(torch.cuda.get_device_properties(0).uuid)) != canonical_gpu_uuid(card.uuid):
-            raise RuntimeError("Policy CUDA device does not match the selected physical GPU1 UUID")
+            raise RuntimeError(f"Policy CUDA device does not match the selected physical GPU{gpu_index} UUID")
         torch.cuda.set_per_process_memory_fraction(config["cuda_memory_fraction"], 0)
         torch.manual_seed(config["seed"])
         torch.set_num_threads(4)
