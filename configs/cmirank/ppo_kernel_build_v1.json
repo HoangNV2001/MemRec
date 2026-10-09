@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "run_id": "cmirank-ppo-fa2-build-cpu-v1-20261009-hnv",
+  "overlay_name": "cmirank-fa2-283-torch211-cu129-v1-hnv",
+  "parent_runtime_run_id": "cmirank-ppo-runtime-cpu-v2-20261009-hnv",
+  "parent_report_sha256": "671b25f155ace48d1e51dead161b589c24a59c3e3a5f3085fb066d21cda39711",
+  "flash_attention_version": "2.8.3",
+  "flash_attention_commit": "060c9188beec3a8b62b33a3bfa6d5d2d44975fab",
+  "cuda_home": "/usr/local/cuda",
+  "nvcc_release": "12.2",
+  "cuda_arch": "90",
+  "max_jobs": 2,
+  "nvcc_threads": 1,
+  "cpus": 4,
+  "timeout_minutes": 40,
+  "gpu_requested": false,
+  "training_ready": false,
+  "install_target": "new_private_overlay_not_existing_environment",
+  "note": "Native VeRL critic loader requests FA2. Build official source against the verified Torch2.11 ABI using the available CUDA12 compiler; minor-version mismatch with Torch's12.9 runtime is recorded, not a GPU compatibility claim. No binary ABI guessing, framework patch, driver or system/env change."
+}

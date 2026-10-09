@@ -54,8 +54,10 @@ keeper chạy lại. Đây chỉ là **format initializer**, chưa có gain NDCG
 Bước tiếp: PPO actor/critic/reference compatibility trong env riêng. Researcher
 đã đồng ý chọn/re-pin CUDA12-compatible (design §0.23); profile CPU đầu tiên là
 VeRL0.9 /Torch2.11+cu129 /vLLM0.20+cu129 /Transformers5.10.1 /TRL0.25.1.
-Đây là **candidate runtime**, chưa phải stack PPO đã xác nhận: resolver/pip-check,
-20 miniature CPU probes rồi full4B one-card gates phải pass trước training.
+**CPU gate đã pass**:237 dependencies/pip-check/20 miniature probes,11,11 phút,
+12 artifacts hash-match. Đây vẫn là **candidate runtime**, chưa phải PPO4B đã
+xác nhận. Đang chuẩn bị kernel FA2 của native critic trong overlay riêng trên CPU;
+full4B one-card gates phải pass trước training.
 Không đổi driver/env baseline, không tự dùng GRPO/LoRA/2GPU.
 Chưa có score/checkpoint PPO CM-IRank hoặc quyết định thay primary.
 

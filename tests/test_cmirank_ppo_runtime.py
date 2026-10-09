@@ -93,3 +93,14 @@ def test_cpu_prep_has_no_cancellation_gpu_or_full_weights_path():
     assert 'os.environ.get("CUDA_VISIBLE_DEVICES") != ""' in text
     assert '"--dry-run"' in text and '"--no-deps"' in text and '"pip", "check"' in text
     assert "handoff(" not in text and "scancel" not in text and "torch.cuda" not in text
+
+
+def test_native_kernel_build_is_source_pinned_cpu_bounded_new_overlay():
+    root = Path(__file__).resolve().parents[1]
+    config = json.loads((root / "configs/cmirank/ppo_kernel_build_v1.json").read_text())
+    text = (root / "scripts/cmirank/19_build_ppo_kernel_cpu.py").read_text()
+    assert config["cpus"] == 4 and config["max_jobs"] == 2 and config["nvcc_threads"] == 1
+    assert config["cuda_arch"] == "90" and not config["gpu_requested"] and not config["training_ready"]
+    assert '"--target", str(overlay)' in text and '"--no-deps"' in text
+    assert 'overlay.exists()' in text and 'report["artifact_sha256"]' in text
+    assert "scancel" not in text and "handoff(" not in text and ".cuda(" not in text
