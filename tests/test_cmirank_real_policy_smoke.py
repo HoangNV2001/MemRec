@@ -207,6 +207,19 @@ def test_gpu0_handback_only_restores_gpu0_and_protects_gpu1():
             keeper.handback_state("21820", rows, 1052, gpu_index=0)
 
 
+def test_gpu0_keeper_can_be_restored_with_foreign_gpu1_tts_untouched():
+    keeper = keeper_module()
+    tts = {"StepId": "21820.120", "Name": "tts127-hnv", "State": "RUNNING", "UserId": "1052"}
+    active = {"StepId": "21820.111", "Name": "omni-gen-0", "State": "RUNNING", "UserId": "1052"}
+    assert keeper.handback_state("21820", [tts], 1052, gpu_index=0, protect_other_workloads=True) == ("START_GPU0_KEEPER", None, None)
+    assert keeper.handback_state("21820", [tts, active], 1052, gpu_index=0, protect_other_workloads=True) == ("ALREADY_RUNNING", "21820.111", None)
+    for rows in ([active, active], [dict(active, UserId="99")], [dict(active, StepId="21820.batch")]):
+        with pytest.raises(ValueError):
+            keeper.handback_state("21820", rows, 1052, gpu_index=0, protect_other_workloads=True)
+    with pytest.raises(ValueError):
+        keeper.handback_state("21820", [tts], 1052, gpu_index=1, protect_other_workloads=True)
+
+
 @pytest.mark.parametrize("change", [{"seed": 43}, {"max_new_tokens": 256}, {"gpu_index": 1},
                                   {"gpu_index": False}, {"output_repair": True}])
 def test_gpu0_resource_contract_cannot_change_scientific_fields(tmp_path, change):

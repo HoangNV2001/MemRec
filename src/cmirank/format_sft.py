@@ -112,9 +112,21 @@ def validate_encoded_row(row: dict, config: dict) -> None:
         raise ValueError("Prompt leakage, malformed response mask or token cap violation")
 
 
-def load_format_config(root: Path) -> tuple[dict, Path]:
-    path = root / "configs/cmirank/format_sft_v1.json"
+def load_format_config(root: Path, version: int = 2) -> tuple[dict, Path]:
+    if type(version) is not int or version not in (1, 2):
+        raise ValueError("Unknown format-SFT contract")
+    path = root / f"configs/cmirank/format_sft_v{version}.json"
     config = json.loads(path.read_text())
+    if version == 2:
+        base_path = root / "configs/cmirank/format_sft_v1.json"
+        base = json.loads(base_path.read_text())
+        changed = {"schema_version", "data_run_id", "smoke_run_id", "full_run_id"}
+        if (set(config) != set(base) | {"inherited_contract_sha256", "resource_policy"}
+                or config.get("inherited_contract_sha256") != file_sha256(base_path)
+                or config.get("resource_policy") != "gpu0_only_gpu1_all_workloads_read_only"
+                or config["schema_version"] != 2
+                or any(config[k] != v for k, v in base.items() if k not in changed)):
+            raise ValueError("Resource-only SFT retry must retain every scientific field")
     if (config["scope"] != "synthetic_format_only_warm_start_not_ranking_training"
             or config["train_examples"] != 256 or config["smoke_train_examples"] != 20
             or config["holdout_users"] != 20 or config["gpu_index"] != 0
@@ -133,7 +145,9 @@ def format_code_hashes(root: Path) -> dict:
     return {name: file_sha256(root / name) for name in (
         "src/cmirank/format_sft.py", "src/cmirank/prompts.py", "src/cmirank/parser.py",
         "src/cmirank/policy_smoke.py", "scripts/cmirank/15_prepare_format_sft_cpu.py",
-        "scripts/cmirank/16_train_format_sft_gpu.py")}
+        "scripts/cmirank/16_train_format_sft_gpu.py", "src/cmirank/reserved_handoff.py",
+        "scripts/cmirank/14_keeper_handback_cpu.py", "scripts/cmirank/run_real_policy_with_keeper.sh",
+        "scripts/cmirank/run_real_policy_smoke.sh")}
 
 
 def load_prepared_format_data(data: Path, *, commit: str, config_sha: str, code_sha: dict,

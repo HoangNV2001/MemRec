@@ -138,7 +138,8 @@ def test_gpu0_handoff_cancels_only_gpu0_keeper_and_preserves_gpu1(monkeypatch, t
     proof = {"target": "21273.20", "protected_step": "21273.19", "gpu0_uuid": "GPU-zero",
              "nvml_gpu0_pids": [999], "members": [{"pid": 123, "role": "python"}],
              "pid_mapping": "NOT_OBSERVED_OWNER_ATTESTED_CURRENT_STEP_EXCLUSIVITY"}
-    def inspect_zero(job, target, *, gpu_index):
+    def inspect_zero(job, target, *, gpu_index, protect_other_workloads=False):
+        assert not protect_other_workloads
         assert (job, target, gpu_index) == ("21273", "21273.20", 0)
         return dict(proof)
     monkeypatch.setattr(handoff, "inspect", inspect_zero)
@@ -151,3 +152,32 @@ def test_gpu0_handoff_cancels_only_gpu0_keeper_and_preserves_gpu1(monkeypatch, t
     assert result["gpu0_idle"] and not result["gpu1_signalled"] and not result["reserved_job_cancelled"]
     assert (tmp_path / "gpu0-handoff.json").is_file()
     assert not (tmp_path / "gpu1-handoff.json").exists()
+
+
+def test_protected_gpu1_can_run_tts_without_making_it_a_cancellation_target():
+    rows = [ROWS[1], {"StepId": "21273.120", "Name": "tts127-hnv", "State": "RUNNING", "UserId": "1052"}]
+    assert handoff.confirmed_target("21273", "21273.20", rows, 1052, gpu_index=0, protect_other_workloads=True) is None
+    with pytest.raises(ValueError):
+        handoff.confirmed_target("21273", "21273.120", rows, 1052, gpu_index=0, protect_other_workloads=True)
+    with pytest.raises(ValueError):
+        handoff.confirmed_target("21273", "21273.20", rows, 1052, gpu_index=1, protect_other_workloads=True)
+    # The default historical contract still requires its named protected keeper.
+    with pytest.raises(ValueError):
+        handoff.confirmed_target("21273", "21273.20", rows, 1052, gpu_index=0)
+
+
+def test_gpu1_external_workload_is_snapshot_only_even_if_it_finishes(monkeypatch, tmp_path):
+    calls = setup_fake_handoff(monkeypatch)
+    proof = {"target": "21273.20", "protected_step": None, "gpu0_uuid": "GPU-zero",
+             "nvml_gpu0_pids": [999], "members": [{"pid": 123, "role": "python"}],
+             "protected_gpu_uuid": "GPU-one", "protected_gpu_pids": [44],
+             "pid_mapping": "NOT_OBSERVED_OWNER_ATTESTED_CURRENT_STEP_EXCLUSIVITY"}
+    monkeypatch.setattr(handoff, "inspect", lambda *a, **kw: dict(proof))
+    monkeypatch.setattr(handoff.subprocess, "check_output", lambda *a, **kw:
+        "StepId=21273.120 UserId=1052 State=RUNNING Name=tts127-hnv\n")
+    cards = [GPUCard(0, "GPU-zero", "H100", 0, 1, 81559), GPUCard(1, "GPU-one", "H100", 0, 1, 81559)]
+    monkeypatch.setattr(handoff, "gpu_snapshot", lambda: (cards, {}, "cards", "apps"))
+    record = handoff.handoff(tmp_path, "21273.20", gpu_index=0, protect_other_workloads=True)
+    assert calls == [["scancel", "21273.20"]]
+    assert record["gpu0_idle"] and not record["gpu1_signalled"] and not record["reserved_job_cancelled"]
+    assert record["protected_gpu_pids_after"] == []

@@ -34,7 +34,14 @@ def keeper_names(gpu_index):
     return f"omni-gen-{gpu_index}", f"omni-gen-{1 - gpu_index}"
 
 
-def confirmed_target(job, target, rows, uid, *, gpu_index=1):
+def validate_protection(gpu_index, protect_other_workloads):
+    keeper_names(gpu_index)
+    if type(protect_other_workloads) is not bool or (protect_other_workloads and gpu_index != 0):
+        raise ValueError("Other-workload read-only protection is limited to the authorized GPU0 task")
+
+
+def confirmed_target(job, target, rows, uid, *, gpu_index=1, protect_other_workloads=False):
+    validate_protection(gpu_index, protect_other_workloads)
     selected_name, protected_name = keeper_names(gpu_index)
     if not re.fullmatch(re.escape(job) + r"\.[1-9][0-9]*", target):
         raise ValueError("Confirmation must name one current numeric nonzero step, never a job/batch/extern")
@@ -42,6 +49,10 @@ def confirmed_target(job, target, rows, uid, *, gpu_index=1):
     if (len(generators) != 1 or generators[0].get("StepId") != target
             or generators[0].get("State") != "RUNNING" or generators[0].get("UserId") != str(uid)):
         raise ValueError(f"Current GPU{gpu_index} generator differs from the owner-confirmed step")
+    if protect_other_workloads:
+        # GPU1 is READ-ONLY, whether its external owner runs a keeper, TTS or
+        # nothing. Never invent a Slurm/NVML mapping or a cancellation target.
+        return None
     protected = [r for r in rows if r.get("Name") == protected_name]
     if (len(protected) != 1 or protected[0].get("State") != "RUNNING"
             or protected[0].get("UserId") != str(uid) or protected[0].get("StepId") == target):
@@ -81,10 +92,11 @@ def gpu_snapshot():
     return parse_gpu_snapshot(raw), compute_gpu_processes(apps), raw, apps
 
 
-def inspect(job, target, *, gpu_index=1):
+def inspect(job, target, *, gpu_index=1, protect_other_workloads=False):
     uid = os.geteuid()
     steps = subprocess.check_output(["scontrol", "show", "step", job, "-o"], text=True)
-    protected = confirmed_target(job, target, step_rows(steps), uid, gpu_index=gpu_index)
+    protected = confirmed_target(job, target, step_rows(steps), uid, gpu_index=gpu_index,
+                                 protect_other_workloads=protect_other_workloads)
     step = target.split(".")[1]
     pids_text = subprocess.check_output(["scontrol", "listpids", target], text=True)
     members = []
@@ -118,21 +130,26 @@ def inspect(job, target, *, gpu_index=1):
         raise ValueError(f"GPU{gpu_index} snapshot exceeds the owner-confirmed single-generator scope")
     return {"job": job, "target": target, "protected_step": protected, f"gpu{gpu_index}_uuid": selected[0].uuid,
             f"nvml_gpu{gpu_index}_pids": sorted(apps[selected[0].uuid]), "members": members,
+            "protect_other_workloads": protect_other_workloads,
+            "protected_gpu_uuid": other[0].uuid, "protected_gpu_pids": sorted(apps.get(other[0].uuid, set())),
             "steps": steps, "gpu_snapshot": raw_cards, "compute_snapshot": raw_apps,
             "pid_mapping": "NOT_OBSERVED_OWNER_ATTESTED_CURRENT_STEP_EXCLUSIVITY"}
 
 
-def handoff(run, owner_confirmed_step, *, gpu_index=1):
+def handoff(run, owner_confirmed_step, *, gpu_index=1, protect_other_workloads=False):
     """Call ONLY after CPU preparation, immediately before real model compute."""
     _, protected_name = keeper_names(gpu_index)
+    validate_protection(gpu_index, protect_other_workloads)
     job = require_allocation()
     if not re.fullmatch(re.escape(job) + r"\.[1-9][0-9]*", owner_confirmed_step):
         raise ValueError("Never cancel a job/batch/extern/step0 or a different allocation")
     if os.environ.get("CUDA_VISIBLE_DEVICES") != "":
         raise RuntimeError("Handoff coordinator must not initialize CUDA")
-    first = inspect(job, owner_confirmed_step, gpu_index=gpu_index)
-    second = inspect(job, owner_confirmed_step, gpu_index=gpu_index)
+    first = inspect(job, owner_confirmed_step, gpu_index=gpu_index, protect_other_workloads=protect_other_workloads)
+    second = inspect(job, owner_confirmed_step, gpu_index=gpu_index, protect_other_workloads=protect_other_workloads)
     identity = ("target", "protected_step", f"gpu{gpu_index}_uuid", f"nvml_gpu{gpu_index}_pids", "members")
+    if protect_other_workloads:
+        identity += ("protected_gpu_uuid", "protected_gpu_pids")
     if any(first[k] != second[k] for k in identity):
         raise RuntimeError("Generator identity changed during preflight; require a fresh handoff")
     record = {**second, "owner_confirmation": f"Fresh researcher confirmation: GPU{gpu_index} only runs this omni-gen-{gpu_index} step",
@@ -157,10 +174,21 @@ def handoff(run, owner_confirmed_step, *, gpu_index=1):
         if any(r.get("StepId") == owner_confirmed_step and r.get("State") == "RUNNING" for r in rows):
             time.sleep(2)
             continue
-        protected = [r for r in rows if r.get("StepId") == record["protected_step"]]
-        if (card.uuid != record[f"gpu{gpu_index}_uuid"] or len(protected) != 1 or protected[0].get("State") != "RUNNING"
-                or protected[0].get("Name") != protected_name or protected[0].get("UserId") != str(os.geteuid())):
-            raise RuntimeError("GPU identity/protected generator changed; do not load a model")
+        if card.uuid != record[f"gpu{gpu_index}_uuid"]:
+            raise RuntimeError("Authorized physical GPU changed; do not load a model")
+        if protect_other_workloads:
+            other = [c for c in cards if c.index == 1]
+            if len(other) != 1 or other[0].uuid != record["protected_gpu_uuid"]:
+                raise RuntimeError("Protected physical GPU identity changed; do not load a model")
+            # External tasks may finish/start independently. Only snapshot;
+            # never stop/restart/signal them to keep a particular name alive.
+            record["protected_gpu_pids_after"] = sorted(apps.get(other[0].uuid, set()))
+            record["protected_gpu_steps_after"] = rows
+        else:
+            protected = [r for r in rows if r.get("StepId") == record["protected_step"]]
+            if (len(protected) != 1 or protected[0].get("State") != "RUNNING"
+                    or protected[0].get("Name") != protected_name or protected[0].get("UserId") != str(os.geteuid())):
+                raise RuntimeError("Protected generator changed; do not load a model")
         require_allocation()
         record.update(status="OWNER_CONFIRMED_STEP_ONLY_HANDOFF_PASS",
                       gpu_snapshot_after=raw_cards, compute_snapshot_after=raw_apps)

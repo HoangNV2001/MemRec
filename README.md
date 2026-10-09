@@ -43,8 +43,9 @@ khớp. Lỗi format dẫn tới đề xuất **format-only SFT trước PPO**
 Researcher đã cho tiếp tục: **format-only SFT**256 synthetic examples,64 updates
 đã khóa; trước đó smoke20 examples/5 updates và save/reload. Giữ no-SFT controls,
 không nhãn Books/tune ranking;340 tests pass. CPU data/mask/token/hash gate đã pass
-256 examples +20 holdout /80 prompt audit; GPU smoke đang chờ xác nhận keeper0
-hiện tại. Implementation và receipts ở design §0.19.
+256 examples +20 holdout /80 prompt audit. Đã có xác nhận keeper0; v1 GPU preflight
+dừng trước reclaim vì GPU1 đổi sang workload TTS. V2 sửa guard để GPU1 luôn
+read-only, giữ nguyên SFT recipe; tiến độ và receipts ở design §0.19–0.20.
 Chưa có score/checkpoint PPO CM-IRank hoặc quyết định thay primary.
 
 Migration và cleanup nguồn cũ đã hoàn tất, CPU smoke sau cleanup pass. Mọi compute

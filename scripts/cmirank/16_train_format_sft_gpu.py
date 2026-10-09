@@ -178,7 +178,8 @@ def main():
             "books_training_data_accessed": False, "ranking_metrics_computed": False,
             "ppo_proven": False, "training_ready": False, "matching_smoke": smoke}
         save(run / "manifest.json", manifest)
-        manifest["gpu0_handoff"] = handoff(run, args.owner_confirmed_generator_step, gpu_index=0)
+        manifest["gpu0_handoff"] = handoff(run, args.owner_confirmed_generator_step, gpu_index=0,
+            protect_other_workloads=config.get("resource_policy") == "gpu0_only_gpu1_all_workloads_read_only")
         cards, apps, raw, raw_apps = gpu_snapshot()
         card = select_reserved_gpu(cards, set(apps), gpu_index=0)
         if card.uuid != manifest["gpu0_handoff"]["gpu0_uuid"]:

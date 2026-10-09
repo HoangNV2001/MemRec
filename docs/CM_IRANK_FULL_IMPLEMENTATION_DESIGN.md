@@ -566,6 +566,16 @@ All five source files retrieved, four data artifact hashes matched; local indepe
 
 Implementation references only: [pinned official Qwen model card](https://huggingface.co/Qwen/Qwen3.5-4B/blob/851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a/README.md), [Torch AdamW API](https://docs.pytorch.org/docs/stable/generated/torch.optim.AdamW.html). These document model/API behavior, **not** a published endorsement or optimality claim for the project-authored synthetic recipe.
 
+### 0.20 SFT resource-only retry: protect all GPU1 workloads — 2026-10-09
+
+**Fresh owner confirmation received** for the current GPU0 keeper. The first v1 GPU smoke stopped safely **0.033s** into its coordinator, **before cancellation/CUDA/model loading/any optimizer update**: the legacy guard incorrectly required the other card's named keeper to exist. That protected card had independently switched to an external TTS workload. The login handback guard hit the same prerequisite; this was **not** unreleased MemRec VRAM—the selected GPU had never been reclaimed. GPU0 keeper remained running at7,700MiB/one NVML actor; parent reservation alive. Failed run `cmirank-format-sft-smoke-v1-20261009-hnv` is preserved; `gpu_released=false`/null UUID means *not selected*, not a demonstrated allocation leak.
+
+**Correction stays within the authorized GPU0-only scope:** v2 explicitly protects **every workload on GPU1 read-only**, regardless of whether its owner is running a keeper, TTS or no process. It never chooses a GPU1 cancellation target, starts its keeper, changes a script/environment, shares its memory or loads a second CUDA device. Selected GPU0 still requires the same freshly confirmed numeric keeper step, UID/cgroups/exact commands/PythonCUDA0, sole stable NVML actor and no process shared across cards, two-pass preflight, idle drain and full UUID binding. Snapshot the protected card's physical UUID/PIDs/Slurm states; verify stable identity immediately before cancelling only keeper0. Independent external workload completion/replacement afterward is recorded, not prevented by signals. Restore/deduplicate only keeper0 after our model exits and GPU0 is proven idle. Legacy default memory/handoff contracts retain their named-protected-keeper guard.
+
+`format_sft_v2.json` pins v1 SHA **`6cbc9ed720efeb52132e06d480b83dbc84fe437bb115af11c07bda04f5b95597`** and rejects changing any scientific field. New data/smoke/full namespaces preserve v1 artifacts. Same synthetic recipe/seed/256 examples/20 holdout/5-smoke and64-full updates/model/LR/masks/prompts/parser/decoding/checkpoint rule; the approved keeper has **not** restarted, so its current owner confirmation is still applicable after fresh revalidation. Produce a new exact-source CPU receipt before retry; do not consume the previous-source v1 receipt on patched code. Tests exercise external TTS/no-GPU1-keeper protection, GPU0-only cancellation/handback, rejection of foreign/duplicate/stale selected keepers and scientific-field changes. No full training/PPO/quality promotion follows from the resource correction alone.
+
+**V2 local gate:** **347 tests passed**, including preserved legacy named-keeper behavior and seven added resource-only/external-workload tests; compilation/shell/whitespace checks pass. Retry data/GPU receipts remain pending, no SFT update has occurred.
+
 ---
 
 # 1. Executive decision

@@ -20,6 +20,10 @@ if [[ "$MEMREC_TASK_KIND" == format_sft ]]; then
 else
   read -r MEMREC_RUN_ID MEMREC_GPU_INDEX < <("$MEMREC_ROOT/envs/llm-hnv/bin/python" -c 'import sys;from pathlib import Path;from src.cmirank.policy_smoke import load_policy_smoke_contract;c,_=load_policy_smoke_contract(Path.cwd(),int(sys.argv[1]));print(c["run_id"],c.get("gpu_index",1))' "$MEMREC_POLICY_CONTRACT_VERSION")
 fi
+MEMREC_PROTECTION_ARGS=()
+if [[ "$MEMREC_TASK_KIND" == format_sft ]]; then
+  MEMREC_PROTECTION_ARGS=(--protect-other-workloads)
+fi
 MEMREC_RUN_DIR="$MEMREC_ROOT/runs/$MEMREC_RUN_ID"
 MEMREC_SRUN_PID=''
 handback() {
@@ -37,7 +41,7 @@ handback() {
   fi
   MEMREC_PROBE=$(srun --input=none --jobid="$MEMREC_ALLOC_JOB" --overlap --ntasks=1 --cpus-per-task=2 --job-name=memrec-keeper-probe-hnv \
     env MEMREC_ROOT="$MEMREC_ROOT" CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 \
-    "$MEMREC_ROOT/envs/llm-hnv/bin/python" scripts/cmirank/14_keeper_handback_cpu.py --run-dir "$MEMREC_RUN_DIR" --gpu-index "$MEMREC_GPU_INDEX") || exit 4
+    "$MEMREC_ROOT/envs/llm-hnv/bin/python" scripts/cmirank/14_keeper_handback_cpu.py --run-dir "$MEMREC_RUN_DIR" --gpu-index "$MEMREC_GPU_INDEX" "${MEMREC_PROTECTION_ARGS[@]}") || exit 4
   printf '%s\n' "$MEMREC_PROBE"
   if [[ "$MEMREC_PROBE" == *"\"status\": \"START_GPU${MEMREC_GPU_INDEX}_KEEPER\""* ]]; then
     [[ ! -e /mnt/data/users/hoangnv242/omni-gen-hnv/STOP ]] || exit 4
@@ -48,7 +52,7 @@ handback() {
   fi
   srun --input=none --jobid="$MEMREC_ALLOC_JOB" --overlap --ntasks=1 --cpus-per-task=2 --job-name=memrec-keeper-verify-hnv \
     env MEMREC_ROOT="$MEMREC_ROOT" CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 \
-    "$MEMREC_ROOT/envs/llm-hnv/bin/python" scripts/cmirank/14_keeper_handback_cpu.py --run-dir "$MEMREC_RUN_DIR" --gpu-index "$MEMREC_GPU_INDEX" --verify || exit 4
+    "$MEMREC_ROOT/envs/llm-hnv/bin/python" scripts/cmirank/14_keeper_handback_cpu.py --run-dir "$MEMREC_RUN_DIR" --gpu-index "$MEMREC_GPU_INDEX" "${MEMREC_PROTECTION_ARGS[@]}" --verify || exit 4
   exit "$MEMREC_EXIT_CODE"
 }
 trap handback EXIT

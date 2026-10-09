@@ -53,6 +53,21 @@ def test_synthetic_recipe_balanced_disjoint_and_valid_without_book_labels():
     # Labels are not all a fixed first/last candidate preference heuristic.
     assert len({r.completion for r in examples if r.mode == "iterative"}) > 5
     assert len({r.completion for r in examples if r.mode == "direct"}) > 100
+    base, _ = load_format_config(ROOT, version=1)
+    assert examples == format_examples(base)  # Resource-only retry, not new training data.
+
+
+@pytest.mark.parametrize("change", [{"learning_rate": 0.00002}, {"full_epochs": 3},
+                                   {"data_seed": "different"}, {"gpu_index": 1}])
+def test_sft_retry_cannot_change_scientific_fields(tmp_path, change):
+    directory = tmp_path / "configs/cmirank"
+    directory.mkdir(parents=True)
+    for version in (1, 2):
+        (directory / f"format_sft_v{version}.json").write_bytes((ROOT / f"configs/cmirank/format_sft_v{version}.json").read_bytes())
+    config, path = load_format_config(tmp_path)
+    path.write_text(json.dumps({**config, **change}))
+    with pytest.raises(ValueError, match="scientific"):
+        load_format_config(tmp_path)
 
 
 def test_completion_mask_never_supervises_prompt_and_includes_eos():
