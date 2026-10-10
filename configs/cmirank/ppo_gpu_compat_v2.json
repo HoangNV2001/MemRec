@@ -1,0 +1,9 @@
+{
+  "schema_version": 2,
+  "inherits": "configs/cmirank/ppo_gpu_compat_v1.json",
+  "prepare_run_id": "cmirank-ppo-compat-data-v2-20261010-hnv",
+  "run_id": "cmirank-ppo-full-role-compat-v2-20261010-hnv",
+  "critic_interface": "native_Qwen3_5ForTokenClassification_score_logits",
+  "cpu_native_critic_samples": 20,
+  "reason": "Correct only harness assumptions for the actual unmodified VeRL native critic; preserve model, runtime, SFT initializer, numerical tolerances, samples, resource scope and zero updates."
+}

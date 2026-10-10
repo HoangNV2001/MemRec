@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT))
 from src.cluster_runtime import require_allocation, require_project_root
 from src.cmirank.format_sft import encode_completion, synthetic_request
 from src.cmirank.labels import make_labels
+from src.cmirank.native_critic_cpu import rehearse_native_critic
 from src.cmirank.ppo_compat import compat_code_hashes, load_compat_config, validate_compat_rows
 from src.cmirank.ppo_runtime import load_runtime_config
 from src.cmirank.prompts import render_step_prompt
@@ -100,10 +101,14 @@ def main():
             raise ValueError("New tokenizer/runtime changed the frozen inference prefix")
         rows.append(row)
     validate_compat_rows(rows, config)
+    native_contract, native_report = rehearse_native_critic(hf_config, rows, private)
+    if native_report["samples"] != config["cpu_native_critic_samples"]:
+        raise ValueError("Native critic CPU rehearsal did not finish all twenty samples")
     if torch.cuda.is_initialized():
         raise ValueError("CUDA initialized during CPU token preparation")
     run.mkdir()
     (run / "tokens.jsonl").write_text("".join(json.dumps(r, sort_keys=True, ensure_ascii=False) + "\n" for r in rows))
+    (run / "native-critic-cpu.json").write_text(artifact_json_dumps(native_report))
     report = {"status": "FULL_ROLE_COMPAT_CPU_PREPARATION_PASS_GPU_GATES_REMAIN",
         "source_commit": commit, "config_sha256": file_sha256(path), "code_sha256": compat_code_hashes(ROOT),
         "slurm_job_id": job, "samples": len(rows), "head_dim": hf_config.text_config.head_dim,
@@ -111,12 +116,14 @@ def main():
                            if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc"},
         "checkpoint_files_sha256": config["checkpoint_files_sha256"], "prompt_prefix_parity_with_reviewed_SFT": True,
         "native_actor_and_critic_factory_config_registered": True,
+        "native_critic_contract": native_contract,
+        "native_critic_cpu_samples": native_report["samples"],
         "checkpoint_stat": {name: {"size": (checkpoint / name).stat().st_size,
                             "mtime_ns": (checkpoint / name).stat().st_mtime_ns,
                             "inode": (checkpoint / name).stat().st_ino} for name in config["checkpoint_files_sha256"]},
         "max_prompt_tokens": max(r["prompt_tokens"] for r in rows), "gpu_requested": False,
         "model_weights_loaded": False, "books_outcomes_accessed": False, "training_ready": False,
-        "artifact_sha256": {"tokens.jsonl": file_sha256(run / "tokens.jsonl")},
+        "artifact_sha256": {name: file_sha256(run / name) for name in ("tokens.jsonl", "native-critic-cpu.json")},
         "elapsed_seconds": time.monotonic() - started}
     (run / "report.json").write_text(artifact_json_dumps(report))
     print(json.dumps({k: report[k] for k in ("status", "samples", "max_prompt_tokens", "elapsed_seconds")}), flush=True)

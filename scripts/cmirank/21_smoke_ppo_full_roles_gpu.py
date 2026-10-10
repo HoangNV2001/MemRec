@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from src.cluster_runtime import require_allocation, require_project_root
 from src.cmirank.gpu_resources import canonical_gpu_uuid, select_reserved_gpu, verified_numeric_cuda_binding
+from src.cmirank.native_critic import check_native_critic_gradients, freeze_native_critic, native_critic_values
 from src.cmirank.ppo_compat import compat_code_hashes, load_compat_config, verify_preparation
 from src.cmirank.ppo_runtime import load_runtime_config, response_reward_layout
 from src.cmirank.provenance import artifact_json_dumps, file_sha256
@@ -237,6 +238,7 @@ def main():
         del before, after
         gc.collect()
         torch.cuda.empty_cache()
+        save(run / "actor-checkpoint-roundtrip.json", {"samples": 20, "response_logprob_max_absolute_delta": roundtrip})
         # Invoke VeRL's actual production loader unchanged, not our tiny probe
         # wrapper or a new classifier. No monkey-patched attention/optimizer.
         hf_config = AutoConfig.from_pretrained(checkpoint, local_files_only=True, trust_remote_code=False)
@@ -245,17 +247,14 @@ def main():
         hf_config.hidden_dropout = "0"
         hf_config.summary_dropout_prob = 0.0
         critic = load_valuehead_model(str(checkpoint), torch.bfloat16, hf_config, False).to("cuda:0").eval()
-        scope_critic = freeze_vision(critic, torch)
-        if not hasattr(critic, "v_head"):
-            raise ValueError("Unexpected native critic architecture; no classifier substitution")
+        scope_critic = freeze_native_critic(critic, torch, prepared["native_critic_contract"])
         labels = [f"C{i:02d}" for i in range(10)]
         for i, row in enumerate(rows):
             ids = torch.tensor([row["input_ids"]], device="cuda:0")
-            _, _, values = critic(input_ids=ids, attention_mask=torch.ones_like(ids), use_cache=False)
-            if values.shape != ids.shape or not torch.isfinite(values).all():
-                raise ValueError("Native full critic value shape/nonfinite output")
+            output = critic(input_ids=ids, attention_mask=torch.ones_like(ids), use_cache=False)
+            values = native_critic_values(output, ids, torch)
             values[:, row["prompt_tokens"]:].square().mean().backward()
-            norm = gradient_check(critic, torch)
+            norm = check_native_critic_gradients(critic, torch)
             rewards, rank = mpss_rewards(labels, labels[:-1], labels[-1], labels[i % 10])
             placed, _ = response_reward_layout([row["completion_tokens"]] * 9, list(rewards))
             reward_tensor = torch.tensor([placed], device="cuda:0", dtype=torch.float32)
@@ -267,13 +266,13 @@ def main():
                 raise ValueError("CUDA gamma1/response-only MPSS/GAE mismatch")
             emit("native-critic", {"sample": i, "user_id": row["user_id"],
                  "full_role_gradient_norm": norm, "gae_max_absolute_delta": error})
-            del ids, values, reward_tensor, returns, oracle
+            del ids, output, values, reward_tensor, returns, oracle
         # Native value-head state save/reload uses the same full critic;
         # full PPO optimizer/FSDP checkpointing remains a later gate.
-        head = {k: v.detach().cpu().clone() for k, v in critic.v_head.state_dict().items()}
+        head = {k: v.detach().cpu().clone() for k, v in critic.score.state_dict().items()}
         torch.save(head, run / "discarded-value-head.pt")
-        critic.v_head.load_state_dict(torch.load(run / "discarded-value-head.pt", weights_only=True), strict=True)
-        head_equal = all(torch.equal(v.cpu(), head[k]) for k, v in critic.v_head.state_dict().items())
+        critic.score.load_state_dict(torch.load(run / "discarded-value-head.pt", weights_only=True), strict=True)
+        head_equal = all(torch.equal(v.cpu(), head[k]) for k, v in critic.score.state_dict().items())
         if not head_equal:
             raise ValueError("Value-head serialization changed state")
         result = {"status": "FULL_4B_ROLE_COMPAT_PASS_CLEANUP_REVIEW_AND_PPO_WORKER_GATES_REMAIN",
@@ -281,6 +280,7 @@ def main():
             "kernel_samples": 20, "actor_reference_samples": 20, "native_critic_samples": 20,
             "actor_scope": scope, "critic_backbone_scope": scope_critic,
             "native_critic_loader": "verl.utils.model.load_valuehead_model_unmodified",
+            "native_critic_class": type(critic).__name__, "native_critic_head": "score",
             "checkpoint_max_response_logprob_delta": roundtrip, "value_head_state_roundtrip": head_equal,
             "peak_vram_allocated_mib": torch.cuda.max_memory_allocated() / 2**20,
             "peak_vram_reserved_mib": torch.cuda.max_memory_reserved() / 2**20,

@@ -6,6 +6,7 @@ import pytest
 from src.cmirank.format_sft import encode_completion
 from src.cmirank.ppo_compat import load_compat_config, validate_compat_rows, verify_preparation
 from src.cmirank.provenance import file_sha256
+from src.cmirank.native_critic import native_critic_contract, shape_scope
 from tests.test_cmirank_format_sft import Tokenizer
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,7 +40,7 @@ def test_only_fixed_twenty_outcome_free_holdout_rows_are_admissible(mutation):
 
 
 def test_source_hash_and_mask_receipt_required_before_gpu_handoff(tmp_path):
-    config, _ = load_compat_config(ROOT)
+    config, _ = load_compat_config(ROOT, version=1)
     token_file = tmp_path / "tokens.jsonl"
     token_file.write_text("".join(json.dumps(r) + "\n" for r in rows()))
     report = {"status": "FULL_ROLE_COMPAT_CPU_PREPARATION_PASS_GPU_GATES_REMAIN",
@@ -66,3 +67,54 @@ def test_task_binding_protection_and_native_loader_are_not_silent_new_optimizer(
     worker = (ROOT / "scripts/cmirank/run_real_policy_smoke.sh").read_text()
     assert '"$MEMREC_TASK_KIND" == ppo_compat' in controller and '"$MEMREC_TASK_KIND" == ppo_compat' in worker
     assert '--protect-other-workloads' in controller
+    assert 'critic.score.state_dict()' in text and 'critic.v_head' not in text
+    assert 'freeze_native_critic(critic' in text and 'native_critic_values(output, ids' in text
+
+
+def native_shapes():
+    actor = {"model.language_model.weight": [3570052096], "model.visual.weight": [333514240],
+             "lm_head.weight": [248320, 2560]}
+    critic = {n: s for n, s in actor.items() if n != "lm_head.weight"}
+    critic.update({"score.weight": [1, 2560], "score.bias": [1]})
+    return actor, critic
+
+
+def test_native_scalar_critic_not_equal_actor_lm_count_but_same_backbone():
+    actor, critic = native_shapes()
+    contract = native_critic_contract(actor, critic, 2560, official=True)
+    assert contract["scope"] == {"text_backbone_parameters": 3570052096,
+                                "frozen_vision_parameters": 333514240, "scalar_head_parameters": 2561}
+    assert shape_scope(actor)["text_backbone_parameters"] == 4205751296
+
+
+@pytest.mark.parametrize("mutation", ["missing_backbone", "extra_layer", "backbone_shape", "vision_shape", "nonscalar_head", "missing_bias"])
+def test_native_shape_adapter_does_not_weaken_backbone_or_head_guards(mutation):
+    actor, critic = native_shapes()
+    if mutation == "missing_backbone": critic.pop("model.language_model.weight")
+    if mutation == "extra_layer": critic["rule_head.weight"] = [2560]
+    if mutation == "backbone_shape": critic["model.language_model.weight"] = [10]
+    if mutation == "vision_shape": critic["model.visual.weight"] = [10]
+    if mutation == "nonscalar_head": critic["score.weight"] = [2, 2560]
+    if mutation == "missing_bias": critic.pop("score.bias")
+    with pytest.raises(ValueError): native_critic_contract(actor, critic, 2560, official=True)
+
+
+def test_native_cpu_receipt_is_required_for_retry(tmp_path):
+    config, _ = load_compat_config(ROOT)
+    token_file = tmp_path / "tokens.jsonl"
+    token_file.write_text("".join(json.dumps(r) + "\n" for r in rows()))
+    report = {"status": "FULL_ROLE_COMPAT_CPU_PREPARATION_PASS_GPU_GATES_REMAIN",
+        "source_commit": "source", "config_sha256": "config", "code_sha256": {"code": "sha"},
+        "gpu_requested": False, "model_weights_loaded": False, "training_ready": False,
+        "artifact_sha256": {"tokens.jsonl": file_sha256(token_file)}}
+    (tmp_path / "report.json").write_text(json.dumps(report))
+    with pytest.raises(ValueError, match="Native critic CPU interface receipt"):
+        verify_preparation(tmp_path, commit="source", config_sha="config", code_sha={"code": "sha"}, config=config)
+
+
+def test_retry_preserves_all_numerical_research_and_resource_settings():
+    base, _ = load_compat_config(ROOT, version=1)
+    retry, _ = load_compat_config(ROOT)
+    changed = {key for key in base if base[key] != retry[key]}
+    assert changed == {"schema_version", "prepare_run_id", "run_id"}
+    assert retry["cpu_native_critic_samples"] == 20
