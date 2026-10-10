@@ -56,9 +56,10 @@ Bước tiếp: PPO actor/critic/reference compatibility trong env riêng. Resea
 VeRL0.9 /Torch2.11+cu129 /vLLM0.20+cu129 /Transformers5.10.1 /TRL0.25.1.
 **CPU gate đã pass**:237 dependencies/pip-check/20 miniature probes,11,11 phút,
 12 artifacts hash-match. Đây vẫn là **candidate runtime**, chưa phải PPO4B đã
-xác nhận. Kernel FA2 build lần đầu hết thời gian35 phút (24/73 objects); đang
-resume cache trong overlay mới đã chạy, giữ nguyên dependency/CPU budget;
-full4B one-card gates phải pass trước training.
+xác nhận. **FA2 build/import đã pass** sau67,82 phút CPU resume,6 artifacts
+khớp SHA. Đang chuẩn bị smoke kernel/full4B actor/reference/native critic20
+mẫu trên một GPU; **không optimizer update hay ranking metric** (§0.24).
+PPO worker/rollout/optimizer memory và canonical primary memory vẫn còn gate.
 Không đổi driver/env baseline, không tự dùng GRPO/LoRA/2GPU.
 Chưa có score/checkpoint PPO CM-IRank hoặc quyết định thay primary.
 

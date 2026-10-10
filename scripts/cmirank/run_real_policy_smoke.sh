@@ -7,7 +7,7 @@ MEMREC_POLICY_CONTRACT_VERSION=${MEMREC_POLICY_CONTRACT_VERSION:-2}
 [[ "$MEMREC_POLICY_CONTRACT_VERSION" == 1 || "$MEMREC_POLICY_CONTRACT_VERSION" == 2 ]] || exit 2
 MEMREC_TASK_KIND=${MEMREC_TASK_KIND:-real_policy}
 MEMREC_SFT_PHASE=${MEMREC_SFT_PHASE:-smoke}
-[[ "$MEMREC_TASK_KIND" == real_policy || "$MEMREC_TASK_KIND" == format_sft ]] || exit 2
+[[ "$MEMREC_TASK_KIND" == real_policy || "$MEMREC_TASK_KIND" == format_sft || "$MEMREC_TASK_KIND" == ppo_compat ]] || exit 2
 [[ "$MEMREC_SFT_PHASE" == smoke || "$MEMREC_SFT_PHASE" == full ]] || exit 2
 MEMREC_ROOT=/mnt/data/users/hoangnv242/memrec-hnv
 cd "$MEMREC_ROOT/repo/MemRec-hnv"
@@ -23,6 +23,13 @@ if [[ "$MEMREC_TASK_KIND" == format_sft ]]; then
   read -r RUN_ID MEMREC_GPU_INDEX MEMREC_TIMEOUT < <("$MEMREC_PYTHON" -c 'import sys;from pathlib import Path;from src.cmirank.format_sft import load_format_config;c,_=load_format_config(Path.cwd());print(c[sys.argv[1]+"_run_id"],c["gpu_index"],c["timeout_minutes"])' "$MEMREC_SFT_PHASE")
   MEMREC_TASK_SCRIPT=scripts/cmirank/16_train_format_sft_gpu.py
   MEMREC_TASK_ARGS=(--phase "$MEMREC_SFT_PHASE")
+elif [[ "$MEMREC_TASK_KIND" == ppo_compat ]]; then
+  read -r MEMREC_ENV_NAME MEMREC_OVERLAY < <("$MEMREC_PYTHON" -c 'from pathlib import Path;from src.cmirank.ppo_runtime import load_runtime_config;from src.cmirank.ppo_compat import load_compat_config;r,_=load_runtime_config(Path.cwd());c,_=load_compat_config(Path.cwd());print(r["environment_name"],c["overlay_name"])')
+  MEMREC_PYTHON="$MEMREC_ROOT/envs/$MEMREC_ENV_NAME/bin/python"
+  export PYTHONPATH="$MEMREC_ROOT/overlays/$MEMREC_OVERLAY"
+  read -r RUN_ID MEMREC_GPU_INDEX MEMREC_TIMEOUT < <("$MEMREC_PYTHON" -c 'from pathlib import Path;from src.cmirank.ppo_compat import load_compat_config;c,_=load_compat_config(Path.cwd());print(c["run_id"],c["gpu_index"],c["timeout_minutes"])')
+  MEMREC_TASK_SCRIPT=scripts/cmirank/21_smoke_ppo_full_roles_gpu.py
+  MEMREC_TASK_ARGS=()
 else
   read -r RUN_ID MEMREC_GPU_INDEX MEMREC_TIMEOUT < <("$MEMREC_PYTHON" -c 'import sys;from pathlib import Path;from src.cmirank.policy_smoke import load_policy_smoke_contract;c,_=load_policy_smoke_contract(Path.cwd(),int(sys.argv[1]));print(c["run_id"],c.get("gpu_index",1),c["timeout_minutes"])' "$MEMREC_POLICY_CONTRACT_VERSION")
   MEMREC_TASK_SCRIPT=scripts/cmirank/13_smoke_real_policy_gpu.py
