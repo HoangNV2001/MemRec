@@ -25,7 +25,7 @@ def rehearse_native_critic(official, rows, private):
         actor_meta = AutoModelForImageTextToText.from_config(official, attn_implementation="sdpa", dtype=torch.bfloat16)
         critic_meta = AutoModelForTokenClassification.from_config(critic_config, attn_implementation="sdpa", dtype=torch.bfloat16)
     full_contract = native_critic_contract(parameter_shapes(actor_meta), parameter_shapes(critic_meta),
-                                            official.text_config.hidden_size, official=True)
+        official.text_config.hidden_size, tied_lm_head=bool(official.text_config.tie_word_embeddings), official=True)
     del actor_meta, critic_meta
     tiny = deepcopy(official.to_dict())
     tiny["text_config"].update(hidden_size=64, intermediate_size=128, num_hidden_layers=2,
@@ -52,7 +52,8 @@ def rehearse_native_critic(official, rows, private):
                 or not set(info.get("unexpected_keys", [])).issubset({"lm_head.weight"})
                 or info.get("mismatched_keys") or info.get("error_msgs")):
             raise ValueError("Native critic initializer changed more than the scalar value head")
-        mini_contract = native_critic_contract(parameter_shapes(actor), parameter_shapes(critic), 64)
+        mini_contract = native_critic_contract(parameter_shapes(actor), parameter_shapes(critic), 64,
+                                               tied_lm_head=bool(mini_config.text_config.tie_word_embeddings))
         freeze_native_critic(critic, torch, mini_contract)
         actor_parameters = dict(actor.named_parameters())
         for name, parameter in critic.named_parameters():

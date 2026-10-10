@@ -21,22 +21,25 @@ def shape_scope(shapes, head_prefix="score."):
     }
 
 
-def native_critic_contract(actor_shapes, critic_shapes, hidden_size, *, official=False):
-    if (set(actor_shapes) - set(critic_shapes) != {"lm_head.weight"}
+def native_critic_contract(actor_shapes, critic_shapes, hidden_size, *, tied_lm_head=False, official=False):
+    removed_head = set() if tied_lm_head else {"lm_head.weight"}
+    if (type(tied_lm_head) is not bool
+            or set(actor_shapes) - set(critic_shapes) != removed_head
             or set(critic_shapes) - set(actor_shapes) != {"score.weight", "score.bias"}
             or critic_shapes["score.weight"] != [1, hidden_size]
             or critic_shapes["score.bias"] != [1]
-            or len(actor_shapes["lm_head.weight"]) != 2
-            or actor_shapes["lm_head.weight"][1] != hidden_size
+            or (tied_lm_head and "lm_head.weight" in actor_shapes)
+            or (not tied_lm_head and (len(actor_shapes["lm_head.weight"]) != 2
+                                      or actor_shapes["lm_head.weight"][1] != hidden_size))
             or any(actor_shapes[n] != critic_shapes[n] for n in set(actor_shapes) & set(critic_shapes))):
         raise ValueError("Native critic must preserve exactly the actor backbone and replace only the LM head")
     actor_scope = shape_scope(actor_shapes)
     if official and (actor_scope["text_backbone_parameters"], actor_scope["frozen_vision_parameters"]) != (4205751296, 333514240):
         raise ValueError("Official actor full-text/frozen-vision boundary changed")
     return {"class": "Qwen3_5ForTokenClassification", "head_prefix": "score.",
-            "head_state_names": ["weight", "bias"], "parameter_shapes": critic_shapes,
+            "head_state_names": ["weight", "bias"], "tied_lm_head": tied_lm_head, "parameter_shapes": critic_shapes,
             "scope": shape_scope(critic_shapes), "actor_scope": actor_scope,
-            "removed_actor_head": {"lm_head.weight": actor_shapes["lm_head.weight"]}}
+            "removed_actor_head": {n: actor_shapes[n] for n in removed_head}}
 
 
 def freeze_native_critic(model, torch, contract):

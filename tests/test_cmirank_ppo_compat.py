@@ -118,3 +118,15 @@ def test_retry_preserves_all_numerical_research_and_resource_settings():
     changed = {key for key in base if base[key] != retry[key]}
     assert changed == {"schema_version", "prepare_run_id", "run_id"}
     assert retry["cpu_native_critic_samples"] == 20
+
+
+def test_tied_vocabulary_head_is_an_alias_not_separate_backbone_parameters():
+    actor = {"model.language_model.weight": [4205751296], "model.visual.weight": [333514240]}
+    critic = {**actor, "score.weight": [1, 2560], "score.bias": [1]}
+    contract = native_critic_contract(actor, critic, 2560, tied_lm_head=True, official=True)
+    assert contract["scope"]["text_backbone_parameters"] == 4205751296
+    assert contract["scope"]["scalar_head_parameters"] == 2561
+    assert contract["removed_actor_head"] == {} and contract["tied_lm_head"] is True
+    with pytest.raises(ValueError): native_critic_contract(actor, critic, 2560, tied_lm_head=False)
+    critic["model.language_model.weight"] = [4205751295]
+    with pytest.raises(ValueError): native_critic_contract(actor, critic, 2560, tied_lm_head=True, official=True)
