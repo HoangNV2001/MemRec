@@ -130,3 +130,10 @@ def test_tied_vocabulary_head_is_an_alias_not_separate_backbone_parameters():
     with pytest.raises(ValueError): native_critic_contract(actor, critic, 2560, tied_lm_head=False)
     critic["model.language_model.weight"] = [4205751295]
     with pytest.raises(ValueError): native_critic_contract(actor, critic, 2560, tied_lm_head=True, official=True)
+
+
+def test_cpu_rehearsal_releases_mapped_weights_before_temporary_cleanup():
+    text = (ROOT / "src/cmirank/native_critic_cpu.py").read_text()
+    assert 'del critic, output, values, tokens, head, parameter' in text
+    assert text.index('del critic, output, values, tokens, head, parameter') < text.index('    if torch.cuda.is_initialized():')
+    assert '"official_full_model_meta_only": True' in text and '"production_verl_loader_executed": False' in text

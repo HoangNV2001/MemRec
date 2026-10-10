@@ -673,6 +673,8 @@ Then one physical GPU0, BF16 text/frozen unused vision, TP1-equivalent/no other 
 
 Full GPU smoke uses the CPU-derived native shape receipt, scalar `.logits[...,0]`, original `score` head state roundtrip, and writes the actor checkpoint-roundtrip scalar before critic loading so a later failure does not erase that evidence. No architecture/framework/optimizer swap, numerical threshold relaxation, new real-data labels, PPO update or generation. Original failed v1 artifacts/source remain unchanged. Planned next gates after a reviewed v2 PASS: native rollout/trainer response-logprob parity and real PPO worker/optimizer/checkpoint feasibility on one H100; primary memory and scientific evaluation remain separate gates, not automatic promotion from infrastructure success.
 
+**CPU cleanup correction:** sourceff9561c reached the end of the20 miniature probes/head roundtrip but failed while removing the temporary CPU checkpoint (`ENOTEMPTY` on shared filesystem); therefore no PASS receipt was published. CPU-loaded safetensor weights may retain mmap-backed files until model/graph references are released. Rehearsal now explicitly drops those references/collects before temporary-directory cleanup and fixes the miniature config's inherited label-map inconsistency. No numerical threshold/model/GPU/data change. Retry only against the still-fresh v2 preparation path; do not overwrite any completed receipt or treat cleanup failure as a passed gate.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.

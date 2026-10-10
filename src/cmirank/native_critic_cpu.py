@@ -5,6 +5,7 @@ CUDA, optimizer updates, generated actions or recommendation labels.
 """
 
 from copy import deepcopy
+import gc
 from pathlib import Path
 import tempfile
 
@@ -36,7 +37,7 @@ def rehearse_native_critic(official, rows, private):
                          "partial_rotary_factor": 1.0, "mrope_section": [5, 5, 6], "mrope_interleaved": True})
     tiny["vision_config"].update(depth=1, hidden_size=32, intermediate_size=64,
         num_heads=2, out_hidden_size=64, num_position_embeddings=16)
-    tiny.update(num_labels=1, classifier_dropout=0.0)
+    tiny.update(num_labels=1, classifier_dropout=0.0, id2label={0: "LABEL_0"}, label2id={"LABEL_0": 0})
     mini_config = type(official).from_dict(tiny)
     mini_config.num_labels = 1  # Override any inherited id2label mapping too.
     actor = AutoModelForImageTextToText.from_config(mini_config, attn_implementation="sdpa", dtype=torch.bfloat16)
@@ -48,6 +49,7 @@ def rehearse_native_critic(official, rows, private):
         critic, info = AutoModelForTokenClassification.from_pretrained(tmp,
             config=deepcopy(mini_config), local_files_only=True, trust_remote_code=False,
             dtype=torch.bfloat16, attn_implementation="sdpa", output_loading_info=True)
+        critic_class = type(critic).__name__
         if (set(info.get("missing_keys", [])) != {"score.weight", "score.bias"}
                 or not set(info.get("unexpected_keys", [])).issubset({"lm_head.weight"})
                 or info.get("mismatched_keys") or info.get("error_msgs")):
@@ -74,10 +76,15 @@ def rehearse_native_critic(official, rows, private):
         critic.score.load_state_dict(torch.load(Path(tmp) / "head.pt", weights_only=True), strict=True)
         if not all(torch.equal(p, head[n]) for n, p in critic.score.state_dict().items()):
             raise ValueError("Native score head state roundtrip changed values")
+        # CPU from_pretrained may mmap checkpoint shards on the shared NFS.
+        # Release model and graph references before TemporaryDirectory unlinks
+        # them, otherwise NFS retains .nfs* files and rmdir fails with ENOTEMPTY.
+        del critic, output, values, tokens, head, parameter
+        gc.collect()
     if torch.cuda.is_initialized():
         raise ValueError("Native critic CPU rehearsal initialized CUDA")
     return full_contract, {"status": "NATIVE_CRITIC_MINIATURE_CPU_INTERFACE_PASS_FULL_GPU_GATES_REMAIN",
-        "samples": len(probes), "probes": probes, "critic_class": type(critic).__name__,
+        "samples": len(probes), "probes": probes, "critic_class": critic_class,
         "native_head": "score", "backbone_weight_transfer_exact": True,
         "head_state_roundtrip_exact": True, "official_full_model_meta_only": True,
         "miniature_weights_only": True, "attention_backend": "sdpa_cpu_not_production_fa2",
