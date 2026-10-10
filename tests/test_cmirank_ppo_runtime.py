@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from src.cmirank.ppo_runtime import load_runtime_config, locked_requirements, require_new_environment, response_reward_layout, verify_resolution
+from src.cmirank.ppo_runtime import load_kernel_config, load_runtime_config, locked_requirements, require_new_environment, response_reward_layout, verify_resolution
 from src.cmirank.rewards import mpss_rewards, ndcg_at_k
 
 
@@ -104,3 +104,30 @@ def test_native_kernel_build_is_source_pinned_cpu_bounded_new_overlay():
     assert '"--target", str(overlay)' in text and '"--no-deps"' in text
     assert 'overlay.exists()' in text and 'report["artifact_sha256"]' in text
     assert "scancel" not in text and "handoff(" not in text and ".cuda(" not in text
+
+
+def test_kernel_retry_only_changes_walltime_and_owned_cache_not_training_scope():
+    root = Path(__file__).resolve().parents[1]
+    original, _ = load_kernel_config(root, 1)
+    retry, _ = load_kernel_config(root, 2)
+    for name in ("flash_attention_version", "flash_attention_commit", "cuda_home", "nvcc_release",
+                 "cuda_arch", "max_jobs", "nvcc_threads", "cpus", "parent_report_sha256"):
+        assert original[name] == retry[name]
+    assert retry["compile_timeout_seconds"] == 5400 and retry["timeout_minutes"] == 95
+    assert retry["overlay_name"] != original["overlay_name"] and not retry["gpu_requested"]
+
+
+@pytest.mark.parametrize("mutation", [{"max_jobs": 4}, {"cuda_arch": "80"},
+    {"resume_source_relative_path": "/usr/local/cuda"},
+    {"resume_source_relative_path": "runs/../foreign"}])
+def test_kernel_cache_retry_cannot_widen_scope(tmp_path, mutation):
+    root = Path(__file__).resolve().parents[1]
+    directory = tmp_path / "configs/cmirank"
+    directory.mkdir(parents=True)
+    for version in (1, 2):
+        path = f"configs/cmirank/ppo_kernel_build_v{version}.json"
+        (tmp_path / path).write_bytes((root / path).read_bytes())
+    path = directory / "ppo_kernel_build_v2.json"
+    config = json.loads(path.read_text());config.update(mutation);path.write_text(json.dumps(config))
+    with pytest.raises(ValueError, match="contract"):
+        load_kernel_config(tmp_path)

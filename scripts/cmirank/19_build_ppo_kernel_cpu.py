@@ -11,6 +11,7 @@ import importlib.metadata
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import time
@@ -18,18 +19,18 @@ import time
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from src.cluster_runtime import require_allocation, require_project_root
-from src.cmirank.ppo_runtime import load_runtime_config
+from src.cmirank.ppo_runtime import load_kernel_config, load_runtime_config
 from src.cmirank.provenance import artifact_json_dumps, file_sha256
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", type=Path, required=True)
+    parser.add_argument("--profile-version", type=int, choices=(1, 2), default=2)
     args = parser.parse_args()
     private = require_project_root(Path(os.environ["MEMREC_ROOT"]))
     job = require_allocation()
-    config_path = ROOT / "configs/cmirank/ppo_kernel_build_v1.json"
-    config = json.loads(config_path.read_text())
+    config, config_path = load_kernel_config(ROOT, args.profile_version)
     runtime, runtime_path = load_runtime_config(ROOT)
     run = args.run_dir.resolve()
     overlay = private / "overlays" / config["overlay_name"]
@@ -65,6 +66,28 @@ def main():
     nvcc = subprocess.check_output([str(compiler), "--version"], text=True)
     if f"release {config['nvcc_release']}," not in nvcc:
         raise ValueError("Available compiler differs; no system/compiler mutation permitted")
+    resume, source = None, None
+    if args.profile_version == 2:
+        source = private / config["resume_source_relative_path"]
+        failure_path = source.parent.parent / "failure.json"
+        if (source.resolve() != source or source.is_symlink()
+                or file_sha256(failure_path) != config["resume_failure_sha256"]
+                or json.loads(failure_path.read_text())["error_type"] != "TimeoutExpired"
+                or subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip() != config["flash_attention_commit"]
+                or subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=no"], cwd=source, text=True)):
+            raise ValueError("Resume source/failure/tracked files changed; refuse cache reuse")
+        for name, sha in config["resume_submodule_commits"].items():
+            module = source / name
+            if (subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=module, text=True).strip() != sha
+                    or subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=no"], cwd=module, text=True)):
+                raise ValueError("Pinned submodule changed")
+        objects = sorted((source / "build").rglob("*.o"))
+        if len(objects) < 24:
+            raise ValueError("Reviewed own partial build cache is missing")
+        resume = {"source": str(source), "commit": config["flash_attention_commit"],
+                  "objects_before": len(objects), "object_sha256_before": {str(p.relative_to(source)): file_sha256(p) for p in objects},
+                  "v1_failure_sha256": config["resume_failure_sha256"],
+                  "v1_report_and_logs_preserved": True, "own_generated_source_cache_may_advance": True}
     run.mkdir()
     (run / "tmp").mkdir()
     (run / "wheels").mkdir()
@@ -77,6 +100,8 @@ def main():
         "OMP_NUM_THREADS": "2", "MKL_NUM_THREADS": "2", "OPENBLAS_NUM_THREADS": "2",
         "TORCH_EXTENSIONS_DIR": str(run / "torch-extensions")}
     manifest = {"source_commit": commit, "config_sha256": file_sha256(config_path), "config": config,
+        "base_config_sha256": file_sha256(ROOT / "configs/cmirank/ppo_kernel_build_v1.json"),
+        "profile_version": args.profile_version, "resume": resume,
         "slurm_job_id": job, "parent_report_sha256": config["parent_report_sha256"],
         "torch_version": torch.__version__, "torch_cuda_runtime": torch.version.cuda,
         "nvcc_version": nvcc, "cuda_compiler_runtime_minor_mismatch": True,
@@ -86,16 +111,36 @@ def main():
     def command(argv, name, timeout=2100):
         print(f"CPU kernel stage: {name}", flush=True)
         with (run / f"{name}.log").open("w") as log:
-            result = subprocess.run(argv, cwd=ROOT, env=child_env, stdout=log, stderr=subprocess.STDOUT,
-                                    timeout=timeout)
-        if result.returncode:
-            raise RuntimeError(f"{name} failed, see run log (exit {result.returncode})")
+            process = subprocess.Popen(argv, cwd=ROOT, env=child_env, stdout=log, stderr=subprocess.STDOUT,
+                                       start_new_session=True)
+            try:
+                exit_code = process.wait(timeout=timeout)
+            except BaseException:
+                # Only this Popen-owned process group; never scheduler/job/foreign PIDs.
+                if process.poll() is None:
+                    os.killpg(process.pid, signal.SIGTERM)
+                    try:
+                        process.wait(timeout=30)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(process.pid, signal.SIGKILL)
+                        process.wait(timeout=10)
+                raise
+        if exit_code:
+            raise RuntimeError(f"{name} failed, see run log (exit {exit_code})")
+    def interrupted(signum, frame):
+        raise InterruptedError(f"Owned CPU kernel task interrupted by signal {signum}")
+    signal.signal(signal.SIGTERM, interrupted)
+    signal.signal(signal.SIGINT, interrupted)
     try:
+        build_input = (str(source) if source else
+                       f"git+https://github.com/Dao-AILab/flash-attention.git@{config['flash_attention_commit']}")
         command([sys.executable, "-m", "pip", "wheel", "--no-build-isolation", "--no-deps",
-            "--wheel-dir", str(run / "wheels"),
-            f"git+https://github.com/Dao-AILab/flash-attention.git@{config['flash_attention_commit']}"], "compile")
+            "--verbose", "--wheel-dir", str(run / "wheels"), build_input], "compile",
+            timeout=config["compile_timeout_seconds"])
         wheels = list((run / "wheels").glob("flash_attn-2.8.3-*.whl"))
-        if len(wheels) != 1 or f"commit {config['flash_attention_commit']}" not in (run / "compile.log").read_text():
+        provenance_ok = (source is not None and subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip() == config["flash_attention_commit"]
+                         and not subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=no"], cwd=source, text=True))
+        if len(wheels) != 1 or (not provenance_ok and f"commit {config['flash_attention_commit']}" not in (run / "compile.log").read_text()):
             raise ValueError("Missing unique wheel/pinned official source provenance")
         command([sys.executable, "-m", "pip", "install", "--no-deps", "--no-compile", "--target", str(overlay),
                  "--report", str(run / "overlay-installation.json"), str(wheels[0])], "overlay-install", timeout=180)

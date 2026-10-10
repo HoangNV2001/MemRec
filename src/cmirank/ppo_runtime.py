@@ -103,3 +103,25 @@ def require_new_environment(private: Path, name: str) -> Path:
     if env.exists() or env.is_symlink():
         raise ValueError("Refusing to overwrite an existing/partial environment")
     return env
+
+
+def load_kernel_config(root: Path, version: int = 2) -> tuple[dict, Path]:
+    if version not in (1, 2):
+        raise ValueError("Unknown kernel build profile")
+    base = json.loads((root / "configs/cmirank/ppo_kernel_build_v1.json").read_text())
+    path = root / f"configs/cmirank/ppo_kernel_build_v{version}.json"
+    if version == 2:
+        retry = json.loads(path.read_text())
+        allowed = {"schema_version", "inherits", "run_id", "overlay_name", "timeout_minutes", "compile_timeout_seconds",
+                   "resume_source_relative_path", "resume_failure_sha256", "resume_submodule_commits", "reason"}
+        relative = Path(retry.get("resume_source_relative_path", ""))
+        if (set(retry) != allowed or retry["inherits"] != "configs/cmirank/ppo_kernel_build_v1.json"
+                or relative.is_absolute() or ".." in relative.parts
+                or relative.parts[:3] != ("runs", base["run_id"], "tmp")
+                or len(relative.parts) != 4 or not relative.name.startswith("pip-req-build-")
+                or retry["timeout_minutes"] != 95 or retry["compile_timeout_seconds"] != 5400):
+            raise ValueError("Kernel retry changes scope/source/build contract")
+        base.update(retry)
+    else:
+        base["compile_timeout_seconds"] = 2100
+    return base, path

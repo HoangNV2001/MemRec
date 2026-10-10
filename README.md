@@ -56,7 +56,8 @@ Bước tiếp: PPO actor/critic/reference compatibility trong env riêng. Resea
 VeRL0.9 /Torch2.11+cu129 /vLLM0.20+cu129 /Transformers5.10.1 /TRL0.25.1.
 **CPU gate đã pass**:237 dependencies/pip-check/20 miniature probes,11,11 phút,
 12 artifacts hash-match. Đây vẫn là **candidate runtime**, chưa phải PPO4B đã
-xác nhận. Đang chuẩn bị kernel FA2 của native critic trong overlay riêng trên CPU;
+xác nhận. Kernel FA2 build lần đầu hết thời gian35 phút (24/73 objects); đang
+chuẩn bị resume cache trong overlay mới, giữ nguyên dependency/CPU budget;
 full4B one-card gates phải pass trước training.
 Không đổi driver/env baseline, không tự dùng GRPO/LoRA/2GPU.
 Chưa có score/checkpoint PPO CM-IRank hoặc quyết định thay primary.

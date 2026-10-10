@@ -1,0 +1,15 @@
+{
+  "schema_version": 2,
+  "inherits": "configs/cmirank/ppo_kernel_build_v1.json",
+  "run_id": "cmirank-ppo-fa2-build-cpu-v2-20261010-hnv",
+  "overlay_name": "cmirank-fa2-283-torch211-cu129-v2-hnv",
+  "timeout_minutes": 95,
+  "compile_timeout_seconds": 5400,
+  "resume_source_relative_path": "runs/cmirank-ppo-fa2-build-cpu-v1-20261009-hnv/tmp/pip-req-build-d7imyxk9",
+  "resume_failure_sha256": "334a19291302365de28ed7317c52db1286844c7a95fa1365290ee72cad6805b3",
+  "resume_submodule_commits": {
+    "csrc/composable_kernel": "e8709c24f403173ad21a2da907d1347957e324fb",
+    "csrc/cutlass": "dc4817921edda44a549197ff3a9dcf5df0636e7b"
+  },
+  "reason": "V1 compiled24of73objects before2100secondtimeout, with no reported compiler error. Resume the exact unchanged official source and own object cache; increase only CPU wall-time, preservingCPU4/jobs2/NVCCthreads1/sm90/ABI/dependencies. Preserve v1 failure/logs, write fresh v2 receipts/overlay."
+}
