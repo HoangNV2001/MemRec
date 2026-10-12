@@ -71,8 +71,11 @@ def main():
             raise ValueError("Reviewed initializer weights changed")
     import torch
     from vllm.engine.arg_utils import EngineArgs
+    from vllm.config import ModelConfig
     from vllm.entrypoints.openai.completion.protocol import CompletionRequest
     from vllm.entrypoints.openai.cli_args import FlexibleArgumentParser, make_arg_parser
+    from vllm.multimodal import MULTIMODAL_REGISTRY
+    from vllm.multimodal.registry import MultiModalRegistry
     from verl.workers.config.engine import FSDPEngineConfig
     from verl.workers.engine.fsdp.transformer_impl import FSDPEngineWithLMHead, FSDPEngineWithValueHead
     if torch.cuda.is_initialized():
@@ -80,13 +83,25 @@ def main():
     required = {"prompt_logprobs", "return_token_ids", "add_special_tokens", "prompt"}
     if not required.issubset(CompletionRequest.model_fields):
         raise ValueError("Native completion protocol does not support exact raw-token probes")
-    required_engine_args = {"enable_prefix_caching", "enforce_eager", "tensor_parallel_size", "gpu_memory_utilization"}
+    required_engine_args = {"enable_prefix_caching", "enforce_eager", "tensor_parallel_size", "gpu_memory_utilization", "language_model_only"}
     if not required_engine_args.issubset(inspect.signature(EngineArgs).parameters):
         raise ValueError("Native serving options changed")
     cli = make_arg_parser(FlexibleArgumentParser())
     serving = cli.parse_args(["--model", str(checkpoint), *server_options(config)])
     if serving.tensor_parallel_size != 1 or serving.enable_prefix_caching or not serving.enforce_eager:
         raise ValueError("Native CLI altered the single-card/eager/no-prefix-cache gate")
+    native_text_only_supported = None
+    if config.get("language_model_only"):
+        if not serving.language_model_only:
+            raise ValueError("Native CLI did not enable text-only mode")
+        # Exercise the real branch used by InputProcessor BEFORE MultiModalBudget.
+        # No weights/engine/CUDA; the accepted save deliberately lacks image-processor files.
+        engine_args = EngineArgs.from_cli_args(serving)
+        model_config = engine_args.create_model_config()
+        native_text_only_supported = MULTIMODAL_REGISTRY.supports_multimodal_inputs(model_config)
+        if (native_text_only_supported or not model_config.get_multimodal_config().language_model_only
+                or model_config.get_multimodal_config().enable_mm_embeds):
+            raise ValueError("Native text-only registry did not bypass multimodal processor budgeting")
     probes = []
     for row in rows:
         payload = completion_request(row, config)
@@ -105,11 +120,13 @@ def main():
         "parent_role_report_sha256": config["parent_role_report_sha256"], "samples": len(rows),
         "max_total_input_tokens": max(len(r["input_ids"]) for r in rows), "physical_request_cap": 20,
         "native_schema_probes": len(probes), "native_cli_options_parsed": True,
+        "native_text_only_registry_inputs_supported": native_text_only_supported,
         "native_fsdp_interfaces_imported": True,
         "native_fsdp_default_model_dtype": inspect.signature(FSDPEngineConfig).parameters["model_dtype"].default,
         "native_fsdp_default_training_precision_warning": "If model_dtype is None, unmodified native FSDP loads training parameters FP32; BF16 role smoke does not prove its optimizer memory fit. Freeze an explicit precision/offload profile before worker updates.",
         "native_source_sha256": {str(Path(inspect.getfile(c)).relative_to(Path(sys.prefix))):
-            file_sha256(Path(inspect.getfile(c))) for c in (CompletionRequest, EngineArgs, FSDPEngineConfig, FSDPEngineWithLMHead, FSDPEngineWithValueHead)},
+            file_sha256(Path(inspect.getfile(c))) for c in (CompletionRequest, EngineArgs, ModelConfig, MultiModalRegistry,
+                FSDPEngineConfig, FSDPEngineWithLMHead, FSDPEngineWithValueHead)},
         "checkpoint_stat": {n: {"size": (checkpoint / n).stat().st_size, "mtime_ns": (checkpoint / n).stat().st_mtime_ns,
                                "inode": (checkpoint / n).stat().st_ino} for n in compat["checkpoint_files_sha256"]},
         "overlay_sha256": old["overlay_sha256"], "gpu_requested": False, "optimizer_updates": 0,

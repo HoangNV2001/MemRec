@@ -74,6 +74,7 @@ def test_exact_source_artifact_receipt_required_for_parity_gpu(tmp_path):
     tokens.write_text("".join(json.dumps(r)+"\n" for r in rows))
     report = {"status": "PPO_PARITY_CPU_PREPARATION_PASS_GPU_NUMERICS_REMAIN", "source_commit": "source",
         "config_sha256": "config", "code_sha256": {"code": "sha"}, "gpu_requested": False,
+        "native_text_only_registry_inputs_supported": False,
         "optimizer_updates": 0, "samples": 20, "artifact_sha256": {"tokens.jsonl": file_sha256(tokens)}}
     (tmp_path / "report.json").write_text(json.dumps(report))
     kwargs = dict(commit="source", config_sha="config", code_sha={"code": "sha"})
@@ -91,3 +92,31 @@ def test_cpu_coordinator_never_holds_hf_weights_while_starting_service():
     assert '--no-enable-prefix-caching' in server_options(load_parity_config(ROOT)[0])
     assert '--enforce-eager' in server_options(load_parity_config(ROOT)[0])
     assert 'AdamW(' not in source and 'optimizer.step' not in source
+
+
+def test_text_only_retry_inherits_all_tokens_weights_and_numerical_thresholds():
+    original, _ = load_parity_config(ROOT, 1)
+    retry, _ = load_parity_config(ROOT, 2)
+    changes = {k for k in original if original[k] != retry[k]}
+    assert changes == {"schema_version", "prepare_run_id", "run_id"}
+    assert "--language-model-only" in server_options(retry)
+    assert "--language-model-only" not in server_options(original)
+
+
+def test_text_only_retry_rejects_unreviewed_threshold_change(tmp_path):
+    directory = tmp_path / "configs/cmirank"
+    directory.mkdir(parents=True)
+    for version in (1, 2):
+        (directory / f"ppo_parity_v{version}.json").write_bytes((ROOT / f"configs/cmirank/ppo_parity_v{version}.json").read_bytes())
+    path = directory / "ppo_parity_v2.json"
+    retry = json.loads(path.read_text())
+    retry["max_token_absolute_logprob_delta"] = 10
+    path.write_text(json.dumps(retry))
+    with pytest.raises(ValueError): load_parity_config(tmp_path)
+
+
+def test_cpu_preparation_checks_real_native_multimodal_registry_branch_not_only_cli():
+    source = (ROOT / "scripts/cmirank/22_prepare_ppo_parity_cpu.py").read_text()
+    assert "MULTIMODAL_REGISTRY.supports_multimodal_inputs(model_config)" in source
+    assert "model_config = engine_args.create_model_config()" in source
+    assert "from_pretrained(" not in source

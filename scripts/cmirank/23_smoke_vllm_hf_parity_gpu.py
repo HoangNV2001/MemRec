@@ -108,7 +108,8 @@ def main():
     save(run / "manifest.json", manifest)
     try:
         manifest["gpu0_handoff"] = handoff(run, args.owner_confirmed_generator_step,
-                                            gpu_index=0, protect_other_workloads=True)
+                                            gpu_index=0, protect_other_workloads=True,
+                                            task_timeout_seconds=config["timeout_minutes"] * 60)
         cards, apps, raw, raw_apps = gpu_snapshot()
         card = select_reserved_gpu(cards, set(apps), gpu_index=0)
         if card.uuid != manifest["gpu0_handoff"]["gpu0_uuid"]:
@@ -189,6 +190,7 @@ def main():
             "ppo_worker_proven": False, "training_ready": False,
             "initial_shared_weight_parity_only": True, "production_optimized_rollout_proven": False,
             "server_mode": "native_vllm_eager_no_prefix_cache_bf16_tp1",
+            "language_model_only": config.get("language_model_only", False),
             "max_token_absolute_logprob_delta": max(r["max_token_absolute_logprob_delta"] for r in comparisons),
             "max_mean_absolute_logprob_delta": max(r["mean_absolute_logprob_delta"] for r in comparisons),
             "max_action_absolute_logratio": max(abs(r["action_log_likelihood_ratio"]) for r in comparisons),

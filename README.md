@@ -9,7 +9,7 @@ thesis đã được xác nhận.
 Hướng hiện tại là **CM-IRank**: giữ Stage-R/Stage-W, thay Stage-ReRank bằng
 chính sách loại dần candidate, fine-tune **Qwen/Qwen3.5-4B bằng PPO** với MPSS.
 
-## Trạng thái hiện hành — 2026-10-09
+## Trạng thái hiện hành — 2026-10-12
 
 | Phần việc | Bằng chứng / giới hạn |
 |---|---|
@@ -67,7 +67,11 @@ critic20/20,68,09s, checkpoint delta0; allocated27,78GiB/reserved36,41GiB.
 GPU đã nhả, keeper0 phục hồi,17 artifacts SHA-match. Đã tự triển gate CPU
 và mã smoke tiếp theo: vLLM/HF response-logprob parity trên cùng20 synthetic
 inputs. **Chưa PPO/quality gain**, native worker/optimizer memory vẫn cần gate
-(§0.24–0.29).
+(§0.24–0.29). **Parity CPU v1 pass20 mẫu/17,39s; GPU v1 lỗi khởi động
+vLLM do thiếu image processor trong checkpoint text-only, 0 completion**, chưa
+đo được numerical parity. GPU đã nhả, keeper phục hồi. V2 dùng native text-only
+mode và kiểm nhánh registry trên CPU trước retry; giữ nguyên weights/tokens/ngưỡng
+([§0.30](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#030-parity-v1-startup-fail-native-text-only-retry--2026-10-12)).
 Phase pass và đủ điều kiện sẽ tự triển phase tiếp; chỉ
 end-turn để chờ xử lý dài hoặc cần researcher quyết định.
 PPO worker/rollout/optimizer memory và canonical primary memory vẫn còn gate.

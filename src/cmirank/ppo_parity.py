@@ -10,9 +10,18 @@ from pathlib import Path
 from .provenance import file_sha256
 
 
-def load_parity_config(root):
-    path = root / "configs/cmirank/ppo_parity_v1.json"
-    config = json.loads(path.read_text())
+def load_parity_config(root, version=2):
+    if version not in (1, 2):
+        raise ValueError("Unknown parity contract")
+    config = json.loads((root / "configs/cmirank/ppo_parity_v1.json").read_text())
+    path = root / f"configs/cmirank/ppo_parity_v{version}.json"
+    if version == 2:
+        retry = json.loads(path.read_text())
+        if (set(retry) != {"schema_version", "inherits", "prepare_run_id", "run_id", "language_model_only", "reason"}
+                or retry["inherits"] != "configs/cmirank/ppo_parity_v1.json"
+                or retry["language_model_only"] is not True):
+            raise ValueError("Text-only serving retry cannot alter weights, tokens, or numerical thresholds")
+        config.update(retry)
     if (config["samples"] != 20 or config["physical_request_cap"] != 20
             or config["generated_tokens_per_request"] != 1 or config["tensor_parallel_size"] != 1
             or config["gpu_index"] != 0 or config["resource_policy"] != "gpu0_only_gpu1_all_workloads_read_only"
@@ -27,17 +36,20 @@ def parity_code_hashes(root):
     return {name: file_sha256(root / name) for name in (
         "src/cmirank/ppo_parity.py", "scripts/cmirank/22_prepare_ppo_parity_cpu.py",
         "scripts/cmirank/23_smoke_vllm_hf_parity_gpu.py", "scripts/cmirank/24_hf_parity_worker_gpu.py",
-        "src/cmirank/ppo_compat.py", "src/cmirank/reserved_handoff.py", "src/cmirank/gpu_resources.py",
+        "src/cmirank/ppo_compat.py", "src/cmirank/reserved_handoff.py", "src/cmirank/t0_authority.py", "src/cmirank/gpu_resources.py",
         "scripts/cmirank/run_real_policy_smoke.sh", "scripts/cmirank/run_real_policy_with_keeper.sh")}
 
 
 def server_options(config):
-    return ["--served-model-name", config["served_model_name"], "--host", "127.0.0.1", "--port", str(config["port"]),
+    options = ["--served-model-name", config["served_model_name"], "--host", "127.0.0.1", "--port", str(config["port"]),
         "--tensor-parallel-size", "1", "--dtype", "bfloat16", "--generation-config", "vllm",
         "--gpu-memory-utilization", str(config["gpu_memory_utilization"]),
         "--max-model-len", str(config["max_model_len"]), "--max-num-seqs", "1",
         "--max-num-batched-tokens", str(config["max_model_len"]), "--seed", str(config["seed"]),
         "--no-enable-prefix-caching", "--enforce-eager"]
+    if config.get("language_model_only"):
+        options.append("--language-model-only")
+    return options
 
 
 def completion_request(row, config):
@@ -96,6 +108,8 @@ def verify_parity_preparation(directory, config, *, commit, config_sha, code_sha
             or report["code_sha256"] != code_sha or report["gpu_requested"]
             or report["optimizer_updates"] or report["samples"] != 20):
         raise ValueError("Parity GPU task requires its exact-source completed CPU receipt")
+    if config.get("language_model_only") and report.get("native_text_only_registry_inputs_supported") is not False:
+        raise ValueError("Native registry must bypass multimodal budget before GPU text-only retry")
     for name, sha in report["artifact_sha256"].items():
         if Path(name).name != name or file_sha256(directory / name) != sha:
             raise ValueError("Prepared parity artifact changed")

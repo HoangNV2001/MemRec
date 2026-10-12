@@ -1,0 +1,8 @@
+{
+  "schema_version": 2,
+  "inherits": "configs/cmirank/ppo_parity_v1.json",
+  "prepare_run_id": "cmirank-ppo-parity-data-v2-20261012-hnv",
+  "run_id": "cmirank-ppo-vllm-hf-parity-v2-20261012-hnv",
+  "language_model_only": true,
+  "reason": "v1 made zero completions: native multimodal budget requested an image processor absent from the immutable text-only SFT save. Native text-only mode skips that budget; CPU checks the actual registry branch before GPU handoff. No weight/token/numerical-threshold change."
+}

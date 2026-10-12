@@ -136,7 +136,7 @@ def inspect(job, target, *, gpu_index=1, protect_other_workloads=False):
             "pid_mapping": "NOT_OBSERVED_OWNER_ATTESTED_CURRENT_STEP_EXCLUSIVITY"}
 
 
-def handoff(run, owner_confirmed_step, *, gpu_index=1, protect_other_workloads=False):
+def handoff(run, owner_confirmed_step, *, gpu_index=1, protect_other_workloads=False, task_timeout_seconds=None):
     """Call ONLY after CPU preparation, immediately before real model compute."""
     _, protected_name = keeper_names(gpu_index)
     validate_protection(gpu_index, protect_other_workloads)
@@ -154,9 +154,25 @@ def handoff(run, owner_confirmed_step, *, gpu_index=1, protect_other_workloads=F
         raise RuntimeError("Generator identity changed during preflight; require a fresh handoff")
     record = {**second, "owner_confirmation": f"Fresh researcher confirmation: GPU{gpu_index} only runs this omni-gen-{gpu_index} step",
               "step_cancelled": False, "reserved_job_cancelled": False, f"gpu{1 - gpu_index}_signalled": False}
+    if os.environ.get("MEMREC_T0_AUTHORITY_PATH"):
+        if gpu_index != 0 or not protect_other_workloads:
+            raise ValueError("Standing T0 grant cannot authorize another resource policy")
+        from .t0_authority import standing_authorization
+        record["authorization"] = standing_authorization(
+            Path(os.environ["MEMREC_ROOT"]), Path(os.environ["MEMREC_T0_AUTHORITY_PATH"]),
+            os.environ["MEMREC_T0_AUTHORITY_SHA256"], os.environ["MEMREC_T0_KEEPER_RECEIPT_RUN_ID"], second,
+            task_kind=os.environ["MEMREC_TASK_KIND"], timeout_seconds=task_timeout_seconds)
+        record["owner_confirmation"] = "Time-bounded researcher T0 exclusivity grant; own restored keeper receipt and current guards, not a new per-step reply or observed PID mapping"
     path = run / f"gpu{gpu_index}-handoff.json"
     path.write_text(json.dumps(record, indent=2) + "\n")
     require_allocation()
+    if "authorization" in record:
+        # Recheck expiry/scope immediately before the one permitted step signal.
+        record["authorization"] = standing_authorization(
+            Path(os.environ["MEMREC_ROOT"]), Path(os.environ["MEMREC_T0_AUTHORITY_PATH"]),
+            os.environ["MEMREC_T0_AUTHORITY_SHA256"], os.environ["MEMREC_T0_KEEPER_RECEIPT_RUN_ID"], second,
+            task_kind=os.environ["MEMREC_TASK_KIND"], timeout_seconds=task_timeout_seconds)
+        path.write_text(json.dumps(record, indent=2) + "\n")
     # One positional numeric job.step only: NEVER job-only, --user/name/all,
     # batch/extern, protected card, NVML PID, shared STOP file or generator restart.
     subprocess.run(["scancel", owner_confirmed_step], check=True)
