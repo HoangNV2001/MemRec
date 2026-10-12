@@ -24,7 +24,8 @@ from src.cluster_runtime import require_allocation, require_project_root
 from src.cmirank.gpu_resources import select_reserved_gpu, verified_numeric_cuda_binding
 from src.cmirank.ppo_compat import load_compat_config
 from src.cmirank.ppo_parity import (compare_logprobs, completion_request, diagnostic_parent, load_parity_config,
-                                    parity_code_hashes, response_prompt_logprobs, server_options, verify_parity_preparation)
+                                    parity_code_hashes, response_prompt_logprobs, server_options,
+                                    verify_fla_overlay, verify_parity_preparation)
 from src.cmirank.ppo_runtime import load_runtime_config
 from src.cmirank.provenance import artifact_json_dumps, file_sha256
 from src.cmirank.reserved_handoff import gpu_snapshot, handoff
@@ -81,6 +82,8 @@ def main():
             raise ValueError("Pinned parity runtime changed")
     rows, prepared = verify_parity_preparation(private / "runs" / config["prepare_run_id"], config,
         commit=commit, config_sha=file_sha256(path), code_sha=parity_code_hashes(ROOT))
+    if config.get("hf_kernel_overlay"):
+        verify_fla_overlay(private, config)  # File/hash preparation BEFORE handoff.
     checkpoint = private / "runs" / compat["sft_run_id"] / "checkpoint"
     for name, expected in prepared["checkpoint_stat"].items():
         stat = (checkpoint / name).stat()
@@ -133,7 +136,10 @@ def main():
         manifest.update(gpu_uuid=card.uuid, physical_gpu_index=gpu_index, cuda_visible_devices=os.environ["CUDA_VISIBLE_DEVICES"])
         save(run / "manifest.json", manifest)
         hf_log = (run / "hf-worker.log").open("x")
-        worker = subprocess.Popen([sys.executable, "-u", worker_marker, "--run-dir", str(run)],
+        hf_environment = dict(os.environ)
+        if config.get("hf_kernel_overlay"):
+            hf_environment["PYTHONPATH"] = str(private / "overlays" / config["hf_kernel_overlay"]) + os.pathsep + os.environ["PYTHONPATH"]
+        worker = subprocess.Popen([sys.executable, "-u", worker_marker, "--run-dir", str(run)], env=hf_environment,
             stdout=hf_log, stderr=subprocess.STDOUT, start_new_session=True)
         if worker.wait(timeout=600) != 0:
             raise RuntimeError("Owned HF forward-only worker failed; no vLLM load")

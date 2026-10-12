@@ -29,7 +29,7 @@ def test_exact_raw_ids_including_eos_and_single_unscored_generation():
     assert request["max_tokens"] == 1 and request["return_token_ids"] and request["prompt_logprobs"] == 0
     assert response_prompt_logprobs(response(row()), row()) == [-0.5, -0.5, -0.5]
     assert config["optimizer_updates"] == 0 and not config["ppo_worker_proven"]
-    assert config["physical_request_cap"] == 0  # Current diagnostic never executes this payload.
+    assert config["physical_request_cap"] == 20  # New candidate must remeasure all twenty cases.
 
 
 @pytest.mark.parametrize("mutation", ["inserted_bos", "dropped_eos", "missing_logprob", "nan", "wrong_usage", "multiple_choices"])
@@ -155,8 +155,21 @@ def test_diagnostic_parent_recomputes_exact_twenty_frozen_failed_probes():
     from src.cmirank.ppo_parity import diagnostic_parent
     directory = ROOT / "results/cmirank-ppo-vllm-hf-parity-v3-20261012-hnv"
     if not directory.is_dir(): pytest.skip("Local diagnostic predecessor not present")
-    config, _ = load_parity_config(ROOT)
+    config, _ = load_parity_config(ROOT, 4)
     rows = [json.loads(s) for s in (ROOT / "results/cmirank-ppo-parity-data-v3-20261012-hnv/tokens.jsonl").read_text().splitlines()]
     pairs = diagnostic_parent(directory, config, rows)
     assert len(pairs) == 20
     assert sum(compare_logprobs(p["hf"], p["vllm"], config)["passed"] for p in pairs) == 17
+
+
+def test_native_fla_candidate_changes_only_hf_kernel_dependency_not_weight_or_bounds():
+    old, _ = load_parity_config(ROOT, 3)
+    new, _ = load_parity_config(ROOT, 5)
+    assert {k for k in old if old[k] != new[k]} == {"schema_version", "inherits", "prepare_run_id", "run_id", "reason"}
+    assert new["native_gdn_gradient_samples"] == 20
+    assert not new.get("hf_precision_diagnostic") and new["physical_request_cap"] == 20
+    source = (ROOT / "scripts/cmirank/23_smoke_vllm_hf_parity_gpu.py").read_text()
+    assert source.index("verify_fla_overlay(private, config)") < source.index("= handoff(run,")
+    assert 'env=hf_environment' in source and 'env=server_environment' in source
+    worker = (ROOT / "scripts/cmirank/24_hf_parity_worker_gpu.py").read_text()
+    assert worker.index("native_gdn_gradient_probes(config, run, torch)") < worker.index("model, info =")

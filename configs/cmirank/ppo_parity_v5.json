@@ -1,0 +1,12 @@
+{
+  "schema_version": 5,
+  "inherits": "configs/cmirank/ppo_parity_v3.json",
+  "prepare_run_id": "cmirank-ppo-parity-data-v5-20261012-hnv",
+  "run_id": "cmirank-ppo-vllm-hf-parity-v5-fla-20261012-hnv",
+  "hf_kernel_overlay": "cmirank-fla-052-torch211-cu129-v1-hnv",
+  "fla_prepare_run_id": "cmirank-ppo-fla-overlay-cpu-v2-20261012-hnv",
+  "fla_prepare_report_sha256": "68e454e1f40c489e8512cbdfebc3dbfe59a6c923efb8c1ca30db6bafe74a72bd",
+  "native_gdn_gradient_samples": 20,
+  "kernel_probe_lengths": [33, 64, 65, 128, 529],
+  "reason": "Conventional native HF GDN dependency candidate, not best-of precision-control selection. CPU audited pinned FLA0.5.2 payloads; GPU must first prove20 finite native GDN forward/backward probes and actual HF dispatch. Same fixed-final SFT/BF16/FA2/tokens20/thresholds as v3; only the owned HF child sees the new overlay, vLLM behavior stack stays unchanged. No PPO/scientific promotion from CPU import."
+}

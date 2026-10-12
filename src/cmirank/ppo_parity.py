@@ -10,8 +10,8 @@ from pathlib import Path
 from .provenance import file_sha256
 
 
-def load_parity_config(root, version=4):
-    if version not in (1, 2, 3, 4):
+def load_parity_config(root, version=5):
+    if version not in (1, 2, 3, 4, 5):
         raise ValueError("Unknown parity contract")
     config = json.loads((root / "configs/cmirank/ppo_parity_v1.json").read_text())
     path = root / f"configs/cmirank/ppo_parity_v{version}.json"
@@ -44,6 +44,17 @@ def load_parity_config(root, version=4):
                 or retry["diagnostic_variants"] != ["baseline_bf16_fa2", "readout_bf16_response_only",
                     "readout_fp32_response_only", "bf16_sdpa", "fp32_sdpa"]):
             raise ValueError("Precision diagnosis cannot choose a subset, alter thresholds or promote a profile")
+        config.update(retry)
+    if version == 5:
+        retry = json.loads(path.read_text())
+        if (set(retry) != {"schema_version", "inherits", "prepare_run_id", "run_id", "hf_kernel_overlay",
+                          "fla_prepare_run_id", "fla_prepare_report_sha256", "native_gdn_gradient_samples",
+                          "kernel_probe_lengths", "reason"}
+                or retry["inherits"] != "configs/cmirank/ppo_parity_v3.json"
+                or retry["hf_kernel_overlay"] != "cmirank-fla-052-torch211-cu129-v1-hnv"
+                or retry["native_gdn_gradient_samples"] != 20
+                or retry["kernel_probe_lengths"] != [33, 64, 65, 128, 529]):
+            raise ValueError("Native GDN candidate cannot change checkpoint/dtype/masks/bounds/research recipe")
         config.update(retry)
     expected_gpu = 1 if version >= 3 else 0
     expected_policy = f"gpu{expected_gpu}_only_gpu{1-expected_gpu}_all_workloads_read_only"
@@ -144,6 +155,8 @@ def verify_parity_preparation(directory, config, *, commit, config_sha, code_sha
             or report.get("native_server_environment_checked") != config["server_environment"]
             or report.get("native_kernel_warmup_skip_no_model_cpu_probe") is not True):
         raise ValueError("Native backend/environment receipt required before the kernel retry")
+    if config.get("hf_kernel_overlay") and report.get("native_fla_overlay_audited") is not True:
+        raise ValueError("Native FLA overlay CPU audit receipt is required before GPU candidate qualification")
     if config.get("hf_precision_diagnostic"):
         rehearsal = report.get("native_precision_control_cpu_rehearsal") or {}
         if (rehearsal.get("samples_per_variant") != 20 or rehearsal.get("variants") != config["diagnostic_variants"]
@@ -160,6 +173,27 @@ def verify_parity_preparation(directory, config, *, commit, config_sha, code_sha
     for row in rows:
         completion_request(row, config)
     return rows, report
+
+
+def verify_fla_overlay(private, config):
+    directory = private / "runs" / config["fla_prepare_run_id"]
+    if file_sha256(directory / "report.json") != config["fla_prepare_report_sha256"]:
+        raise ValueError("Wrong native FLA preparation receipt")
+    report = json.loads((directory / "report.json").read_text())
+    probe = report["probe"]
+    if (report["status"] != "FRESH_NATIVE_FLA_CPU_IMPORT_PASS_GPU_KERNEL_AND_PARITY_GATES_REMAIN"
+            or report["overlay_name"] != config["hf_kernel_overlay"] or report["gpu_requested"]
+            or report["full_weights_loaded"] or report["training_ready"] or not report["base_environment_unchanged"]
+            or probe["samples"] != 20 or probe["cuda_initialized"] or probe["full_weights_loaded"]
+            or not probe["hf_cuda_only_availability_guard_respected"] or probe["hf_cuda_dispatch_proven"]
+            or any(probe["versions"][n] != "0.5.2" for n in ("flash-linear-attention", "fla-core"))):
+        raise ValueError("Native GDN candidate requires honest completed CPU-only pinned-package inspection")
+    overlay = private / "overlays" / config["hf_kernel_overlay"]
+    for name, digest in report["overlay_sha256"].items():
+        path = overlay / name
+        if not path.resolve().is_relative_to(overlay) or file_sha256(path) != digest:
+            raise ValueError("Native FLA overlay bytes changed after CPU audit")
+    return report
 
 
 def diagnostic_parent(directory, config, rows):

@@ -767,6 +767,12 @@ Initial overlay task installed both pinned pure wheels into the new private dire
 
 V2 CPU audit (`ppo_fla_overlay_v2.json`) reuses this completed installation only after checking **every installed wheel payload byte** against the two original immutable SHA-pinned archives, plus versions/dependencies. No reinstallation/upgrade/framework patch or forced CUDA-availability override. Validate20 callable signature probes and that HF's **CPU guard remains respected**, explicitly report GPU dispatch unproven. Actual HF GDN/normalization selection and20 forward/backward GPU probes remain required later; no claim that CPU import means numerical parity/PPO compatibility. Fresh run/source receipt retains the failed v1 evidence.
 
+### 0.38 Native FLA CPU v2 PASS; fresh kernel/parity qualification — 2026-10-12
+
+Exact source **1aa3d9d1ced203a779eb497c6f51c168df55b1aa**: CPU audit **8.406s**, pinned wheel payload bytes/imports/dependencies/20 callable bindings PASS, HF CPU CUDA-availability guard respected, no CUDA/weights/updates/base-env mutation.2 small artifacts independently SHA-match; report **`68e454e1f40c489e8512cbdfebc3dbfe59a6c923efb8c1ca30db6bafe74a72bd`**. This is not GPU dispatch/backward/parity proof. Existing official FLA0.5.2 overlay is a candidate only; causal-conv1d remains absent.
+
+Fresh `ppo_parity_v5.json` inherits v3, **not** the precision diagnostic: same BF16/FA2/checkpoint11 files/tokens20/temperature/request cap20/three numerical thresholds/oneGPU1. Before full checkpoint load, run20 actual native GDN forward/backward probes at fixed lengths33/64/65/128/529, require finite correctly shaped output and finite nonzero gradients. Verify actual GPU HF dispatch and full model's selected native trainable GDN, strict loading keys/parameter counts/BF16; no inference-only operator monkeypatch. Only the owned HF child gets the new overlay; coordinator/base/vLLM service environments stay unchanged. Hash/profile preparation remains CPU before handoff, and HF fully exits/releases before vLLM. All20 comparisons must pass unchanged gates; no primary production freeze or PPO promotion from preparation. Subsequent actor/critic/reference/worker/optimizer and fresh-format tests remain necessary for this changed native-kernel candidate.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.

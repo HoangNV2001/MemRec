@@ -17,7 +17,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from src.cluster_runtime import require_allocation, require_project_root
 from src.cmirank.ppo_compat import load_compat_config, validate_compat_rows
-from src.cmirank.ppo_parity import completion_request, diagnostic_parent, load_parity_config, parity_code_hashes, server_options
+from src.cmirank.ppo_parity import (completion_request, diagnostic_parent, load_parity_config,
+                                  parity_code_hashes, server_options, verify_fla_overlay)
 from src.cmirank.ppo_runtime import load_runtime_config
 from src.cmirank.provenance import artifact_json_dumps, file_sha256
 
@@ -65,6 +66,7 @@ def main():
         raise ValueError("Frozen synthetic tokens changed")
     rows = [json.loads(line) for line in token_file.read_text().splitlines()]
     validate_compat_rows(rows, compat)
+    fla_preparation = verify_fla_overlay(private, config) if config.get("hf_kernel_overlay") else None
     if config.get("hf_precision_diagnostic"):
         diagnostic_parent(private / "runs" / config["diagnostic_parent_run_id"], config, rows)
     checkpoint = private / "runs" / compat["sft_run_id"] / "checkpoint"
@@ -152,6 +154,7 @@ def main():
         "native_kernel_warmup_skip_no_model_cpu_probe": bool(config.get("gdn_prefill_backend")),
         "native_fsdp_interfaces_imported": True,
         "native_precision_control_cpu_rehearsal": precision_cpu,
+        "native_fla_overlay_audited": bool(fla_preparation),
         "native_fsdp_default_model_dtype": inspect.signature(FSDPEngineConfig).parameters["model_dtype"].default,
         "native_fsdp_default_training_precision_warning": "If model_dtype is None, unmodified native FSDP loads training parameters FP32; BF16 role smoke does not prove its optimizer memory fit. Freeze an explicit precision/offload profile before worker updates.",
         "native_source_sha256": {str(Path(inspect.getfile(c)).relative_to(Path(sys.prefix))):

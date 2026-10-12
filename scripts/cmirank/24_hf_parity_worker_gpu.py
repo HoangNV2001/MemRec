@@ -114,6 +114,37 @@ def rehearse_precision_cpu(official, run, config):
     return report
 
 
+def native_gdn_gradient_probes(config, run, torch):
+    from fla.ops.gated_delta_rule import chunk_gated_delta_rule
+    from transformers.models.qwen3_5 import modeling_qwen3_5 as hf
+    if hf.chunk_gated_delta_rule is not chunk_gated_delta_rule:
+        raise ValueError("Actual GPU HF dispatch did not select the CPU-audited native FLA operator")
+    probes = []
+    for i in range(config["native_gdn_gradient_samples"]):
+        length = config["kernel_probe_lengths"][i % len(config["kernel_probe_lengths"]) ]
+        shape = (1, length, 2, 128)
+        query, key, value = [torch.randn(shape, device="cuda:0", dtype=torch.bfloat16).requires_grad_() for _ in range(3)]
+        g = (-torch.rand(shape[:-1], device="cuda:0") / 10).requires_grad_()
+        beta = torch.sigmoid(torch.randn(shape[:-1], device="cuda:0", dtype=torch.bfloat16)).requires_grad_()
+        output, state = chunk_gated_delta_rule(query, key, value, g=g, beta=beta,
+            initial_state=None, output_final_state=False, use_qk_l2norm_in_kernel=True)
+        if output.shape != value.shape or not torch.isfinite(output).all():
+            raise ValueError("Native GDN forward shape/finite check failed")
+        output.float().square().mean().backward()
+        gradients = [x.grad for x in (query, key, value, g, beta)]
+        if any(x is None or not torch.isfinite(x).all() for x in gradients):
+            raise ValueError("Native GDN real backward has missing/nonfinite gradients")
+        norm = sum(float(x.float().square().sum()) for x in gradients) ** 0.5
+        if not 0 < norm < float("inf"):
+            raise ValueError("Native GDN backward norm is not finite/positive")
+        probes.append({"sample": i, "sequence_tokens": length, "gradient_norm": norm})
+        del query, key, value, g, beta, output, state, gradients
+    (run / "native-gdn-gradient.json").write_text(artifact_json_dumps({"samples":len(probes),
+        "probes":probes,"optimizer_updates":0,"official_weights_loaded":False,"native_hf_dispatch_verified":True}))
+    gc.collect()
+    torch.cuda.empty_cache()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", type=Path, required=True)
@@ -140,6 +171,8 @@ def main():
     started = time.monotonic()
     model = None
     try:
+        if config.get("hf_kernel_overlay"):
+            native_gdn_gradient_probes(config, run, torch)
         checkpoint = private / "runs" / compat["sft_run_id"] / "checkpoint"
         model, info = Qwen3_5ForConditionalGeneration.from_pretrained(checkpoint,
             local_files_only=True, trust_remote_code=False, dtype=torch.bfloat16, device_map={"": 0},
@@ -155,6 +188,11 @@ def main():
         if scope != {"text": 4205751296, "vision": 333514240}:
             raise ValueError("Full official text/frozen-vision scope changed")
         model.eval()
+        if config.get("hf_kernel_overlay"):
+            from transformers.models.qwen3_5 import modeling_qwen3_5 as hf
+            selected = model.model.language_model.layers[0].linear_attn.chunk_gated_delta_rule
+            if selected is not hf.chunk_gated_delta_rule or not selected.__module__.startswith("fla."):
+                raise ValueError("Full checkpoint did not use the audited native trainable GDN path")
         diagnostic = None
         if config.get("hf_precision_diagnostic"):
             diagnostic = precision_diagnosis(model, rows, run, config, torch)
