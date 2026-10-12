@@ -761,6 +761,12 @@ Next in-scope conventional runtime repair to test: HF-native Flash Linear Attent
 
 CPU script25 prepares a **new private overlay only**, verifies wheel SHA/metadata/dependencies/base-env invariance,20 native signature/dispatch probes and no CUDA/weights. The existing FA2/SFT/MemRec environments remain unchanged. CPU success will not qualify the candidate: next require20 real native GDN forward/backward probes, strict full-weight scope/checkpoint load, and fresh all20 parity under the unchanged bounds before freezing any new production profile. No substitution of vLLM inference-only operators into the trainable HF model, no custom optimizer/backend monkeypatch, no scientific outcomes/PPO yet.
 
+### 0.37 Native FLA CPU guard correction; no GPU promotion — 2026-10-12
+
+Initial overlay task installed both pinned pure wheels into the new private directory, then stopped at a **CPU harness assertion**, not wheel/import or GPU failure. Installed Transformers5.10.1 explicitly gates `is_flash_linear_attention_available()` on CUDA availability; with CUDA hidden, its optional module aliases correctly remain None. Requiring HF to select GPU kernels on a CPU-only task was wrong. No CUDA/weights/model/job/keeper mutation; base env not targeted by pip. Python3.10 is supported by wheel metadata, although FLA emits a recommendation for3.11; do not silently upgrade Python.
+
+V2 CPU audit (`ppo_fla_overlay_v2.json`) reuses this completed installation only after checking **every installed wheel payload byte** against the two original immutable SHA-pinned archives, plus versions/dependencies. No reinstallation/upgrade/framework patch or forced CUDA-availability override. Validate20 callable signature probes and that HF's **CPU guard remains respected**, explicitly report GPU dispatch unproven. Actual HF GDN/normalization selection and20 forward/backward GPU probes remain required later; no claim that CPU import means numerical parity/PPO compatibility. Fresh run/source receipt retains the failed v1 evidence.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.

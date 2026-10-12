@@ -19,7 +19,9 @@ def test_cpu_overlay_probes_no_cuda_no_weights_no_dependency_or_job_mutation():
     source = (ROOT / "scripts/cmirank/25_prepare_fla_overlay_cpu.py").read_text()
     assert '"--no-index"' in source and '"--no-deps"' in source and '"--target"' in source
     assert "range(20)" in source and "assert not torch.cuda.is_initialized()" in source
-    assert "hf.chunk_gated_delta_rule is chunk_gated_delta_rule" in source
+    assert "assert not is_flash_linear_attention_available()" in source
+    assert "hf.chunk_gated_delta_rule is None" in source
+    assert "installed_candidates" in source and "file_sha256(overlay / name) not in digests" in source
     assert "base_before !=" in source and "overlay.exists()" in source
     assert "scancel" not in source and "handoff(" not in source and "from_pretrained(" not in source
     assert "optimizer.step" not in source and "CUDA_HOME=" not in source

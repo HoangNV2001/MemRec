@@ -1,0 +1,7 @@
+{
+  "schema_version": 2,
+  "inherits": "configs/cmirank/ppo_fla_overlay_v1.json",
+  "run_id": "cmirank-ppo-fla-overlay-cpu-v2-20261012-hnv",
+  "reuse_installation_run_id": "cmirank-ppo-fla-overlay-cpu-v1-20261012-hnv",
+  "reason": "v1 wheels installed/imported but CPU harness wrongly required HF to select CUDA-only kernels with CUDA hidden. Respect the installed HF availability guard, validate all installed wheel bytes and native signatures; GPU dispatch remains an explicit later gate. No reinstallation/base-env/weight/threshold change."
+}
