@@ -29,6 +29,7 @@ def test_exact_raw_ids_including_eos_and_single_unscored_generation():
     assert request["max_tokens"] == 1 and request["return_token_ids"] and request["prompt_logprobs"] == 0
     assert response_prompt_logprobs(response(row()), row()) == [-0.5, -0.5, -0.5]
     assert config["optimizer_updates"] == 0 and not config["ppo_worker_proven"]
+    assert config["physical_request_cap"] == 0  # Current diagnostic never executes this payload.
 
 
 @pytest.mark.parametrize("mutation", ["inserted_bos", "dropped_eos", "missing_logprob", "nan", "wrong_usage", "multiple_choices"])
@@ -68,7 +69,7 @@ def test_extension_token_must_fit_without_implicit_context_truncation():
 
 
 def test_exact_source_artifact_receipt_required_for_parity_gpu(tmp_path):
-    config, _ = load_parity_config(ROOT)
+    config, _ = load_parity_config(ROOT, 3)
     rows = [{**row(), "user_id": -10001-i} for i in range(20)]
     tokens = tmp_path / "tokens.jsonl"
     tokens.write_text("".join(json.dumps(r)+"\n" for r in rows))
@@ -90,7 +91,8 @@ def test_cpu_coordinator_never_holds_hf_weights_while_starting_service():
     assert source.index('worker.wait(timeout=600)') < source.index('server = subprocess.Popen')
     assert source.index('"hf-release.json"') < source.index('server = subprocess.Popen')
     assert 'gpu_index=gpu_index, protect_other_workloads=True' in source
-    assert source.index('stop_owned(server, str(checkpoint))\n        passed') < source.index('save(run / "report.json"')
+    assert source.index('stop_owned(server, str(checkpoint))\n        passed') < source.rindex('save(run / "report.json"')
+    assert source.index('"hf-release.json"') < source.index('save(run / "report.json"')
     assert '--no-enable-prefix-caching' in server_options(load_parity_config(ROOT)[0])
     assert '--enforce-eager' in server_options(load_parity_config(ROOT)[0])
     assert 'AdamW(' not in source and 'optimizer.step' not in source
@@ -133,3 +135,28 @@ def test_gpu1_backend_retry_preserves_the_probability_and_weight_contract():
     assert server_options(current)[-4:-2] == ["--gdn-prefill-backend", "triton"]
     assert current["server_kernel_config"] == {"enable_flashinfer_autotune": False}
     assert current["server_environment"] == {"VLLM_USE_DEEP_GEMM": "0", "VLLM_DEEP_GEMM_WARMUP": "skip"}
+
+
+def test_precision_diagnosis_never_loosens_bounds_or_selects_primary_backend():
+    original, _ = load_parity_config(ROOT, 3)
+    diagnostic, _ = load_parity_config(ROOT, 4)
+    for field in ("max_token_absolute_logprob_delta", "max_mean_absolute_logprob_delta", "max_action_absolute_logratio"):
+        assert original[field] == diagnostic[field]
+    assert diagnostic["physical_request_cap"] == 0 and diagnostic["samples"] == 20
+    assert len(diagnostic["diagnostic_variants"]) == 5
+    source = (ROOT / "scripts/cmirank/23_smoke_vllm_hf_parity_gpu.py").read_text()
+    assert "PRECISION_DIAGNOSIS_COMPLETE_ORIGINAL_PARITY_GATE_REMAINS_FAILED" in source
+    assert '"primary_profile_selected": False' in source
+    assert "baseline_delta != 0" in source
+
+
+def test_diagnostic_parent_recomputes_exact_twenty_frozen_failed_probes():
+    # Fixture data are local/ignored; synthetic-only reanalysis is optional in CI.
+    from src.cmirank.ppo_parity import diagnostic_parent
+    directory = ROOT / "results/cmirank-ppo-vllm-hf-parity-v3-20261012-hnv"
+    if not directory.is_dir(): pytest.skip("Local diagnostic predecessor not present")
+    config, _ = load_parity_config(ROOT)
+    rows = [json.loads(s) for s in (ROOT / "results/cmirank-ppo-parity-data-v3-20261012-hnv/tokens.jsonl").read_text().splitlines()]
+    pairs = diagnostic_parent(directory, config, rows)
+    assert len(pairs) == 20
+    assert sum(compare_logprobs(p["hf"], p["vllm"], config)["passed"] for p in pairs) == 17

@@ -77,6 +77,10 @@ không phải kết quả numerical/ranking fail. Model đã nhả và keeper ph
 V3 dùng native Triton/skip optional warmup, cùng20 mẫu và ngưỡng; user chuyển
 quyền single-card sang GPU1, tự handoff keeper1 với guards/handback đầy đủ.
 Chi tiết và giới hạn ở [§0.32](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#032-parity-v2-terminal-fail-gpu1native-kernel-v3-amendment--2026-10-12).
+**V3 đã chạy20/20 requests nhưng parity chỉ17/20 pass**: ba token nhãn vượt
+ngưỡng sai lệch0,05; không nới ngưỡng/bỏ mẫu. GPU1 đã nhả và keeper1 phục hồi.
+Đang triển chẩn đoán attention/readout/precision cố định trên cả20 mẫu,0LLM
+calls/updates, không chọn profile hay promote PPO ([§0.34](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#034-parity-v3-numerical-fail-not-startup-fail-fixed-precision-diagnosis--2026-10-12)).
 Phase pass và đủ điều kiện sẽ tự triển phase tiếp; chỉ
 end-turn để chờ xử lý dài hoặc cần researcher quyết định.
 PPO worker/rollout/optimizer memory và canonical primary memory vẫn còn gate.

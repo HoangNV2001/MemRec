@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import sys
 import time
+from contextlib import contextmanager, nullcontext
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -16,6 +17,101 @@ from src.cmirank.gpu_resources import canonical_gpu_uuid
 from src.cmirank.ppo_compat import load_compat_config
 from src.cmirank.ppo_parity import load_parity_config, parity_code_hashes, verify_parity_preparation
 from src.cmirank.provenance import artifact_json_dumps, file_sha256
+
+
+@contextmanager
+def ieee_matmul(torch):
+    previous = torch.backends.cuda.matmul.allow_tf32
+    torch.backends.cuda.matmul.allow_tf32 = False
+    try:
+        yield
+    finally:
+        torch.backends.cuda.matmul.allow_tf32 = previous
+
+
+def precision_diagnosis(model, rows, run, config, torch, output_name="precision-logprobs.jsonl"):
+    """All five fixed controls, no optimizer/profile selection or weight save."""
+    from transformers.models.qwen3_5 import modeling_qwen3_5 as native
+    report = {"variants": config["diagnostic_variants"], "samples_per_variant": len(rows),
+              "native_gdn_chunk_callable": model.model.language_model.layers[0].linear_attn.chunk_gated_delta_rule.__name__,
+              "native_fast_path_available": native.is_fast_path_available,
+              "tf32_matmul_at_baseline": torch.backends.cuda.matmul.allow_tf32,
+              "primary_profile_selected": False, "optimizer_updates": 0, "generation_calls": 0}
+    def record(handle, variant, row, logits, ids):
+        probabilities = logits.float().log_softmax(-1).gather(
+            -1, ids[:, row["prompt_tokens"]:].unsqueeze(-1)).squeeze(-1)
+        if not torch.isfinite(probabilities).all():
+            raise ValueError("Nonfinite precision-control response/EOS probabilities")
+        handle.write(json.dumps({"variant": variant, "user_id": row["user_id"],
+                                 "logprobs": probabilities[0].cpu().tolist()}) + "\n")
+        handle.flush()
+    device = next(model.parameters()).device
+    with torch.no_grad(), (run / output_name).open("x") as handle:
+        for row in rows:
+            hidden = {}
+            def capture(module, arguments):
+                hidden["value"] = arguments[0][:, row["prompt_tokens"] - 1:-1].detach()
+            hook = model.lm_head.register_forward_pre_hook(capture)
+            try:
+                ids = torch.tensor([row["input_ids"]], device=device)
+                output = model(input_ids=ids, attention_mask=torch.ones_like(ids), use_cache=False)
+                record(handle, "baseline_bf16_fa2", row, output.logits[:, row["prompt_tokens"] - 1:-1], ids)
+                # Only the readout shape/precision changes; same captured BF16 backbone.
+                logits = torch.nn.functional.linear(hidden["value"], model.lm_head.weight)
+                record(handle, "readout_bf16_response_only", row, logits, ids)
+                del logits
+                with ieee_matmul(torch):
+                    logits = torch.nn.functional.linear(hidden["value"].float(), model.lm_head.weight.float())
+                record(handle, "readout_fp32_response_only", row, logits, ids)
+                del ids, output, logits
+            finally:
+                hook.remove()
+                hidden.clear()
+        model.set_attn_implementation("sdpa")
+        for variant in ("bf16_sdpa", "fp32_sdpa"):
+            if variant == "fp32_sdpa":
+                # Ephemeral diagnostic cast of the SAME values, never an initializer save.
+                model.to(dtype=torch.float32)
+            context = ieee_matmul(torch) if variant == "fp32_sdpa" else nullcontext()
+            with context:
+                for row in rows:
+                    ids = torch.tensor([row["input_ids"]], device=device)
+                    output = model(input_ids=ids, attention_mask=torch.ones_like(ids), use_cache=False)
+                    record(handle, variant, row, output.logits[:, row["prompt_tokens"] - 1:-1], ids)
+                    del ids, output
+    return report
+
+
+def rehearse_precision_cpu(official, run, config):
+    """Native miniature SDPA proxy for control flow/hooks/dtype, not FA2 proof."""
+    from copy import deepcopy
+    import torch
+    from transformers import AutoModelForImageTextToText
+    torch.set_num_threads(4)
+    torch.manual_seed(42)
+    tiny = deepcopy(official.to_dict())
+    tiny["text_config"].update(vocab_size=128, hidden_size=64, intermediate_size=128, num_hidden_layers=2,
+        num_attention_heads=2, num_key_value_heads=1, head_dim=32, linear_key_head_dim=16,
+        linear_value_head_dim=16, linear_num_key_heads=2, linear_num_value_heads=2,
+        layer_types=["linear_attention", "full_attention"],
+        rope_parameters={"rope_type": "default", "rope_theta": 10000.0, "partial_rotary_factor": 1.0,
+                         "mrope_section": [5, 5, 6], "mrope_interleaved": True})
+    tiny["vision_config"].update(depth=1, hidden_size=32, intermediate_size=64,
+        num_heads=2, out_hidden_size=64, num_position_embeddings=16)
+    model = AutoModelForImageTextToText.from_config(type(official).from_dict(tiny),
+        attn_implementation="sdpa", dtype=torch.bfloat16).eval()
+    for parameter in model.parameters(): parameter.requires_grad_(False)
+    rows = [{"user_id": -20001-i, "input_ids": [1, 3+i, 4, 5, 6, 7, 8, 2], "prompt_tokens": 3}
+            for i in range(20)]
+    report = precision_diagnosis(model, rows, run, config, torch, "precision-cpu-logprobs.jsonl")
+    model = None
+    del parameter
+    gc.collect()
+    if torch.cuda.is_initialized():
+        raise ValueError("CPU precision-control rehearsal initialized CUDA")
+    report.update(scope="MINIATURE_SDPA_CPU_CONTROL_FLOW_ONLY_BASELINE_FA2_NOT_EXECUTED",
+                  official_weights_loaded=False, gpu_requested=False)
+    return report
 
 
 def main():
@@ -59,21 +155,27 @@ def main():
         if scope != {"text": 4205751296, "vision": 333514240}:
             raise ValueError("Full official text/frozen-vision scope changed")
         model.eval()
-        with torch.no_grad(), (run / "hf-logprobs.jsonl").open("x") as handle:
-            for row in rows:
-                ids = torch.tensor([row["input_ids"]], device="cuda:0")
-                output = model(input_ids=ids, attention_mask=torch.ones_like(ids), use_cache=False)
-                logits = output.logits[:, row["prompt_tokens"] - 1:-1].float()
-                logprobs = logits.log_softmax(-1).gather(-1, ids[:, row["prompt_tokens"]:].unsqueeze(-1)).squeeze(-1)
-                if not torch.isfinite(logprobs).all():
-                    raise ValueError("HF response/EOS logprobs are nonfinite")
-                handle.write(json.dumps({"user_id": row["user_id"], "logprobs": logprobs[0].cpu().tolist()}) + "\n")
-                handle.flush()
-                del ids, output, logits, logprobs
+        diagnostic = None
+        if config.get("hf_precision_diagnostic"):
+            diagnostic = precision_diagnosis(model, rows, run, config, torch)
+        else:
+            with torch.no_grad(), (run / "hf-logprobs.jsonl").open("x") as handle:
+                for row in rows:
+                    ids = torch.tensor([row["input_ids"]], device="cuda:0")
+                    output = model(input_ids=ids, attention_mask=torch.ones_like(ids), use_cache=False)
+                    logits = output.logits[:, row["prompt_tokens"] - 1:-1].float()
+                    logprobs = logits.log_softmax(-1).gather(-1, ids[:, row["prompt_tokens"]:].unsqueeze(-1)).squeeze(-1)
+                    if not torch.isfinite(logprobs).all():
+                        raise ValueError("HF response/EOS logprobs are nonfinite")
+                    handle.write(json.dumps({"user_id": row["user_id"], "logprobs": logprobs[0].cpu().tolist()}) + "\n")
+                    handle.flush()
+                    del ids, output, logits, logprobs
         report = {"samples": len(rows), "elapsed_seconds": time.monotonic() - started, "scope": scope,
                   "peak_vram_allocated_mib": torch.cuda.max_memory_allocated() / 2**20,
                   "peak_vram_reserved_mib": torch.cuda.max_memory_reserved() / 2**20,
                   "optimizer_updates": 0, "generation_calls": 0}
+        if diagnostic:
+            report["precision_diagnosis"] = diagnostic
         model = None
         del parameter
         gc.collect()

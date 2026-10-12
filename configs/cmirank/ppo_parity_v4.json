@@ -1,0 +1,19 @@
+{
+  "schema_version": 4,
+  "inherits": "configs/cmirank/ppo_parity_v3.json",
+  "prepare_run_id": "cmirank-ppo-precision-data-v1-20261012-hnv",
+  "run_id": "cmirank-ppo-hf-precision-diagnostic-v1-20261012-hnv",
+  "physical_request_cap": 0,
+  "timeout_minutes": 10,
+  "hf_precision_diagnostic": true,
+  "diagnostic_variants": ["baseline_bf16_fa2", "readout_bf16_response_only", "readout_fp32_response_only", "bf16_sdpa", "fp32_sdpa"],
+  "diagnostic_parent_run_id": "cmirank-ppo-vllm-hf-parity-v3-20261012-hnv",
+  "diagnostic_parent_sha256": {
+    "report.json": "5ba5b54f7334edbba79a640198168e2d42426bb9e4a933e6931fb65572169d8d",
+    "hf-logprobs.jsonl": "fa691369a816dfa531222bdc4c6cbb31e57abb627c620c948937ee1b45c0d2b8",
+    "physical-requests.jsonl": "ff05299549f9d916ae59eafbac0eac387d5a00e4649b52af04d94f354c319a55",
+    "cleanup.json": "a69d560c1c9e8125d392fb262fbe992817669bfc13ed2f5696aad2a95c41b23b",
+    "keeper-handback.json": "52ae6073ade9f7883259b82adc8134d545377a05347ea566e14fb4aed16d01c8"
+  },
+  "reason": "v3 measured17/20 passing,3 label-token outliers. Five mandatory all-user forward-only controls isolate attention, readout shape/rounding and full FP32 arithmetic. Reuse v3 behavior probabilities, no new service/calls/updates; never select a primary profile or promote PPO from these diagnostic comparisons. Original numerical gate remains failed."
+}

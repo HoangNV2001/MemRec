@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT))
 from src.cluster_runtime import require_allocation, require_project_root
 from src.cmirank.gpu_resources import select_reserved_gpu, verified_numeric_cuda_binding
 from src.cmirank.ppo_compat import load_compat_config
-from src.cmirank.ppo_parity import (compare_logprobs, completion_request, load_parity_config,
+from src.cmirank.ppo_parity import (compare_logprobs, completion_request, diagnostic_parent, load_parity_config,
                                     parity_code_hashes, response_prompt_logprobs, server_options, verify_parity_preparation)
 from src.cmirank.ppo_runtime import load_runtime_config
 from src.cmirank.provenance import artifact_json_dumps, file_sha256
@@ -92,8 +92,12 @@ def main():
     for name, sha in prepared["native_source_sha256"].items():
         if file_sha256(Path(sys.prefix) / name) != sha:
             raise ValueError("Native runtime source changed since CPU inspection")
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", config["port"]))  # Do not call another project's service.
+    parent = None
+    if config.get("hf_precision_diagnostic"):
+        parent = diagnostic_parent(private / "runs" / config["diagnostic_parent_run_id"], config, rows)
+    else:
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", config["port"]))  # Do not call another project's service.
     run.mkdir()
     worker = server = card = hf_log = server_log = None
     exit_code, physical_requests = 1, 0
@@ -137,6 +141,38 @@ def main():
         if select_reserved_gpu(cards, set(apps), gpu_index=gpu_index).uuid != card.uuid:
             raise ValueError("HF child did not completely release the authorized GPU before vLLM load")
         save(run / "hf-release.json", {"child_exited": True, "gpu_released": True, "gpu_uuid": card.uuid})
+        if config.get("hf_precision_diagnostic"):
+            # The only model is ALREADY unloaded. All review below is CPU-only.
+            controls = [json.loads(s) for s in (run / "precision-logprobs.jsonl").read_text().splitlines()]
+            keys = [(r["variant"], r["user_id"]) for r in controls]
+            expected = {(v, r["user_id"]) for v in config["diagnostic_variants"] for r in rows}
+            if len(controls) != 100 or len(set(keys)) != 100 or set(keys) != expected:
+                raise ValueError("Every fixed precision control must include all twenty unchanged inputs")
+            original = {r["user_id"]: r for r in parent}
+            summary = {}
+            for variant in config["diagnostic_variants"]:
+                probes = []
+                for control in (r for r in controls if r["variant"] == variant):
+                    prior = original[control["user_id"]]
+                    comparison = compare_logprobs(control["logprobs"], prior["vllm"], config)
+                    baseline_delta = max(abs(a-b) for a,b in zip(control["logprobs"], prior["hf"]))
+                    append(run, "precision-comparison", {"variant": variant, "user_id": control["user_id"],
+                        "max_absolute_delta_to_original_hf": baseline_delta, **comparison})
+                    if variant == "baseline_bf16_fa2" and baseline_delta != 0:
+                        raise ValueError("Diagnostic BF16/FA2 repeat did not reproduce the original baseline exactly")
+                    probes.append(comparison)
+                summary[variant] = {"samples": len(probes), "within_original_bounds": sum(r["passed"] for r in probes),
+                    "max_token_absolute_logprob_delta": max(r["max_token_absolute_logprob_delta"] for r in probes),
+                    "max_mean_absolute_logprob_delta": max(r["mean_absolute_logprob_delta"] for r in probes),
+                    "max_action_absolute_logratio": max(abs(r["action_log_likelihood_ratio"]) for r in probes)}
+            save(run / "report.json", {"status": "PRECISION_DIAGNOSIS_COMPLETE_ORIGINAL_PARITY_GATE_REMAINS_FAILED",
+                "source_commit": commit, "config_sha256": file_sha256(path), "variants": summary,
+                "samples_per_variant": 20, "total_forward_vectors": 100, "physical_requests": 0,
+                "optimizer_updates": 0, "generation_calls": 0, "ranking_metrics_computed": False,
+                "books_outcomes_accessed": False, "primary_profile_selected": False, "training_ready": False,
+                "elapsed_seconds": time.monotonic() - began})
+            exit_code = 0
+            return  # finally still audits child cleanup; outer restores keeper1.
         hf_rows = [json.loads(s) for s in (run / "hf-logprobs.jsonl").read_text().splitlines()]
         if len(hf_rows) != 20 or [r["user_id"] for r in hf_rows] != [r["user_id"] for r in rows]:
             raise ValueError("HF worker did not record the exact twenty probes in order")

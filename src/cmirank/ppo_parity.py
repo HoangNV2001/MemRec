@@ -10,8 +10,8 @@ from pathlib import Path
 from .provenance import file_sha256
 
 
-def load_parity_config(root, version=3):
-    if version not in (1, 2, 3):
+def load_parity_config(root, version=4):
+    if version not in (1, 2, 3, 4):
         raise ValueError("Unknown parity contract")
     config = json.loads((root / "configs/cmirank/ppo_parity_v1.json").read_text())
     path = root / f"configs/cmirank/ppo_parity_v{version}.json"
@@ -22,8 +22,8 @@ def load_parity_config(root, version=3):
                 or retry["language_model_only"] is not True):
             raise ValueError("Text-only serving retry cannot alter weights, tokens, or numerical thresholds")
         config.update(retry)
-    if version == 3:
-        retry = json.loads(path.read_text())
+    if version >= 3:
+        retry = json.loads((root / "configs/cmirank/ppo_parity_v3.json").read_text())
         if (set(retry) != {"schema_version", "inherits", "prepare_run_id", "run_id", "gpu_index",
                           "resource_policy", "gdn_prefill_backend", "server_environment", "server_kernel_config", "reason"}
                 or retry["inherits"] != "configs/cmirank/ppo_parity_v2.json"
@@ -33,9 +33,21 @@ def load_parity_config(root, version=3):
                 or retry["server_environment"] != {"VLLM_USE_DEEP_GEMM": "0", "VLLM_DEEP_GEMM_WARMUP": "skip"}):
             raise ValueError("GPU1/native backend retry cannot alter the numerical/research contract")
         config.update(retry)
-    expected_gpu = 1 if version == 3 else 0
+    if version == 4:
+        retry = json.loads(path.read_text())
+        if (set(retry) != {"schema_version", "inherits", "prepare_run_id", "run_id", "physical_request_cap",
+                          "timeout_minutes", "hf_precision_diagnostic", "diagnostic_variants",
+                          "diagnostic_parent_run_id", "diagnostic_parent_sha256", "reason"}
+                or retry["inherits"] != "configs/cmirank/ppo_parity_v3.json"
+                or retry["hf_precision_diagnostic"] is not True or retry["physical_request_cap"] != 0
+                or retry["timeout_minutes"] != 10
+                or retry["diagnostic_variants"] != ["baseline_bf16_fa2", "readout_bf16_response_only",
+                    "readout_fp32_response_only", "bf16_sdpa", "fp32_sdpa"]):
+            raise ValueError("Precision diagnosis cannot choose a subset, alter thresholds or promote a profile")
+        config.update(retry)
+    expected_gpu = 1 if version >= 3 else 0
     expected_policy = f"gpu{expected_gpu}_only_gpu{1-expected_gpu}_all_workloads_read_only"
-    if (config["samples"] != 20 or config["physical_request_cap"] != 20
+    if (config["samples"] != 20 or config["physical_request_cap"] != (0 if version == 4 else 20)
             or config["generated_tokens_per_request"] != 1 or config["tensor_parallel_size"] != 1
             or config["gpu_index"] != expected_gpu or config["resource_policy"] != expected_policy
             or config["optimizer_updates"] or config["books_outcomes_accessed"]
@@ -132,6 +144,13 @@ def verify_parity_preparation(directory, config, *, commit, config_sha, code_sha
             or report.get("native_server_environment_checked") != config["server_environment"]
             or report.get("native_kernel_warmup_skip_no_model_cpu_probe") is not True):
         raise ValueError("Native backend/environment receipt required before the kernel retry")
+    if config.get("hf_precision_diagnostic"):
+        rehearsal = report.get("native_precision_control_cpu_rehearsal") or {}
+        if (rehearsal.get("samples_per_variant") != 20 or rehearsal.get("variants") != config["diagnostic_variants"]
+                or rehearsal.get("scope") != "MINIATURE_SDPA_CPU_CONTROL_FLOW_ONLY_BASELINE_FA2_NOT_EXECUTED"
+                or rehearsal.get("official_weights_loaded") is not False or rehearsal.get("gpu_requested") is not False
+                or "precision-cpu-logprobs.jsonl" not in report["artifact_sha256"]):
+            raise ValueError("Twenty miniature CPU controls must precede full GPU precision diagnosis")
     for name, sha in report["artifact_sha256"].items():
         if Path(name).name != name or file_sha256(directory / name) != sha:
             raise ValueError("Prepared parity artifact changed")
@@ -141,3 +160,37 @@ def verify_parity_preparation(directory, config, *, commit, config_sha, code_sha
     for row in rows:
         completion_request(row, config)
     return rows, report
+
+
+def diagnostic_parent(directory, config, rows):
+    """Source/hash-bound frozen probabilities, not another HTTP/model request."""
+    if directory.name != config["diagnostic_parent_run_id"]:
+        raise ValueError("Wrong numerical diagnostic predecessor")
+    for name, digest in config["diagnostic_parent_sha256"].items():
+        if Path(name).name != name or file_sha256(directory / name) != digest:
+            raise ValueError("Numerical predecessor artifact changed")
+    report = json.loads((directory / "report.json").read_text())
+    cleanup = json.loads((directory / "cleanup.json").read_text())
+    handback = json.loads((directory / "keeper-handback.json").read_text())
+    if (report["status"] != "VLLM_HF_RESPONSE_PARITY_FAIL_NUMERICAL_DIAGNOSIS_REQUIRED"
+            or report["samples"] != 20 or report["physical_requests"] != 20 or report["optimizer_updates"]
+            or report["books_outcomes_accessed"] or not cleanup["gpu_released"] or not cleanup["child_exited"]
+            or not cleanup["allocation_still_running"] or handback["status"] != "KEEPER_GPU1_HANDBACK_VERIFIED"
+            or handback["reserved_job_cancelled"] or handback["gpu0_signalled"]):
+        raise ValueError("Predecessor must be the reviewed20-sample numerical failure with clean handback")
+    physical = [json.loads(s) for s in (directory / "physical-requests.jsonl").read_text().splitlines()]
+    hf = [json.loads(s) for s in (directory / "hf-logprobs.jsonl").read_text().splitlines()]
+    if len(physical) != 40 or len(hf) != 20:
+        raise ValueError("Exact20 request/response pairs and HF vectors required")
+    result = []
+    original = {**config, "physical_request_cap": 20}
+    for i, row in enumerate(rows):
+        request, response = physical[2*i:2*i+2]
+        if (request["event"] != "request" or response["event"] != "response"
+                or request["user_id"] != row["user_id"] or response["user_id"] != row["user_id"]
+                or hf[i]["user_id"] != row["user_id"] or request["attempt"] != i+1 or response["attempt"] != i+1
+                or request["payload"] != completion_request(row, original)):
+            raise ValueError("Diagnostic predecessor changed input/order/payload/budget")
+        result.append({"user_id": row["user_id"], "hf": hf[i]["logprobs"],
+                       "vllm": response_prompt_logprobs(response["response"], row)})
+    return result

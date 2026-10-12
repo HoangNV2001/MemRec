@@ -3,6 +3,7 @@
 
 import argparse
 import importlib.metadata
+import importlib.util
 import inspect
 import json
 import os
@@ -16,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from src.cluster_runtime import require_allocation, require_project_root
 from src.cmirank.ppo_compat import load_compat_config, validate_compat_rows
-from src.cmirank.ppo_parity import completion_request, load_parity_config, parity_code_hashes, server_options
+from src.cmirank.ppo_parity import completion_request, diagnostic_parent, load_parity_config, parity_code_hashes, server_options
 from src.cmirank.ppo_runtime import load_runtime_config
 from src.cmirank.provenance import artifact_json_dumps, file_sha256
 
@@ -64,6 +65,8 @@ def main():
         raise ValueError("Frozen synthetic tokens changed")
     rows = [json.loads(line) for line in token_file.read_text().splitlines()]
     validate_compat_rows(rows, compat)
+    if config.get("hf_precision_diagnostic"):
+        diagnostic_parent(private / "runs" / config["diagnostic_parent_run_id"], config, rows)
     checkpoint = private / "runs" / compat["sft_run_id"] / "checkpoint"
     if set(p.name for p in checkpoint.iterdir() if p.is_file()) != set(compat["checkpoint_files_sha256"]):
         raise ValueError("Only the reviewed fixed-final SFT initializer may be used")
@@ -128,18 +131,27 @@ def main():
     if torch.cuda.is_initialized():
         raise ValueError("CPU schema probes initialized CUDA")
     run.mkdir()
+    precision_cpu = None
+    if config.get("hf_precision_diagnostic"):
+        spec = importlib.util.spec_from_file_location("owned_precision_worker",
+            ROOT / "scripts/cmirank/24_hf_parity_worker_gpu.py")
+        worker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(worker)
+        precision_cpu = worker.rehearse_precision_cpu(model_config.hf_config, run, config)
     (run / "tokens.jsonl").write_bytes(token_file.read_bytes())
     (run / "requests.jsonl").write_text("".join(json.dumps(r, sort_keys=True) + "\n" for r in probes))
     report = {"status": "PPO_PARITY_CPU_PREPARATION_PASS_GPU_NUMERICS_REMAIN", "source_commit": commit,
         "config_sha256": file_sha256(path), "code_sha256": parity_code_hashes(ROOT), "slurm_job_id": job,
         "parent_role_report_sha256": config["parent_role_report_sha256"], "samples": len(rows),
-        "max_total_input_tokens": max(len(r["input_ids"]) for r in rows), "physical_request_cap": 20,
+        "max_total_input_tokens": max(len(r["input_ids"]) for r in rows), "physical_request_cap": config["physical_request_cap"],
+        "hypothetical_native_payloads_not_executed": True,
         "native_schema_probes": len(probes), "native_cli_options_parsed": True,
         "native_text_only_registry_inputs_supported": native_text_only_supported,
         "native_gdn_prefill_backend": getattr(serving, "gdn_prefill_backend", None),
         "native_server_environment_checked": config.get("server_environment", {}),
         "native_kernel_warmup_skip_no_model_cpu_probe": bool(config.get("gdn_prefill_backend")),
         "native_fsdp_interfaces_imported": True,
+        "native_precision_control_cpu_rehearsal": precision_cpu,
         "native_fsdp_default_model_dtype": inspect.signature(FSDPEngineConfig).parameters["model_dtype"].default,
         "native_fsdp_default_training_precision_warning": "If model_dtype is None, unmodified native FSDP loads training parameters FP32; BF16 role smoke does not prove its optimizer memory fit. Freeze an explicit precision/offload profile before worker updates.",
         "native_source_sha256": {str(Path(inspect.getfile(c)).relative_to(Path(sys.prefix))):
@@ -157,6 +169,8 @@ def main():
                          "model_executor/warmup/kernel_warmup.py", "utils/deep_gemm.py", "envs.py"):
             native_file = native_root / relative
             report["native_source_sha256"][str(native_file.relative_to(Path(sys.prefix)))] = file_sha256(native_file)
+    if precision_cpu:
+        report["artifact_sha256"]["precision-cpu-logprobs.jsonl"] = file_sha256(run / "precision-cpu-logprobs.jsonl")
     (run / "report.json").write_text(artifact_json_dumps(report))
     print(json.dumps({k: report[k] for k in ("status", "samples", "elapsed_seconds")}), flush=True)
 
