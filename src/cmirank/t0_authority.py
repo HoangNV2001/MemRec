@@ -1,4 +1,4 @@
-"""Time-bounded owner grant for T0 handoffs of our restored keeper0 only.
+"""Owner grants: historical bounded T0/GPU0 lease and current GPU1 keeper policy.
 
 This is an attestation plus visible guards, never a host/container PID mapping.
 No scheduler mutations, CUDA initialization or implicit authority at import.
@@ -84,4 +84,31 @@ def standing_authorization(private, grant_path, grant_sha, receipt_run, proof, *
             "expires_at_utc": grant["expires_at_utc"], "checked_at_utc": now.isoformat(),
             "previous_handback_run_id": receipt_run, "previous_handback_sha256": first_sha,
             "task_kind": task_kind, "task_timeout_plus_handback_seconds": required_seconds,
+            "host_container_pid_mapping_observed": False}
+
+
+def gpu1_keeper_authorization(private, grant_path, grant_sha, proof, *, gpu_index, now=None):
+    """Researcher explicitly made GPU1 keeper exclusivity persistent, no per-step reply.
+
+    Caller still performs current two-pass UID/cgroup/command/CVD/NVML checks.
+    Does not extend authority to another allocation/card or an unknown workload.
+    """
+    private, grant_path = Path(private).resolve(), Path(grant_path).resolve()
+    if (gpu_index != 1 or not grant_path.is_relative_to(private / "approvals")
+            or file_sha256(grant_path) != grant_sha):
+        raise ValueError("GPU1 standing keeper authority must be scoped and immutable")
+    grant = json.loads(grant_path.read_text())
+    now = now or datetime.now(timezone.utc)
+    if (grant["schema_version"] != 1 or grant["gpu_index"] != 1
+            or grant["scope"] != "MemRec_single_GPU1_only_omni_gen_1_handoff"
+            or grant["valid_until"] != "researcher_supersedes" or not grant["no_per_step_confirmation_required"]
+            or not grant["gpu0_read_only"] or grant["reserved_job_cancellation_allowed"]
+            or grant["host_container_pid_mapping_observed"]
+            or proof["job"] != grant["job_id"] or proof["gpu1_uuid"] != grant["gpu_uuid"]
+            or not proof["protect_other_workloads"] or now < _utc(grant["received_at_utc"])):
+        raise ValueError("Standing GPU1 keeper authority does not cover this resource state")
+    return {"kind": "OWNER_STANDING_GPU1_KEEPER_EXCLUSIVITY", "authority_id": grant["authority_id"],
+            "grant_sha256": grant_sha, "received_at_utc": grant["received_at_utc"],
+            "valid_until": grant["valid_until"], "checked_at_utc": now.isoformat(),
+            "current_generator_step": proof["target"], "no_per_step_confirmation_required": True,
             "host_container_pid_mapping_observed": False}

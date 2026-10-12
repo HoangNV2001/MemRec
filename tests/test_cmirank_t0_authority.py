@@ -4,7 +4,7 @@ import json
 import pytest
 
 from src.cmirank.provenance import file_sha256
-from src.cmirank.t0_authority import standing_authorization
+from src.cmirank.t0_authority import gpu1_keeper_authorization, standing_authorization
 
 
 NOW = datetime(2026, 10, 12, 3, 0, tzinfo=timezone.utc)
@@ -93,3 +93,30 @@ def test_standing_grant_never_authorizes_training_or_unknown_resource_scope(tmp_
     with pytest.raises(ValueError):
         standing_authorization(tmp_path, path, file_sha256(path), run.name, proof,
                                task_kind="full_ppo_training", timeout_seconds=1500, now=NOW)
+
+
+@pytest.mark.parametrize("mutation", [None, "gpu0", "other_job", "other_uuid", "protected_gpu_write", "changed_receipt"])
+def test_persistent_gpu1_owner_attestation_is_not_fresh_confirmation_or_pid_mapping(tmp_path, mutation):
+    _, path, _ = setup(tmp_path)
+    grant = {"schema_version": 1, "authority_id": "current-gpu1", "received_at_utc": "2026-10-12T02:18:54Z",
+             "scope": "MemRec_single_GPU1_only_omni_gen_1_handoff", "valid_until": "researcher_supersedes",
+             "job_id": "42", "gpu_index": 1, "gpu_uuid": "GPU-approved-1", "gpu0_read_only": True,
+             "no_per_step_confirmation_required": True, "reserved_job_cancellation_allowed": False,
+             "host_container_pid_mapping_observed": False}
+    path.write_text(json.dumps(grant))
+    sha = file_sha256(path)
+    proof = {"job": "42", "gpu1_uuid": "GPU-approved-1", "target": "42.777", "protect_other_workloads": True}
+    index = 1
+    if mutation == "gpu0": index = 0
+    if mutation == "other_job": proof["job"] = "43"
+    if mutation == "other_uuid": proof["gpu1_uuid"] = "GPU-unknown"
+    if mutation == "protected_gpu_write": proof["protect_other_workloads"] = False
+    if mutation == "changed_receipt": path.write_text(json.dumps({**grant, "job_id": "43"}))
+    if mutation is not None:
+        with pytest.raises(ValueError):
+            gpu1_keeper_authorization(tmp_path, path, sha, proof, gpu_index=index, now=NOW)
+    else:
+        result = gpu1_keeper_authorization(tmp_path, path, sha, proof, gpu_index=index, now=NOW)
+        assert result["kind"] == "OWNER_STANDING_GPU1_KEEPER_EXCLUSIVITY"
+        assert result["no_per_step_confirmation_required"] and not result["host_container_pid_mapping_observed"]
+        assert result["current_generator_step"] == "42.777"

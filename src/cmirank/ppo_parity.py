@@ -10,21 +10,34 @@ from pathlib import Path
 from .provenance import file_sha256
 
 
-def load_parity_config(root, version=2):
-    if version not in (1, 2):
+def load_parity_config(root, version=3):
+    if version not in (1, 2, 3):
         raise ValueError("Unknown parity contract")
     config = json.loads((root / "configs/cmirank/ppo_parity_v1.json").read_text())
     path = root / f"configs/cmirank/ppo_parity_v{version}.json"
-    if version == 2:
-        retry = json.loads(path.read_text())
+    if version >= 2:
+        retry = json.loads((root / "configs/cmirank/ppo_parity_v2.json").read_text())
         if (set(retry) != {"schema_version", "inherits", "prepare_run_id", "run_id", "language_model_only", "reason"}
                 or retry["inherits"] != "configs/cmirank/ppo_parity_v1.json"
                 or retry["language_model_only"] is not True):
             raise ValueError("Text-only serving retry cannot alter weights, tokens, or numerical thresholds")
         config.update(retry)
+    if version == 3:
+        retry = json.loads(path.read_text())
+        if (set(retry) != {"schema_version", "inherits", "prepare_run_id", "run_id", "gpu_index",
+                          "resource_policy", "gdn_prefill_backend", "server_environment", "server_kernel_config", "reason"}
+                or retry["inherits"] != "configs/cmirank/ppo_parity_v2.json"
+                or retry["gpu_index"] != 1 or retry["resource_policy"] != "gpu1_only_gpu0_all_workloads_read_only"
+                or retry["gdn_prefill_backend"] != "triton"
+                or retry["server_kernel_config"] != {"enable_flashinfer_autotune": False}
+                or retry["server_environment"] != {"VLLM_USE_DEEP_GEMM": "0", "VLLM_DEEP_GEMM_WARMUP": "skip"}):
+            raise ValueError("GPU1/native backend retry cannot alter the numerical/research contract")
+        config.update(retry)
+    expected_gpu = 1 if version == 3 else 0
+    expected_policy = f"gpu{expected_gpu}_only_gpu{1-expected_gpu}_all_workloads_read_only"
     if (config["samples"] != 20 or config["physical_request_cap"] != 20
             or config["generated_tokens_per_request"] != 1 or config["tensor_parallel_size"] != 1
-            or config["gpu_index"] != 0 or config["resource_policy"] != "gpu0_only_gpu1_all_workloads_read_only"
+            or config["gpu_index"] != expected_gpu or config["resource_policy"] != expected_policy
             or config["optimizer_updates"] or config["books_outcomes_accessed"]
             or config["ranking_metrics_computed"] or config["training_ready"] or config["ppo_worker_proven"]
             or config["temperature"] != 0 or config["prompt_logprob_temperature"] != 1):
@@ -49,6 +62,10 @@ def server_options(config):
         "--no-enable-prefix-caching", "--enforce-eager"]
     if config.get("language_model_only"):
         options.append("--language-model-only")
+    if config.get("gdn_prefill_backend"):
+        options.extend(["--gdn-prefill-backend", config["gdn_prefill_backend"]])
+    if config.get("server_kernel_config"):
+        options.extend(["--kernel-config", json.dumps(config["server_kernel_config"], sort_keys=True)])
     return options
 
 
@@ -110,6 +127,11 @@ def verify_parity_preparation(directory, config, *, commit, config_sha, code_sha
         raise ValueError("Parity GPU task requires its exact-source completed CPU receipt")
     if config.get("language_model_only") and report.get("native_text_only_registry_inputs_supported") is not False:
         raise ValueError("Native registry must bypass multimodal budget before GPU text-only retry")
+    if config.get("gdn_prefill_backend") and (
+            report.get("native_gdn_prefill_backend") != "triton"
+            or report.get("native_server_environment_checked") != config["server_environment"]
+            or report.get("native_kernel_warmup_skip_no_model_cpu_probe") is not True):
+        raise ValueError("Native backend/environment receipt required before the kernel retry")
     for name, sha in report["artifact_sha256"].items():
         if Path(name).name != name or file_sha256(directory / name) != sha:
             raise ValueError("Prepared parity artifact changed")

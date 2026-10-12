@@ -181,3 +181,20 @@ def test_gpu1_external_workload_is_snapshot_only_even_if_it_finishes(monkeypatch
     assert calls == [["scancel", "21273.20"]]
     assert record["gpu0_idle"] and not record["gpu1_signalled"] and not record["reserved_job_cancelled"]
     assert record["protected_gpu_pids_after"] == []
+
+
+def test_gpu1_selected_card_protects_all_gpu0_workloads_without_signal(monkeypatch, tmp_path):
+    calls = setup_fake_handoff(monkeypatch)
+    proof = {"target": "21273.19", "protected_step": None, "gpu1_uuid": "GPU-one",
+             "nvml_gpu1_pids": [999], "members": [{"pid": 123, "role": "python"}],
+             "protected_gpu_uuid": "GPU-zero", "protected_gpu_pids": [77],
+             "protect_other_workloads": True, "pid_mapping": "NOT_OBSERVED"}
+    monkeypatch.setattr(handoff, "inspect", lambda *a, **kw: dict(proof))
+    monkeypatch.setattr(handoff.subprocess, "check_output", lambda *a, **kw:
+        "StepId=21273.33 UserId=1052 State=RUNNING Name=foreign-gpu0\n")
+    cards = [GPUCard(0, "GPU-zero", "H100", 90, 9000, 81559), GPUCard(1, "GPU-one", "H100", 0, 1, 81559)]
+    monkeypatch.setattr(handoff, "gpu_snapshot", lambda: (cards, {"GPU-zero": {77}}, "cards", "apps"))
+    result = handoff.handoff(tmp_path, "21273.19", gpu_index=1, protect_other_workloads=True)
+    assert calls == [["scancel", "21273.19"]]
+    assert result["gpu1_idle"] and result["protected_gpu_pids_after"] == [77]
+    assert not result["gpu0_signalled"] and not result["reserved_job_cancelled"]

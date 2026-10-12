@@ -36,8 +36,8 @@ def keeper_names(gpu_index):
 
 def validate_protection(gpu_index, protect_other_workloads):
     keeper_names(gpu_index)
-    if type(protect_other_workloads) is not bool or (protect_other_workloads and gpu_index != 0):
-        raise ValueError("Other-workload read-only protection is limited to the authorized GPU0 task")
+    if type(protect_other_workloads) is not bool:
+        raise ValueError("Other-workload read-only protection must be an explicit boolean")
 
 
 def confirmed_target(job, target, rows, uid, *, gpu_index=1, protect_other_workloads=False):
@@ -50,7 +50,7 @@ def confirmed_target(job, target, rows, uid, *, gpu_index=1, protect_other_workl
             or generators[0].get("State") != "RUNNING" or generators[0].get("UserId") != str(uid)):
         raise ValueError(f"Current GPU{gpu_index} generator differs from the owner-confirmed step")
     if protect_other_workloads:
-        # GPU1 is READ-ONLY, whether its external owner runs a keeper, TTS or
+        # The nonselected card is READ-ONLY, whether it runs a keeper, TTS or
         # nothing. Never invent a Slurm/NVML mapping or a cancellation target.
         return None
     protected = [r for r in rows if r.get("Name") == protected_name]
@@ -154,24 +154,30 @@ def handoff(run, owner_confirmed_step, *, gpu_index=1, protect_other_workloads=F
         raise RuntimeError("Generator identity changed during preflight; require a fresh handoff")
     record = {**second, "owner_confirmation": f"Fresh researcher confirmation: GPU{gpu_index} only runs this omni-gen-{gpu_index} step",
               "step_cancelled": False, "reserved_job_cancelled": False, f"gpu{1 - gpu_index}_signalled": False}
-    if os.environ.get("MEMREC_T0_AUTHORITY_PATH"):
+    if os.environ.get("MEMREC_KEEPER_AUTHORITY_PATH") and os.environ.get("MEMREC_T0_AUTHORITY_PATH"):
+        raise ValueError("Do not mix superseded GPU0 lease and the current GPU1 standing grant")
+    def authorize_current():
+        if os.environ.get("MEMREC_KEEPER_AUTHORITY_PATH"):
+            from .t0_authority import gpu1_keeper_authorization
+            return gpu1_keeper_authorization(
+                Path(os.environ["MEMREC_ROOT"]), Path(os.environ["MEMREC_KEEPER_AUTHORITY_PATH"]),
+                os.environ["MEMREC_KEEPER_AUTHORITY_SHA256"], second, gpu_index=gpu_index)
         if gpu_index != 0 or not protect_other_workloads:
             raise ValueError("Standing T0 grant cannot authorize another resource policy")
         from .t0_authority import standing_authorization
-        record["authorization"] = standing_authorization(
+        return standing_authorization(
             Path(os.environ["MEMREC_ROOT"]), Path(os.environ["MEMREC_T0_AUTHORITY_PATH"]),
             os.environ["MEMREC_T0_AUTHORITY_SHA256"], os.environ["MEMREC_T0_KEEPER_RECEIPT_RUN_ID"], second,
             task_kind=os.environ["MEMREC_TASK_KIND"], timeout_seconds=task_timeout_seconds)
-        record["owner_confirmation"] = "Time-bounded researcher T0 exclusivity grant; own restored keeper receipt and current guards, not a new per-step reply or observed PID mapping"
+    if os.environ.get("MEMREC_KEEPER_AUTHORITY_PATH") or os.environ.get("MEMREC_T0_AUTHORITY_PATH"):
+        record["authorization"] = authorize_current()
+        record["owner_confirmation"] = "Researcher standing exclusivity grant and current visible guards, not a new per-step reply or observed host/container PID mapping"
     path = run / f"gpu{gpu_index}-handoff.json"
     path.write_text(json.dumps(record, indent=2) + "\n")
     require_allocation()
     if "authorization" in record:
         # Recheck expiry/scope immediately before the one permitted step signal.
-        record["authorization"] = standing_authorization(
-            Path(os.environ["MEMREC_ROOT"]), Path(os.environ["MEMREC_T0_AUTHORITY_PATH"]),
-            os.environ["MEMREC_T0_AUTHORITY_SHA256"], os.environ["MEMREC_T0_KEEPER_RECEIPT_RUN_ID"], second,
-            task_kind=os.environ["MEMREC_TASK_KIND"], timeout_seconds=task_timeout_seconds)
+        record["authorization"] = authorize_current()
         path.write_text(json.dumps(record, indent=2) + "\n")
     # One positional numeric job.step only: NEVER job-only, --user/name/all,
     # batch/extern, protected card, NVML PID, shared STOP file or generator restart.
@@ -193,7 +199,7 @@ def handoff(run, owner_confirmed_step, *, gpu_index=1, protect_other_workloads=F
         if card.uuid != record[f"gpu{gpu_index}_uuid"]:
             raise RuntimeError("Authorized physical GPU changed; do not load a model")
         if protect_other_workloads:
-            other = [c for c in cards if c.index == 1]
+            other = [c for c in cards if c.index == 1 - gpu_index]
             if len(other) != 1 or other[0].uuid != record["protected_gpu_uuid"]:
                 raise RuntimeError("Protected physical GPU identity changed; do not load a model")
             # External tasks may finish/start independently. Only snapshot;

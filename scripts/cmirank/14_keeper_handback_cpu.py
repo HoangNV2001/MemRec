@@ -23,7 +23,7 @@ def handback_state(job: str, rows: list[dict], uid: int, *, gpu_index=1,
     protected = [r for r in rows if r.get("Name") == protected_name and r.get("State") == "RUNNING"]
     active = [r for r in rows if r.get("Name") == selected_name and r.get("State") == "RUNNING"]
     if protect_other_workloads:
-        protected = []  # Every GPU1 workload is outside our mutation scope.
+        protected = []  # Every nonselected-card workload is outside mutation scope.
     elif len(protected) != 1 or protected[0].get("UserId") != str(uid):
         raise ValueError(f"Protected GPU{1 - gpu_index} generator is not uniquely established")
     if len(active) > 1 or any(r.get("UserId") != str(uid) for r in active):

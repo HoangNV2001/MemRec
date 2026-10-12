@@ -37,7 +37,7 @@ def main():
     from transformers import Qwen3_5ForConditionalGeneration
     if (torch.cuda.device_count() != 1 or canonical_gpu_uuid(str(torch.cuda.get_device_properties(0).uuid))
             != canonical_gpu_uuid(os.environ["MEMREC_SELECTED_GPU_UUID"])):
-        raise ValueError("HF worker logical CUDA0 does not match the selected physical GPU0")
+        raise ValueError("HF worker logical CUDA0 does not match the selected physical GPU UUID")
     torch.cuda.set_per_process_memory_fraction(0.90, 0)
     torch.set_num_threads(4)
     torch.manual_seed(config["seed"])

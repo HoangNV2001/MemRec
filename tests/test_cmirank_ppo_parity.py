@@ -75,6 +75,8 @@ def test_exact_source_artifact_receipt_required_for_parity_gpu(tmp_path):
     report = {"status": "PPO_PARITY_CPU_PREPARATION_PASS_GPU_NUMERICS_REMAIN", "source_commit": "source",
         "config_sha256": "config", "code_sha256": {"code": "sha"}, "gpu_requested": False,
         "native_text_only_registry_inputs_supported": False,
+        "native_gdn_prefill_backend": "triton", "native_server_environment_checked": config["server_environment"],
+        "native_kernel_warmup_skip_no_model_cpu_probe": True,
         "optimizer_updates": 0, "samples": 20, "artifact_sha256": {"tokens.jsonl": file_sha256(tokens)}}
     (tmp_path / "report.json").write_text(json.dumps(report))
     kwargs = dict(commit="source", config_sha="config", code_sha={"code": "sha"})
@@ -87,7 +89,7 @@ def test_cpu_coordinator_never_holds_hf_weights_while_starting_service():
     assert 'import torch' not in source
     assert source.index('worker.wait(timeout=600)') < source.index('server = subprocess.Popen')
     assert source.index('"hf-release.json"') < source.index('server = subprocess.Popen')
-    assert 'gpu_index=0, protect_other_workloads=True' in source
+    assert 'gpu_index=gpu_index, protect_other_workloads=True' in source
     assert source.index('stop_owned(server, str(checkpoint))\n        passed') < source.index('save(run / "report.json"')
     assert '--no-enable-prefix-caching' in server_options(load_parity_config(ROOT)[0])
     assert '--enforce-eager' in server_options(load_parity_config(ROOT)[0])
@@ -112,7 +114,7 @@ def test_text_only_retry_rejects_unreviewed_threshold_change(tmp_path):
     retry = json.loads(path.read_text())
     retry["max_token_absolute_logprob_delta"] = 10
     path.write_text(json.dumps(retry))
-    with pytest.raises(ValueError): load_parity_config(tmp_path)
+    with pytest.raises(ValueError): load_parity_config(tmp_path, 2)
 
 
 def test_cpu_preparation_checks_real_native_multimodal_registry_branch_not_only_cli():
@@ -120,3 +122,14 @@ def test_cpu_preparation_checks_real_native_multimodal_registry_branch_not_only_
     assert "MULTIMODAL_REGISTRY.supports_multimodal_inputs(model_config)" in source
     assert "model_config = engine_args.create_model_config()" in source
     assert "from_pretrained(" not in source
+
+
+def test_gpu1_backend_retry_preserves_the_probability_and_weight_contract():
+    previous, _ = load_parity_config(ROOT, 2)
+    current, _ = load_parity_config(ROOT, 3)
+    assert {k for k in previous if previous[k] != current[k]} == {
+        "schema_version", "inherits", "prepare_run_id", "run_id", "gpu_index", "resource_policy", "reason"}
+    assert current["gpu_index"] == 1 and current["gdn_prefill_backend"] == "triton"
+    assert server_options(current)[-4:-2] == ["--gdn-prefill-backend", "triton"]
+    assert current["server_kernel_config"] == {"enable_flashinfer_autotune": False}
+    assert current["server_environment"] == {"VLLM_USE_DEEP_GEMM": "0", "VLLM_DEEP_GEMM_WARMUP": "skip"}

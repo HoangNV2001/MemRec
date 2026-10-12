@@ -216,8 +216,7 @@ def test_gpu0_keeper_can_be_restored_with_foreign_gpu1_tts_untouched():
     for rows in ([active, active], [dict(active, UserId="99")], [dict(active, StepId="21820.batch")]):
         with pytest.raises(ValueError):
             keeper.handback_state("21820", rows, 1052, gpu_index=0, protect_other_workloads=True)
-    with pytest.raises(ValueError):
-        keeper.handback_state("21820", [tts], 1052, gpu_index=1, protect_other_workloads=True)
+    assert keeper.handback_state("21820", [tts], 1052, gpu_index=1, protect_other_workloads=True) == ("START_GPU1_KEEPER", None, None)
 
 
 @pytest.mark.parametrize("change", [{"seed": 43}, {"max_new_tokens": 256}, {"gpu_index": 1},

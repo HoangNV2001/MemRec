@@ -10,6 +10,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -69,7 +70,10 @@ def main():
     for name, sha in compat["checkpoint_files_sha256"].items():
         if file_sha256(checkpoint / name) != sha:
             raise ValueError("Reviewed initializer weights changed")
+    # These are native server process options, not training/model changes.
+    os.environ.update(config.get("server_environment", {}))
     import torch
+    import vllm.envs as native_envs
     from vllm.engine.arg_utils import EngineArgs
     from vllm.config import ModelConfig
     from vllm.entrypoints.openai.completion.protocol import CompletionRequest
@@ -90,6 +94,17 @@ def main():
     serving = cli.parse_args(["--model", str(checkpoint), *server_options(config)])
     if serving.tensor_parallel_size != 1 or serving.enable_prefix_caching or not serving.enforce_eager:
         raise ValueError("Native CLI altered the single-card/eager/no-prefix-cache gate")
+    if config.get("gdn_prefill_backend"):
+        if (serving.gdn_prefill_backend != "triton" or native_envs.VLLM_USE_DEEP_GEMM
+                or native_envs.VLLM_DEEP_GEMM_WARMUP != "skip"
+                or serving.kernel_config.enable_flashinfer_autotune):
+            raise ValueError("Native kernel/backend options did not disable unavailable optional JIT paths")
+        from vllm.model_executor.warmup.kernel_warmup import kernel_warmup
+        # Execute native skip routing with an explicit NO-MODEL CPU shim.
+        # Unexpected get_model would fail; this is not a production worker test.
+        kernel_warmup(SimpleNamespace(
+            vllm_config=SimpleNamespace(kernel_config=serving.kernel_config),
+            model_runner=SimpleNamespace(is_pooling_model=True, attn_groups=[])))
     native_text_only_supported = None
     if config.get("language_model_only"):
         if not serving.language_model_only:
@@ -121,6 +136,9 @@ def main():
         "max_total_input_tokens": max(len(r["input_ids"]) for r in rows), "physical_request_cap": 20,
         "native_schema_probes": len(probes), "native_cli_options_parsed": True,
         "native_text_only_registry_inputs_supported": native_text_only_supported,
+        "native_gdn_prefill_backend": getattr(serving, "gdn_prefill_backend", None),
+        "native_server_environment_checked": config.get("server_environment", {}),
+        "native_kernel_warmup_skip_no_model_cpu_probe": bool(config.get("gdn_prefill_backend")),
         "native_fsdp_interfaces_imported": True,
         "native_fsdp_default_model_dtype": inspect.signature(FSDPEngineConfig).parameters["model_dtype"].default,
         "native_fsdp_default_training_precision_warning": "If model_dtype is None, unmodified native FSDP loads training parameters FP32; BF16 role smoke does not prove its optimizer memory fit. Freeze an explicit precision/offload profile before worker updates.",
@@ -133,6 +151,12 @@ def main():
         "full_weights_loaded": False, "books_outcomes_accessed": False, "training_ready": False,
         "artifact_sha256": {n: file_sha256(run / n) for n in ("tokens.jsonl", "requests.jsonl")},
         "elapsed_seconds": time.monotonic() - started}
+    if config.get("gdn_prefill_backend"):
+        native_root = Path(inspect.getfile(EngineArgs)).parents[1]
+        for relative in ("model_executor/layers/mamba/gdn_linear_attn.py",
+                         "model_executor/warmup/kernel_warmup.py", "utils/deep_gemm.py", "envs.py"):
+            native_file = native_root / relative
+            report["native_source_sha256"][str(native_file.relative_to(Path(sys.prefix)))] = file_sha256(native_file)
     (run / "report.json").write_text(artifact_json_dumps(report))
     print(json.dumps({k: report[k] for k in ("status", "samples", "elapsed_seconds")}), flush=True)
 

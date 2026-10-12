@@ -1,0 +1,12 @@
+{
+  "schema_version": 3,
+  "inherits": "configs/cmirank/ppo_parity_v2.json",
+  "prepare_run_id": "cmirank-ppo-parity-data-v3-20261012-hnv",
+  "run_id": "cmirank-ppo-vllm-hf-parity-v3-20261012-hnv",
+  "gpu_index": 1,
+  "resource_policy": "gpu1_only_gpu0_all_workloads_read_only",
+  "gdn_prefill_backend": "triton",
+  "server_kernel_config": {"enable_flashinfer_autotune": false},
+  "server_environment": {"VLLM_USE_DEEP_GEMM": "0", "VLLM_DEEP_GEMM_WARMUP": "skip"},
+  "reason": "Researcher switched exclusive single-card authority to GPU1. v2 had zero completions: FlashInfer GDN JIT requires unavailable cuda/ptx headers; default DeepGEMM warmup unconditionally queries a missing backend even for BF16. Use native Triton GDN and skip unneeded DeepGEMM warmup. All weights/tokens/dtype/request budgets/numerical thresholds unchanged."
+}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Twenty raw-token vLLM/HF parity probes; CPU coordinator, one owned GPU0.
+"""Twenty raw-token vLLM/HF parity probes; CPU coordinator, one authorized GPU.
 
 HF child exits/release-audits before vLLM starts. No held model waits for CPU
 preparation or researcher input. Outer controller always restores keeper0.
@@ -63,6 +63,9 @@ def main():
     private = require_project_root(Path(os.environ["MEMREC_ROOT"]))
     job = require_allocation()
     config, path = load_parity_config(ROOT)
+    gpu_index = config["gpu_index"]
+    if gpu_index == 1 and not os.environ.get("MEMREC_KEEPER_AUTHORITY_PATH"):
+        raise ValueError("Current GPU1 resource policy requires the recorded researcher standing authority")
     compat, _ = load_compat_config(ROOT)
     runtime, _ = load_runtime_config(ROOT)
     run = args.run_dir.resolve()
@@ -104,25 +107,26 @@ def main():
                 "preparation_report_sha256": file_sha256(private / "runs" / config["prepare_run_id"] / "report.json"),
                 "slurm_job_id": job, "optimizer_updates": 0, "ranking_metrics_computed": False,
                 "compiler_cache_paths": {k: os.environ.get(k) for k in
-                    ("TRITON_CACHE_DIR", "VLLM_CACHE_ROOT", "TORCHINDUCTOR_CACHE_DIR", "CUDA_CACHE_PATH")}}
+                    ("TRITON_CACHE_DIR", "VLLM_CACHE_ROOT", "TORCHINDUCTOR_CACHE_DIR", "CUDA_CACHE_PATH",
+                     "FLASHINFER_WORKSPACE_BASE", "DG_JIT_CACHE_DIR")}}
     save(run / "manifest.json", manifest)
     try:
-        manifest["gpu0_handoff"] = handoff(run, args.owner_confirmed_generator_step,
-                                            gpu_index=0, protect_other_workloads=True,
+        manifest["gpu_handoff"] = handoff(run, args.owner_confirmed_generator_step,
+                                            gpu_index=gpu_index, protect_other_workloads=True,
                                             task_timeout_seconds=config["timeout_minutes"] * 60)
         cards, apps, raw, raw_apps = gpu_snapshot()
-        card = select_reserved_gpu(cards, set(apps), gpu_index=0)
-        if card.uuid != manifest["gpu0_handoff"]["gpu0_uuid"]:
+        card = select_reserved_gpu(cards, set(apps), gpu_index=gpu_index)
+        if card.uuid != manifest["gpu_handoff"][f"gpu{gpu_index}_uuid"]:
             raise ValueError("Physical GPU changed after authorized handoff")
         cards, apps, raw, raw_apps = gpu_snapshot()
-        if select_reserved_gpu(cards, set(apps), gpu_index=0).uuid != card.uuid:
-            raise ValueError("GPU0 no longer idle immediately before worker initialization")
+        if select_reserved_gpu(cards, set(apps), gpu_index=gpu_index).uuid != card.uuid:
+            raise ValueError("Authorized GPU no longer idle immediately before worker initialization")
         pci = subprocess.check_output(["nvidia-smi", "--query-gpu=index,uuid,pci.bus_id",
                                        "--format=csv,noheader,nounits"], text=True)
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
         os.environ["CUDA_VISIBLE_DEVICES"] = verified_numeric_cuda_binding(cards, card, pci)
         os.environ["MEMREC_SELECTED_GPU_UUID"] = card.uuid
-        manifest.update(gpu_uuid=card.uuid, physical_gpu_index=0, cuda_visible_devices=os.environ["CUDA_VISIBLE_DEVICES"])
+        manifest.update(gpu_uuid=card.uuid, physical_gpu_index=gpu_index, cuda_visible_devices=os.environ["CUDA_VISIBLE_DEVICES"])
         save(run / "manifest.json", manifest)
         hf_log = (run / "hf-worker.log").open("x")
         worker = subprocess.Popen([sys.executable, "-u", worker_marker, "--run-dir", str(run)],
@@ -130,8 +134,8 @@ def main():
         if worker.wait(timeout=600) != 0:
             raise RuntimeError("Owned HF forward-only worker failed; no vLLM load")
         cards, apps, raw, raw_apps = gpu_snapshot()
-        if select_reserved_gpu(cards, set(apps), gpu_index=0).uuid != card.uuid:
-            raise ValueError("HF child did not completely release GPU0 before vLLM load")
+        if select_reserved_gpu(cards, set(apps), gpu_index=gpu_index).uuid != card.uuid:
+            raise ValueError("HF child did not completely release the authorized GPU before vLLM load")
         save(run / "hf-release.json", {"child_exited": True, "gpu_released": True, "gpu_uuid": card.uuid})
         hf_rows = [json.loads(s) for s in (run / "hf-logprobs.jsonl").read_text().splitlines()]
         if len(hf_rows) != 20 or [r["user_id"] for r in hf_rows] != [r["user_id"] for r in rows]:
@@ -139,7 +143,11 @@ def main():
         server_log = (run / "vllm-server.log").open("x")
         server_args = [str(private / "envs" / runtime["environment_name"] / "bin/vllm"), "serve", str(checkpoint),
                        *server_options(config)]
-        server = subprocess.Popen(server_args, stdout=server_log, stderr=subprocess.STDOUT, start_new_session=True)
+        server_environment = {**os.environ, **config.get("server_environment", {})}
+        manifest["server_environment_overrides"] = config.get("server_environment", {})
+        save(run / "manifest.json", manifest)
+        server = subprocess.Popen(server_args, env=server_environment,
+            stdout=server_log, stderr=subprocess.STDOUT, start_new_session=True)
         (run / "server.pid").write_text(str(server.pid) + "\n")
         deadline = time.monotonic() + config["server_startup_timeout_seconds"]
         base = f"http://127.0.0.1:{config['port']}"
@@ -191,6 +199,8 @@ def main():
             "initial_shared_weight_parity_only": True, "production_optimized_rollout_proven": False,
             "server_mode": "native_vllm_eager_no_prefix_cache_bf16_tp1",
             "language_model_only": config.get("language_model_only", False),
+            "gdn_prefill_backend": config.get("gdn_prefill_backend", "auto"),
+            "server_environment_overrides": config.get("server_environment", {}),
             "max_token_absolute_logprob_delta": max(r["max_token_absolute_logprob_delta"] for r in comparisons),
             "max_mean_absolute_logprob_delta": max(r["mean_absolute_logprob_delta"] for r in comparisons),
             "max_action_absolute_logratio": max(abs(r["action_log_likelihood_ratio"]) for r in comparisons),

@@ -72,6 +72,11 @@ vLLM do thiếu image processor trong checkpoint text-only, 0 completion**, chư
 đo được numerical parity. GPU đã nhả, keeper phục hồi. V2 dùng native text-only
 mode và kiểm nhánh registry trên CPU trước retry; giữ nguyên weights/tokens/ngưỡng
 ([§0.30](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#030-parity-v1-startup-fail-native-text-only-retry--2026-10-12)).
+**V2 cũng dừng trước completion** do optional FlashInfer/DeepGEMM startup,
+không phải kết quả numerical/ranking fail. Model đã nhả và keeper phục hồi.
+V3 dùng native Triton/skip optional warmup, cùng20 mẫu và ngưỡng; user chuyển
+quyền single-card sang GPU1, tự handoff keeper1 với guards/handback đầy đủ.
+Chi tiết và giới hạn ở [§0.32](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#032-parity-v2-terminal-fail-gpu1native-kernel-v3-amendment--2026-10-12).
 Phase pass và đủ điều kiện sẽ tự triển phase tiếp; chỉ
 end-turn để chờ xử lý dài hoặc cần researcher quyết định.
 PPO worker/rollout/optimizer memory và canonical primary memory vẫn còn gate.

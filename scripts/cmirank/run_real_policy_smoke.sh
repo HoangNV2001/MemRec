@@ -46,7 +46,9 @@ export TRITON_CACHE_DIR="$MEMREC_ROOT/cache/runtime-hnv/$RUN_ID/triton"
 export VLLM_CACHE_ROOT="$MEMREC_ROOT/cache/runtime-hnv/$RUN_ID/vllm"
 export TORCHINDUCTOR_CACHE_DIR="$MEMREC_ROOT/cache/runtime-hnv/$RUN_ID/torchinductor"
 export CUDA_CACHE_PATH="$MEMREC_ROOT/cache/runtime-hnv/$RUN_ID/cuda"
-mkdir -p "$TMPDIR" "$TRITON_CACHE_DIR" "$VLLM_CACHE_ROOT" "$TORCHINDUCTOR_CACHE_DIR" "$CUDA_CACHE_PATH" "$MEMREC_ROOT/logs"
+export FLASHINFER_WORKSPACE_BASE="$MEMREC_ROOT/cache/runtime-hnv/$RUN_ID/flashinfer"
+export DG_JIT_CACHE_DIR="$MEMREC_ROOT/cache/runtime-hnv/$RUN_ID/deep-gemm"
+mkdir -p "$TMPDIR" "$TRITON_CACHE_DIR" "$VLLM_CACHE_ROOT" "$TORCHINDUCTOR_CACHE_DIR" "$CUDA_CACHE_PATH" "$FLASHINFER_WORKSPACE_BASE" "$DG_JIT_CACHE_DIR" "$MEMREC_ROOT/logs"
 exec 9>"$MEMREC_ROOT/cache/real-memory-gpu-hnv.lock"
 flock -n 9 || exit 2
 TASK_PID=''
