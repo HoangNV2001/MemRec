@@ -60,9 +60,15 @@ xác nhận. **FA2 build/import đã pass** sau67,82 phút CPU resume,6 artifact
 khớp SHA. CPU prep20 mẫu đã pass22,73s. **Smoke full4B v1 đã dừng sau53,75s**:
 kernel và actor/reference20/20 pass, nhưng guard critic của harness giả định
 sai cấu trúc native VeRL. GPU đã nhả, keeper0 bật lại;14 artifacts hash-match.
-V2 đã sửa harness theo native scalar `score`/logits, thêm CPU miniature20 mẫu
-và exact shared-backbone audit trước GPU; kết quả v2 pending. **Chưa PPO/quality
-gain** (§0.24–0.26). Phase pass và đủ điều kiện sẽ tự triển phase tiếp; chỉ
+V2 đã sửa harness theo native scalar `score`/logits và tied embeddings.
+**CPU v2 pass20/20 trong20,10s**, backbone transfer/head gradients/roundtrip
+đạt,3 artifacts SHA-match;386 tests pass. **Full GPU v2 pass** kernel/actor/
+critic20/20,68,09s, checkpoint delta0; allocated27,78GiB/reserved36,41GiB.
+GPU đã nhả, keeper0 phục hồi,17 artifacts SHA-match. Đã tự triển gate CPU
+và mã smoke tiếp theo: vLLM/HF response-logprob parity trên cùng20 synthetic
+inputs. **Chưa PPO/quality gain**, native worker/optimizer memory vẫn cần gate
+(§0.24–0.29).
+Phase pass và đủ điều kiện sẽ tự triển phase tiếp; chỉ
 end-turn để chờ xử lý dài hoặc cần researcher quyết định.
 PPO worker/rollout/optimizer memory và canonical primary memory vẫn còn gate.
 Không đổi driver/env baseline, không tự dùng GRPO/LoRA/2GPU.
