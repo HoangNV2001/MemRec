@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "run_id": "cmirank-ppo-fla-overlay-cpu-v1-20261012-hnv",
+  "overlay_name": "cmirank-fla-052-torch211-cu129-v1-hnv",
+  "version_selection": "Newest non-prerelease official pure Python wheel compatible with Python3.10 and the existing pinned dependencies, before any GPU probability measurement; no version search against numerical/ranking results.",
+  "samples": 20,
+  "gpu_requested": false,
+  "full_weights_loaded": false,
+  "base_environment_mutation": false,
+  "training_ready": false,
+  "wheels": [
+    {
+      "name": "flash-linear-attention",
+      "version": "0.5.2",
+      "filename": "flash_linear_attention-0.5.2-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/90/d2/2070e3cf2148c5cce99ca4876633c4b7b89ec085323600bd3d47aeacd306/flash_linear_attention-0.5.2-py3-none-any.whl",
+      "size": 399590,
+      "sha256": "dcf405d81f5426393b59037097aa700d0f4a841465d5028d5aa543f4502f2400"
+    },
+    {
+      "name": "fla-core",
+      "version": "0.5.2",
+      "filename": "fla_core-0.5.2-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/2d/ed/dfe19c4da779957eb6a42a26812f9b4e2280bf757a17a71933ff59ffcb98/fla_core-0.5.2-py3-none-any.whl",
+      "size": 819225,
+      "sha256": "5e830c85bad3d0d34677f98ac7074d08687a3756f0f0499d95ceb96eb6920761"
+    }
+  ]
+}

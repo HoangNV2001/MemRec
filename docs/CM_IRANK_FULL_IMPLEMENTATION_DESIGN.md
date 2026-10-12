@@ -737,6 +737,30 @@ Direct source inspection shows HF's available fallback GDN uses float32 intermed
 
 New **diagnostic-only** inherited `ppo_parity_v4.json`, fresh run IDs: reuse hash-verified v3 behavior probabilities, **0 HTTP calls/0 generations/0 updates**, same20 full inputs. Execute all five fixed controls: repeat original BF16/FA2; same captured BF16 backbone with response-only BF16 readout; same backbone with IEEE FP32 readout; BF16/SDPA; ephemeral full FP32/SDPA. First three distinguish readout shape/rounding, last two distinguish attention/full precision. No checkpoint save or primary-model/threshold change, no best-variant promotion, no Books outcomes. Repeat baseline must match its original response/EOS vectors **exactly**. Source-bound CPU preparation first rehearses all100 vectors using a native miniature SDPA-only proxy, explicitly **not** full4B/FA2 proof. Then one guarded GPU1 HF child runs the full controls and exits/releases **before CPU comparisons**, followed by original keeper1 restoration. Completion status explicitly leaves the original numerical gate failed. A verified software-cause repair or researcher decision is required before a changed production runtime/profile and fresh confirmation probes, not an automatic jump to PPO.
 
+### 0.35 Precision diagnostic CPU proxy PASS; GPU controller launched — 2026-10-12
+
+Exact source **8a5c65f22e3f5289efde3f3ce07dcb5f84fadf58**,427 local tests PASS. CPU preparation **32.619s**: native miniature20 ×5 control flows/hooks/dtypes produce100 finite vectors, no CUDA/full weights/updates/generation.4 small artifacts independently SHA-match; report **`d70fec700f1e0272f3d8859d96df1078a4bc3541af07f5a1dbb661b702e23fd7`**. Tiny-vocabulary config emitted an inherited official-EOS warning; no generation is tested, explicitly supplied miniature forward IDs are valid, and full-vocabulary official inputs/EOS are unchanged. This proxy proves control flow only, not full-model FA2/numerical agreement.
+
+Standing GPU1 authority/current guards preflight PASS; bounded full-model diagnostic controller launched with same20 frozen inputs and all five controls,0 new requests, no profile selection or PPO promotion. Owned model exit/release must precede CPU comparison and original keeper1 handback. Terminal diagnostic/cleanup result pending; resume the same SSH session once. The original17/20 parity result remains FAIL regardless of a diagnostic process exit0.
+
+### 0.36 Fixed precision diagnosis COMPLETE; native GDN dependency next — 2026-10-12
+
+Exact8a5c65f diagnostic completed **22.470s**,100 forward vectors (20 ×5),0 calls/updates. Original BF16/FA2 vectors repeat **exactly**. Full-model findings against the frozen vLLM probabilities:
+
+| Mandatory control | Within all original bounds /20 | Max token absolute difference |
+|---|---:|---:|
+| Original BF16/FA2 repeat |17|0.093792|
+| Same backbone, BF16 response-only readout |17|0.093792|
+| Same backbone, IEEE FP32 readout |15|0.067592|
+| BF16/SDPA |11|0.116341|
+| Ephemeral FP32/SDPA |16|0.067273|
+
+No control achieves20/20; readout shape produces no change, attention/dtype changes are not a demonstrated fix. **No control selected or original threshold relaxed.** HF records `torch_chunk_gated_delta_rule`, fast path unavailable; TF32 disabled at baseline. Observed peak17,865.260MiB allocated/19,472MiB reserved. Model exited, actualGPU1 release1MiB, original keeper1 restored/verified, other card/job untouched.15 small artifacts SHA-match; report **`62eedf6d7be9cd1a65a3e681b8a1d3b1f4dc82e465df47f658032715e76470c9`**. Process exit0 is diagnostic completion, not parity/PPO PASS.
+
+Next in-scope conventional runtime repair to test: HF-native Flash Linear Attention for GDN instead of its current Torch fallback. The [official Qwen3.5 documentation](https://huggingface.co/docs/transformers/model_doc/qwen3_5#usage-tips-and-notes) describes the optional native GDN kernels; the installed Transformers5.10.1 source independently verifies the imports/dispatch. This is still a hypothesis about parity, not established causality. Pin **flash-linear-attention0.5.2 + fla-core0.5.2** (newest compatible official pure-Python releases, chosen by Python/base dependency compatibility **before GPU measurements**). Official wheel hashes/URLs are in `ppo_fla_overlay_v1.json`. Existing Transformers5.10.1/einops0.8.2 satisfy required dependencies; no Torch/driver/CUDA/base-env upgrade, optional causal-conv1d not installed in this initial candidate.
+
+CPU script25 prepares a **new private overlay only**, verifies wheel SHA/metadata/dependencies/base-env invariance,20 native signature/dispatch probes and no CUDA/weights. The existing FA2/SFT/MemRec environments remain unchanged. CPU success will not qualify the candidate: next require20 real native GDN forward/backward probes, strict full-weight scope/checkpoint load, and fresh all20 parity under the unchanged bounds before freezing any new production profile. No substitution of vLLM inference-only operators into the trainable HF model, no custom optimizer/backend monkeypatch, no scientific outcomes/PPO yet.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.
