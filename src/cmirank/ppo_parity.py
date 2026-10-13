@@ -5,14 +5,16 @@ No CUDA, model loading or HTTP at import time. Does not implement PPO training.
 
 import json
 import math
+import os
 import time
 from pathlib import Path
 
 from .provenance import file_sha256
 
 
-def load_parity_config(root, version=8):
-    if version not in (1, 2, 3, 4, 5, 6, 7, 8):
+def load_parity_config(root, version=None):
+    version = int(os.environ.get("MEMREC_PARITY_CONTRACT_VERSION", "8")) if version is None else version
+    if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9):
         raise ValueError("Unknown parity contract")
     config = json.loads((root / "configs/cmirank/ppo_parity_v1.json").read_text())
     path = root / f"configs/cmirank/ppo_parity_v{version}.json"
@@ -79,8 +81,8 @@ def load_parity_config(root, version=8):
                 or retry["toolchain_prepare_report_sha256"] != "84a542cc7b36a68d84e73554bf4d94306c8a966ba39f89ff4bbc92075eb55c50"):
             raise ValueError("Full native fast-path retry cannot change the research or parity contract")
         config.update(retry)
-    if version == 8:
-        retry = json.loads(path.read_text())
+    if version >= 8:
+        retry = json.loads((root / "configs/cmirank/ppo_parity_v8.json").read_text())
         if (set(retry) != {"schema_version", "inherits", "prepare_run_id", "run_id", "causal_prepare_source_commit",
                           "causal_prepare_report_sha256", "hf_release_wait_seconds", "reason"}
                 or retry["inherits"] != "configs/cmirank/ppo_parity_v7.json"
@@ -89,9 +91,21 @@ def load_parity_config(root, version=8):
                 or retry["hf_release_wait_seconds"] != 15):
             raise ValueError("Release-drain retry cannot weaken GPU or numerical guards")
         config.update(retry)
+    if version == 9:
+        retry = json.loads(path.read_text())
+        if (set(retry) != {"schema_version", "inherits", "prepare_run_id", "run_id", "repeatability_diagnostic",
+                          "server_boots", "replays_per_boot", "physical_request_cap", "cache_policy",
+                          "hf_repeat_reference_sha256", "reason"}
+                or retry["inherits"] != "configs/cmirank/ppo_parity_v8.json"
+                or retry["repeatability_diagnostic"] is not True or retry["server_boots"] != 2
+                or retry["replays_per_boot"] != 2 or retry["physical_request_cap"] != 80
+                or retry["cache_policy"] != "separate_cold_private_namespace_per_boot_warm_within_boot"
+                or retry["hf_repeat_reference_sha256"] != "2f88c7e4c042ac1dc8e3a7caf789deb655a9013015aa7587b3c399e679126626"):
+            raise ValueError("Repeatability is a fixed2x2x20 diagnosis, not a profile/threshold search")
+        config.update(retry)
     expected_gpu = 1 if version >= 3 else 0
     expected_policy = f"gpu{expected_gpu}_only_gpu{1-expected_gpu}_all_workloads_read_only"
-    if (config["samples"] != 20 or config["physical_request_cap"] != (0 if version == 4 else 20)
+    if (config["samples"] != 20 or config["physical_request_cap"] != (0 if version == 4 else 80 if version == 9 else 20)
             or config["generated_tokens_per_request"] != 1 or config["tensor_parallel_size"] != 1
             or config["gpu_index"] != expected_gpu or config["resource_policy"] != expected_policy
             or config["optimizer_updates"] or config["books_outcomes_accessed"]
@@ -99,6 +113,36 @@ def load_parity_config(root, version=8):
             or config["temperature"] != 0 or config["prompt_logprob_temperature"] != 1):
         raise ValueError("Not the twenty-synthetic-request no-update parity gate")
     return config, path
+
+
+def summarize_repeatability(observations, rows, config):
+    expected = {(b,r,u["user_id"]) for b in range(2) for r in range(2) for u in rows}
+    seen = {(x["boot"],x["replay"],x["user_id"]) for x in observations}
+    if (not config.get("repeatability_diagnostic") or len(observations) != 80 or seen != expected
+            or len(rows) != 20 or len({u["user_id"] for u in rows}) != 20):
+        raise ValueError("Repeatability requires every fixed2x2x20 observation, no duplicate/omission")
+    vectors = {(x["boot"],x["replay"],x["user_id"]):x["logprobs"] for x in observations}
+    lengths = {u["user_id"]:len(u["input_ids"])-u["prompt_tokens"] for u in rows}
+    if any(len(x["logprobs"]) != lengths[x["user_id"]] for x in observations):
+        raise ValueError("Repeatability vectors must retain every original response token including EOS")
+    pairs = []
+    for u in rows:
+        for b in range(2):
+            a,z = vectors[b,0,u["user_id"]],vectors[b,1,u["user_id"]]
+            pairs.append({"kind":"within_boot","boot":b,"user_id":u["user_id"],
+                          "exact_equal_json_vectors":a==z,**compare_logprobs(a,z,config)})
+        for r in range(2):
+            a,z = vectors[0,r,u["user_id"]],vectors[1,r,u["user_id"]]
+            pairs.append({"kind":"across_boot","replay":r,"user_id":u["user_id"],
+                          "exact_equal_json_vectors":a==z,**compare_logprobs(a,z,config)})
+    summary = {}
+    for kind in ("within_boot","across_boot"):
+        subset = [p for p in pairs if p["kind"]==kind]
+        summary[kind] = {"pairs":len(subset),"exact_equal_pairs":sum(p["exact_equal_json_vectors"] for p in subset),
+            "original_bound_pass_pairs":sum(p["passed"] for p in subset),
+            "max_token_absolute_logprob_delta":max(p["max_token_absolute_logprob_delta"] for p in subset),
+            "max_action_absolute_logratio":max(abs(p["action_log_likelihood_ratio"]) for p in subset)}
+    return summary,pairs
 
 
 def parity_code_hashes(root):
@@ -127,7 +171,7 @@ def server_options(config):
     return options
 
 
-def wait_owned_hf_release(snapshot, config, expected_uuid, *, child_exited, emit,
+def wait_owned_hf_release(snapshot, config, expected_uuid, *, child_exited, emit, child_kind="hf",
                           clock=time.monotonic, sleep=time.sleep):
     """Bounded observation only: original idle thresholds, no PID/step signals.
 
@@ -135,7 +179,7 @@ def wait_owned_hf_release(snapshot, config, expected_uuid, *, child_exited, emit
     sample. Do not load the next model until the same physical card is clear.
     """
     from .gpu_resources import select_reserved_gpu
-    if not child_exited or config.get("hf_release_wait_seconds") != 15:
+    if not child_exited or child_kind not in ("hf", "vllm") or config.get("hf_release_wait_seconds") != 15:
         raise ValueError("Only confirmed owned-child exit permits the fixed15s release drain")
     started = clock()
     attempts = 0
@@ -147,12 +191,12 @@ def wait_owned_hf_release(snapshot, config, expected_uuid, *, child_exited, emit
         attempts += 1
         emit({"attempt":attempts, "elapsed_seconds":clock()-started,
               "gpu_snapshot":raw, "compute_snapshot":raw_apps,
-              "gpu_uuid":expected_uuid, "child_exited":True})
+              "gpu_uuid":expected_uuid, "child_exited":True, "owned_child_kind":child_kind})
         try:
             card = select_reserved_gpu(cards, set(apps), gpu_index=config["gpu_index"])
         except ValueError:
             if clock()-started >= config["hf_release_wait_seconds"]:
-                raise ValueError("Owned HF release did not meet original idle guards within15s")
+                raise ValueError(f"Owned {child_kind} release did not meet original idle guards within15s")
             sleep(1)
             continue
         return {"child_exited":True, "gpu_released":True, "gpu_uuid":card.uuid,

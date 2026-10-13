@@ -966,6 +966,66 @@ GPU1 handoff/controller; model release and originalkeeper1 restoration still
 mandatory. Only a completed paired gate plus subsequent repeatability/worker
 gates can permit PPO.
 
+**V8 verification/launch:** **448 CPU tests PASS5.19s**, compilation/shell/
+whitespace checks pass. Exact source **aa2f2ac192775a867774d116aa4a7cff78b4ee88**
+pushed/deployed clean. Fresh CPU20 preparation **PASS18.703s**, original native
+compiler and causal-overlay producing receipts/code/tool bytes reverified;
+report **`dcbc004cad60b7437ab1fd9fde463f594349d70b7946dec68eba835364b17a1e`**.
+Foreground same-master exec **22417** automatically started the original GPU1
+controller with dynamically resolved keeper **21820.308** after CPU success.
+At its one inspection the command remained active, no terminal v8 numerical or
+handback outcome. Estimate **4–8min** including cold native JIT and vLLM startup,
+not measured v8 throughput; CPU10min/GPU25min hard caps unchanged. Resume this
+session once on continuation; no SSH polling loop, source redeploy while active,
+numerical relaxation, PPO update or same-profile repeatability claim. Release
+telemetry, all20 paired comparisons and mandatory keeper1 handback must be
+reviewed before any subsequent gate.
+
+### 0.43 V8 completed numerical FAIL; fixed within/cross-server diagnosis — 2026-10-13
+
+Exact source **aa2f2ac192775a867774d116aa4a7cff78b4ee88**: v8 completed
+**217.436s /20 physical requests**, full native HF path/kernel probes ran, but
+paired parity **FAIL12/20**. Token max**0.1016269>0.05**, response mean
+**0.0112923≤0.02**, action max**0.1016271>ln(1.1)**. This is not ranking accuracy.
+All21 small GPU artifacts locally SHA-match; report
+**`8e3fbe28b234de977cccd25f4c54ffe41d111941edc84b4b64e49853904e81ab`**.
+Full native HF vectors match v7 **exactly**, SHA
+**`2f88c7e4c042ac1dc8e3a7caf789deb655a9013015aa7587b3c399e679126626`**.
+Actual post-HF telemetry cleared on its first observation **0.114s**, GPU1
+util4%/memory1MiB/no selected compute actor. This proves safe release for v8,
+not the cause of v7's unrecorded failure. Complete native dependencies and
+release sequencing did **not** solve trainer/rollout numerical mismatch.
+
+Both owned model processes exited, GPU1 released1MiB, allocation remained
+RUNNING, originalkeeper1 restored **21820.315**. GPU0 protected workload was not
+signalled; its keeper later independently changed317. No PPO update, primary
+profile promotion, threshold retuning or best-case selection.
+
+**Next preregistered outcome-free diagnosis:** v9 inherits the exact complete
+v8 model/runtime; **default primary contract remains v8**. Opt-in
+`MEMREC_PARITY_CONTRACT_VERSION=9` selects2 owned vLLM boots,2 ordered replays of
+the same20 inputs per boot, **80 local physical requests total**. This larger
+cap is solely for repeats, not a larger ranking cohort or new API budget.
+Each boot gets a separate **cold** private kernel-cache namespace; within a
+boot its second replay uses the same warm process/cache. No alternate backend,
+dtype, input order, seed, prompt, weight, numerical bound or batch policy.
+Recompute HF20 once and require its exact reviewed serialized vectors first.
+This qualifies repeatability of the existing setup, **not** production support
+for different batching/parallelism or long ranking generations.
+
+Record40 within-server pairs and40 cross-start pairs, every original response
+token including EOS; report exact JSON-vector equality and unchanged token/
+action drift bounds. Report all4 HF-vLLM comparison groups separately, never
+select the best replay or overwrite v8's FAIL. Status must explicitly retain
+the failed primary gate regardless of successful diagnostic execution. Stop/
+drain each owned server before the next; final server is unloaded **before CPU
+comparison/reporting**, then restore originalkeeper1 through the same guarded
+controller. Source-bound CPU20 native-schema preparation precedes handoff;
+GPU1 only/TP1/25min hard cap. Decide any runtime/protocol change only from this
+diagnosis and verified native framework options, not another unregistered
+backend/precision search. Real native worker/optimizer and scientific PPO
+remain blocked by their unmet gates.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.

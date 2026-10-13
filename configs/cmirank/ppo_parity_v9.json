@@ -1,0 +1,13 @@
+{
+  "schema_version": 9,
+  "inherits": "configs/cmirank/ppo_parity_v8.json",
+  "prepare_run_id": "cmirank-ppo-parity-data-v9-repeat-20261013-hnv",
+  "run_id": "cmirank-ppo-vllm-repeatability-v9-20261013-hnv",
+  "repeatability_diagnostic": true,
+  "server_boots": 2,
+  "replays_per_boot": 2,
+  "physical_request_cap": 80,
+  "cache_policy": "separate_cold_private_namespace_per_boot_warm_within_boot",
+  "hf_repeat_reference_sha256": "2f88c7e4c042ac1dc8e3a7caf789deb655a9013015aa7587b3c399e679126626",
+  "reason": "Fixed diagnosis after completed v8 numerical FAIL12/20. Same complete HF native path and original BF16/eager/TP1/vLLM backend. Recompute HF20 and require its exact repeated vectors, then execute all20 unchanged raw-token requests twice within each of two fresh owned server boots.80 local physical requests total, no retry/case omission/profile selection/PPO promotion. Distinguish within-server drift from cross-start cold-cache drift. Original numerical thresholds remain unchanged and failed primary gate is never replaced by the best replay. Release each server before starting the next; original keeper1 restored on task completion/error."
+}

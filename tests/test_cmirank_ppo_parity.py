@@ -6,7 +6,7 @@ import pytest
 
 from src.cmirank.ppo_parity import (compare_logprobs, completion_request, load_parity_config,
                                     response_prompt_logprobs, server_options, verify_parity_preparation,
-                                    wait_owned_hf_release)
+                                    wait_owned_hf_release, summarize_repeatability)
 from src.cmirank.gpu_resources import GPUCard
 from src.cmirank.provenance import file_sha256
 
@@ -93,7 +93,9 @@ def test_cpu_coordinator_never_holds_hf_weights_while_starting_service():
     assert source.index('worker.wait(timeout=600)') < source.index('server = subprocess.Popen')
     assert source.index('"hf-release.json"') < source.index('server = subprocess.Popen')
     assert 'gpu_index=gpu_index, protect_other_workloads=True' in source
-    assert source.index('stop_owned(server, str(checkpoint))\n        passed') < source.rindex('save(run / "report.json"')
+    service_stop = source.index('stop_owned(server, str(checkpoint))', source.index('for boot in range(config.get("server_boots", 1))'))
+    assert service_stop < source.index('passed = all(') < source.rindex('save(run / "report.json"')
+    assert service_stop < source.index('summarize_repeatability(observations, rows, config)')
     assert source.index('"hf-release.json"') < source.index('save(run / "report.json"')
     assert '--no-enable-prefix-caching' in server_options(load_parity_config(ROOT)[0])
     assert '--enforce-eager' in server_options(load_parity_config(ROOT)[0])
@@ -258,3 +260,50 @@ def test_owned_release_does_not_wait_on_unexited_child_or_changed_physical_card(
         wait_owned_hf_release(snapshot,c,"GPU-approved",child_exited=False,emit=lambda row:None)
     with pytest.raises(ValueError,match="Physical GPU changed"):
         wait_owned_hf_release(snapshot,c,"GPU-approved",child_exited=True,emit=lambda row:None)
+
+
+def repeat_fixture():
+    rows = [{**row(),"user_id":-10001-i} for i in range(20)]
+    vectors = [{"boot":b,"replay":r,"user_id":u["user_id"],"logprobs":[-1.0,-2.0,-3.0]}
+               for b in range(2) for r in range(2) for u in rows]
+    return rows,vectors
+
+
+def test_repeat_diagnosis_never_changes_primary_default_or_selects_best_replay(monkeypatch):
+    monkeypatch.delenv("MEMREC_PARITY_CONTRACT_VERSION",raising=False)
+    primary,_ = load_parity_config(ROOT)
+    diagnostic,_ = load_parity_config(ROOT,9)
+    assert primary["physical_request_cap"] == 20 and not primary.get("repeatability_diagnostic")
+    assert diagnostic["physical_request_cap"] == 80 and diagnostic["samples"] == 20
+    for name in ("max_token_absolute_logprob_delta","max_mean_absolute_logprob_delta","max_action_absolute_logratio"):
+        assert diagnostic[name] == primary[name]
+    monkeypatch.setenv("MEMREC_PARITY_CONTRACT_VERSION","9")
+    assert load_parity_config(ROOT)[0]["repeatability_diagnostic"]
+    source = (ROOT/"scripts/cmirank/23_smoke_vllm_hf_parity_gpu.py").read_text()
+    assert 'REPEATABILITY_DIAGNOSIS_COMPLETE_PRIMARY_PARITY_GATE_REMAINS_FAILED' in source
+    assert '"primary_profile_selected":False' in source
+
+
+def test_fixed_repeat_pairs_distinguish_within_server_from_cross_start_drift():
+    c,_ = load_parity_config(ROOT,9)
+    rows,vectors = repeat_fixture()
+    for vector in vectors:
+        if vector["boot"]==1:
+            vector["logprobs"][1] += .1
+    summary,pairs = summarize_repeatability(vectors,rows,c)
+    assert len(pairs)==80
+    assert summary["within_boot"]["exact_equal_pairs"]==40
+    assert summary["across_boot"]["original_bound_pass_pairs"]==0
+    assert summary["across_boot"]["max_token_absolute_logprob_delta"] > .05
+
+
+@pytest.mark.parametrize("mutation",["omit","duplicate","wrong_round","dropped_eos","nan"])
+def test_repeat_diagnosis_rejects_incomplete_repaired_or_nonfinite_vectors(mutation):
+    c,_ = load_parity_config(ROOT,9)
+    rows,vectors = repeat_fixture()
+    if mutation=="omit": vectors.pop()
+    if mutation=="duplicate": vectors[-1]=copy.deepcopy(vectors[0])
+    if mutation=="wrong_round": vectors[-1]["replay"]=2
+    if mutation=="dropped_eos": vectors[-1]["logprobs"].pop()
+    if mutation=="nan": vectors[-1]["logprobs"][0]=float("nan")
+    with pytest.raises(ValueError): summarize_repeatability(vectors,rows,c)

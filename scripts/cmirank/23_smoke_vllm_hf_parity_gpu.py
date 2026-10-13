@@ -25,7 +25,8 @@ from src.cmirank.gpu_resources import select_reserved_gpu, verified_numeric_cuda
 from src.cmirank.ppo_compat import load_compat_config
 from src.cmirank.ppo_parity import (compare_logprobs, completion_request, diagnostic_parent, load_parity_config,
                                     parity_code_hashes, response_prompt_logprobs, server_options,
-                                    verify_fla_overlay, verify_parity_preparation, wait_owned_hf_release)
+                                    verify_fla_overlay, verify_parity_preparation, wait_owned_hf_release,
+                                    summarize_repeatability)
 from src.cmirank.ppo_runtime import load_runtime_config
 from src.cmirank.provenance import artifact_json_dumps, file_sha256
 from src.cmirank.cuda_toolchain import verify_cuda_toolchain
@@ -121,6 +122,22 @@ def main():
                     ("TRITON_CACHE_DIR", "VLLM_CACHE_ROOT", "TORCHINDUCTOR_CACHE_DIR", "CUDA_CACHE_PATH",
                      "FLASHINFER_WORKSPACE_BASE", "DG_JIT_CACHE_DIR")}}
     save(run / "manifest.json", manifest)
+    boot_environments = []
+    if config.get("repeatability_diagnostic"):
+        names = {"TRITON_CACHE_DIR":"triton", "VLLM_CACHE_ROOT":"vllm", "TORCHINDUCTOR_CACHE_DIR":"torchinductor",
+                 "CUDA_CACHE_PATH":"cuda", "FLASHINFER_WORKSPACE_BASE":"flashinfer", "DG_JIT_CACHE_DIR":"deep-gemm"}
+        for boot in range(config["server_boots"]):
+            namespace = private / "cache/runtime-hnv" / config["run_id"] / f"server-boot-{boot}"
+            if namespace.exists():
+                raise ValueError("Server repeatability requires separate fresh private boot caches")
+            environment = {}
+            for key,name in names.items():
+                directory = namespace / name
+                directory.mkdir(parents=True)
+                environment[key] = str(directory)
+            boot_environments.append(environment)
+        manifest["server_boot_cache_environments"] = boot_environments
+        save(run / "manifest.json", manifest)
     try:
         manifest["gpu_handoff"] = handoff(run, args.owner_confirmed_generator_step,
                                             gpu_index=gpu_index, protect_other_workloads=True,
@@ -203,54 +220,91 @@ def main():
         hf_rows = [json.loads(s) for s in (run / "hf-logprobs.jsonl").read_text().splitlines()]
         if len(hf_rows) != 20 or [r["user_id"] for r in hf_rows] != [r["user_id"] for r in rows]:
             raise ValueError("HF worker did not record the exact twenty probes in order")
-        server_log = (run / "vllm-server.log").open("x")
-        server_args = [str(private / "envs" / runtime["environment_name"] / "bin/vllm"), "serve", str(checkpoint),
-                       *server_options(config)]
-        server_environment = {**os.environ, **config.get("server_environment", {})}
-        manifest["server_environment_overrides"] = config.get("server_environment", {})
-        save(run / "manifest.json", manifest)
-        server = subprocess.Popen(server_args, env=server_environment,
-            stdout=server_log, stderr=subprocess.STDOUT, start_new_session=True)
-        (run / "server.pid").write_text(str(server.pid) + "\n")
-        deadline = time.monotonic() + config["server_startup_timeout_seconds"]
-        base = f"http://127.0.0.1:{config['port']}"
-        while True:
-            if server.poll() is not None or time.monotonic() >= deadline:
-                raise RuntimeError("Owned vLLM server failed readiness/timed out")
-            try:
-                with urllib.request.urlopen(base + "/health", timeout=2) as response:
-                    if response.status == 200:
-                        break
-            except (OSError, urllib.error.URLError):
-                pass
-            time.sleep(5)  # Bounded service readiness, not external result polling.
-        with urllib.request.urlopen(base + "/v1/models", timeout=5) as response:
-            models = json.load(response)
-        if [m["id"] for m in models["data"]] != [config["served_model_name"]]:
-            raise ValueError("Local service is not the task-owned initializer")
-        comparisons = []
-        for index, (row, hf) in enumerate(zip(rows, hf_rows)):
-            if physical_requests >= config["physical_request_cap"]:
-                raise ValueError("Fixed physical request cap exhausted; no retry/repair")
-            payload = completion_request(row, config)
-            physical_requests += 1
-            append(run, "physical-requests", {"event": "request", "attempt": physical_requests,
-                                               "user_id": row["user_id"], "payload": payload})
-            request = urllib.request.Request(base + "/v1/completions", data=json.dumps(payload).encode(),
-                                              headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(request, timeout=config["request_timeout_seconds"]) as response:
-                result = json.load(response)
-            append(run, "physical-requests", {"event": "response", "attempt": physical_requests,
-                                               "user_id": row["user_id"], "response": result})
-            observed = response_prompt_logprobs(result, row)
-            comparison = {"user_id": row["user_id"], "sample": index,
-                          **compare_logprobs(hf["logprobs"], observed, config)}
-            append(run, "comparison", comparison)
-            comparisons.append(comparison)
-            if (index + 1) % 5 == 0:
-                print(json.dumps({"completed_samples": index + 1, "elapsed_seconds": time.monotonic() - began}), flush=True)
-        # Release service weights BEFORE report/client/artifact housekeeping.
-        stop_owned(server, str(checkpoint))
+        repeat = config.get("repeatability_diagnostic", False)
+        if repeat and file_sha256(run / "hf-logprobs.jsonl") != config["hf_repeat_reference_sha256"]:
+            raise ValueError("Full native HF repeat is not identical to its reviewed v7/v8 vectors")
+        comparisons, observations = [], []
+        for boot in range(config.get("server_boots", 1)):
+            label = f"vllm-server-boot-{boot}" if repeat else "vllm-server"
+            server_log = (run / f"{label}.log").open("x")
+            server_args = [str(private / "envs" / runtime["environment_name"] / "bin/vllm"), "serve", str(checkpoint),
+                           *server_options(config)]
+            server_environment = {**os.environ, **config.get("server_environment", {})}
+            if repeat:
+                server_environment.update(boot_environments[boot])
+            manifest["server_environment_overrides"] = config.get("server_environment", {})
+            save(run / "manifest.json", manifest)
+            server = subprocess.Popen(server_args, env=server_environment,
+                stdout=server_log, stderr=subprocess.STDOUT, start_new_session=True)
+            (run / (f"{label}.pid" if repeat else "server.pid")).write_text(str(server.pid) + "\n")
+            deadline = time.monotonic() + config["server_startup_timeout_seconds"]
+            base = f"http://127.0.0.1:{config['port']}"
+            while True:
+                if server.poll() is not None or time.monotonic() >= deadline:
+                    raise RuntimeError("Owned vLLM server failed readiness/timed out")
+                try:
+                    with urllib.request.urlopen(base + "/health", timeout=2) as response:
+                        if response.status == 200:
+                            break
+                except (OSError, urllib.error.URLError):
+                    pass
+                time.sleep(5)  # Bounded service readiness, not external result polling.
+            with urllib.request.urlopen(base + "/v1/models", timeout=5) as response:
+                models = json.load(response)
+            if [m["id"] for m in models["data"]] != [config["served_model_name"]]:
+                raise ValueError("Local service is not the task-owned initializer")
+            for replay in range(config.get("replays_per_boot", 1)):
+                for index, (row, hf) in enumerate(zip(rows, hf_rows)):
+                    if physical_requests >= config["physical_request_cap"]:
+                        raise ValueError("Fixed physical request cap exhausted; no retry/repair")
+                    payload = completion_request(row, config)
+                    physical_requests += 1
+                    coordinates = {"boot":boot,"replay":replay} if repeat else {}
+                    append(run, "physical-requests", {"event":"request","attempt":physical_requests,
+                        "user_id":row["user_id"],"payload":payload,**coordinates})
+                    request = urllib.request.Request(base + "/v1/completions", data=json.dumps(payload).encode(),
+                                                      headers={"Content-Type":"application/json"})
+                    with urllib.request.urlopen(request, timeout=config["request_timeout_seconds"]) as response:
+                        result = json.load(response)
+                    append(run, "physical-requests", {"event":"response","attempt":physical_requests,
+                        "user_id":row["user_id"],"response":result,**coordinates})
+                    observed = response_prompt_logprobs(result, row)
+                    comparison = {"user_id":row["user_id"],"sample":index,**coordinates,
+                                  **compare_logprobs(hf["logprobs"], observed, config)}
+                    append(run, "comparison", comparison)
+                    comparisons.append(comparison)
+                    if repeat:
+                        observation = {"boot":boot,"replay":replay,"user_id":row["user_id"],"logprobs":observed}
+                        append(run, "repeatability-logprobs", observation)
+                        observations.append(observation)
+                print(json.dumps({"completed_samples":len(comparisons),"boot":boot,"replay":replay,
+                                  "elapsed_seconds":time.monotonic()-began}),flush=True)
+            # Release each service BEFORE comparing artifacts or starting another.
+            stop_owned(server, str(checkpoint))
+            if repeat:
+                released = wait_owned_hf_release(gpu_snapshot, config, card.uuid,
+                    child_exited=server.poll() is not None,
+                    child_kind="vllm",
+                    emit=lambda row:append(run, "server-release-snapshots", {"boot":boot,**row}))
+                save(run / f"server-boot-{boot}-release.json", released)
+            server_log.close()
+            server_log = None
+        if physical_requests != config["physical_request_cap"]:
+            raise ValueError("Fixed complete physical request count differs")
+        if repeat:
+            summary,pairs = summarize_repeatability(observations, rows, config)
+            for pair in pairs:
+                append(run, "repeatability-comparison", pair)
+            save(run / "report.json", {"status":"REPEATABILITY_DIAGNOSIS_COMPLETE_PRIMARY_PARITY_GATE_REMAINS_FAILED",
+                "source_commit":commit,"config_sha256":file_sha256(path),"samples":20,
+                "server_boots":2,"replays_per_boot":2,"physical_requests":physical_requests,
+                "repeatability":summary,"hf_repeat_exact":True,
+                "hf_parity_pass_counts":[{"boot":b,"replay":r,"passed":sum(x["passed"] for x in comparisons
+                    if x["boot"]==b and x["replay"]==r),"samples":20} for b in range(2) for r in range(2)],
+                "optimizer_updates":0,"ranking_metrics_computed":False,"books_outcomes_accessed":False,
+                "primary_profile_selected":False,"training_ready":False,"elapsed_seconds":time.monotonic()-began})
+            exit_code = 0
+            return
         passed = all(r["passed"] for r in comparisons)
         report = {"status": "VLLM_HF_RESPONSE_PARITY_PASS_CLEANUP_REVIEW_AND_PPO_WORKER_GATES_REMAIN" if passed
                             else "VLLM_HF_RESPONSE_PARITY_FAIL_NUMERICAL_DIAGNOSIS_REQUIRED",
