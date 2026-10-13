@@ -155,6 +155,34 @@ def native_gdn_gradient_probes(config, run, torch):
     torch.cuda.empty_cache()
 
 
+def native_causal_gradient_probes(config, run, torch):
+    from causal_conv1d import causal_conv1d_fn
+    from transformers.models.qwen3_5 import modeling_qwen3_5 as hf
+    if not hf.is_fast_path_available or hf.causal_conv1d_fn is not causal_conv1d_fn:
+        raise ValueError("Official complete HF native fast path is still unavailable")
+    probes = []
+    for i in range(config["native_causal_gradient_samples"]):
+        length = config["kernel_probe_lengths"][i % len(config["kernel_probe_lengths"])]
+        x = torch.randn(1, 32, length, device="cuda:0", dtype=torch.bfloat16).requires_grad_()
+        weight = torch.randn(32, 4, device="cuda:0", dtype=torch.bfloat16).requires_grad_()
+        output = causal_conv1d_fn(x, weight, activation="silu")
+        if output.shape != x.shape or not torch.isfinite(output).all():
+            raise ValueError("Native causal convolution forward shape/finite check failed")
+        output.float().square().mean().backward()
+        gradients = [x.grad, weight.grad]
+        if any(g is None or not torch.isfinite(g).all() for g in gradients):
+            raise ValueError("Native causal convolution real backward failed")
+        norm = sum(float(g.float().square().sum()) for g in gradients) ** 0.5
+        if not 0 < norm < float("inf"):
+            raise ValueError("Native causal convolution gradients are not finite/nonzero")
+        probes.append({"sample":i,"sequence_tokens":length,"gradient_norm":norm})
+        del x, weight, output, gradients
+    (run / "native-causal-gradient.json").write_text(artifact_json_dumps({"samples":len(probes),
+        "probes":probes,"native_hf_fast_path_available":True,"official_weights_loaded":False,"optimizer_updates":0}))
+    gc.collect()
+    torch.cuda.empty_cache()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", type=Path, required=True)
@@ -181,6 +209,8 @@ def main():
     started = time.monotonic()
     model = None
     try:
+        if config.get("hf_causal_overlay"):
+            native_causal_gradient_probes(config, run, torch)
         if config.get("hf_kernel_overlay"):
             native_gdn_gradient_probes(config, run, torch)
         checkpoint = private / "runs" / compat["sft_run_id"] / "checkpoint"
@@ -203,6 +233,10 @@ def main():
             selected = model.model.language_model.layers[0].linear_attn.chunk_gated_delta_rule
             if selected is not hf.chunk_gated_delta_rule or not selected.__module__.startswith("fla."):
                 raise ValueError("Full checkpoint did not use the audited native trainable GDN path")
+            if config.get("hf_causal_overlay"):
+                layer = model.model.language_model.layers[0].linear_attn
+                if not hf.is_fast_path_available or layer.causal_conv1d_fn is not hf.causal_conv1d_fn:
+                    raise ValueError("Full checkpoint did not select complete native causal/GDN fast path")
         diagnostic = None
         if config.get("hf_precision_diagnostic"):
             diagnostic = precision_diagnosis(model, rows, run, config, torch)

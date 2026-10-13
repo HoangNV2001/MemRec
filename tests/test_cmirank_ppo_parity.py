@@ -186,3 +186,25 @@ def test_private_compiler_retry_preserves_fla_probes_and_every_scientific_field(
     assert 'hf_environment.update(config["hf_worker_environment"])' in source
     worker = (ROOT / "scripts/cmirank/24_hf_parity_worker_gpu.py").read_text()
     assert '"common:chunk_bwd_dqkwg:tilelang" not in registry._logged' in worker
+
+
+def test_full_fastpath_completes_native_dependency_without_tuning_the_parity_recipe():
+    old, _ = load_parity_config(ROOT, 6)
+    new, _ = load_parity_config(ROOT, 7)
+    assert {k for k in old if old[k] != new[k]} == {"schema_version", "inherits", "prepare_run_id", "run_id", "reason"}
+    assert new["native_causal_gradient_samples"] == 20
+    assert new["toolchain_prepare_source_commit"] != "current_consumer_source"
+    source = (ROOT / "scripts/cmirank/23_smoke_vllm_hf_parity_gpu.py").read_text()
+    assert source.index("verify_causal_overlay(private, ROOT, config)") < source.index("= handoff(run,")
+    worker = (ROOT / "scripts/cmirank/24_hf_parity_worker_gpu.py").read_text()
+    assert worker.index("native_causal_gradient_probes(config, run, torch)") < worker.index("model, info =")
+    assert 'not hf.is_fast_path_available' in worker
+
+
+def test_causal_build_is_private_no_deps_and_bounded_owned_cpu_process_group():
+    source = (ROOT / "scripts/cmirank/27_build_causal_conv_cpu.py").read_text()
+    assert '"--no-index", "--no-build-isolation", "--no-deps"' in source
+    assert '"--target", str(overlay)' in source and 'CAUSAL_CONV1D_FORCE_BUILD' in source
+    assert 'start_new_session=True' in source and 'os.killpg(child.pid, signal.SIGTERM)' in source
+    assert 'hf.causal_conv1d_fn is None' in source  # Respect CPU availability guard.
+    assert 'source_hashes' in source and 'Build patched immutable official source' in source

@@ -10,8 +10,8 @@ from pathlib import Path
 from .provenance import file_sha256
 
 
-def load_parity_config(root, version=6):
-    if version not in (1, 2, 3, 4, 5, 6):
+def load_parity_config(root, version=7):
+    if version not in (1, 2, 3, 4, 5, 6, 7):
         raise ValueError("Unknown parity contract")
     config = json.loads((root / "configs/cmirank/ppo_parity_v1.json").read_text())
     path = root / f"configs/cmirank/ppo_parity_v{version}.json"
@@ -56,8 +56,8 @@ def load_parity_config(root, version=6):
                 or retry["kernel_probe_lengths"] != [33, 64, 65, 128, 529]):
             raise ValueError("Native GDN candidate cannot change checkpoint/dtype/masks/bounds/research recipe")
         config.update(retry)
-    if version == 6:
-        retry = json.loads(path.read_text())
+    if version >= 6:
+        retry = json.loads((root / "configs/cmirank/ppo_parity_v6.json").read_text())
         if (set(retry) != {"schema_version", "inherits", "prepare_run_id", "run_id", "hf_cuda_toolchain",
                           "toolchain_prepare_run_id", "hf_worker_environment", "reason"}
                 or retry["inherits"] != "configs/cmirank/ppo_parity_v5.json"
@@ -65,6 +65,18 @@ def load_parity_config(root, version=6):
                 or retry["toolchain_prepare_run_id"] != "cmirank-cuda129-toolchain-cpu-v1-20261013-hnv"
                 or retry["hf_worker_environment"] != {"FLA_TILELANG": "1"}):
             raise ValueError("Private compiler retry cannot change the numerical or scientific recipe")
+        config.update(retry)
+    if version == 7:
+        retry = json.loads(path.read_text())
+        if (set(retry) != {"schema_version", "inherits", "prepare_run_id", "run_id", "hf_causal_overlay",
+                          "native_causal_gradient_samples", "toolchain_prepare_source_commit",
+                          "toolchain_prepare_report_sha256", "reason"}
+                or retry["inherits"] != "configs/cmirank/ppo_parity_v6.json"
+                or retry["hf_causal_overlay"] != "cmirank-causalconv17-torch211-cu129-v1-hnv"
+                or retry["native_causal_gradient_samples"] != 20
+                or retry["toolchain_prepare_source_commit"] != "78a2c07793827c9470e02d24fffc25e362cb6b45"
+                or retry["toolchain_prepare_report_sha256"] != "84a542cc7b36a68d84e73554bf4d94306c8a966ba39f89ff4bbc92075eb55c50"):
+            raise ValueError("Full native fast-path retry cannot change the research or parity contract")
         config.update(retry)
     expected_gpu = 1 if version >= 3 else 0
     expected_policy = f"gpu{expected_gpu}_only_gpu{1-expected_gpu}_all_workloads_read_only"
@@ -84,6 +96,7 @@ def parity_code_hashes(root):
         "scripts/cmirank/23_smoke_vllm_hf_parity_gpu.py", "scripts/cmirank/24_hf_parity_worker_gpu.py",
         "src/cmirank/ppo_compat.py", "src/cmirank/reserved_handoff.py", "src/cmirank/t0_authority.py", "src/cmirank/gpu_resources.py",
         "src/cmirank/cuda_toolchain.py", "scripts/cmirank/26_prepare_cuda_toolchain_cpu.py",
+        "src/cmirank/causal_conv.py", "scripts/cmirank/27_build_causal_conv_cpu.py",
         "scripts/cmirank/run_real_policy_smoke.sh", "scripts/cmirank/run_real_policy_with_keeper.sh")}
 
 
@@ -170,6 +183,8 @@ def verify_parity_preparation(directory, config, *, commit, config_sha, code_sha
         raise ValueError("Native FLA overlay CPU audit receipt is required before GPU candidate qualification")
     if config.get("hf_cuda_toolchain") and report.get("private_cuda_toolchain_cpu_replay_passed") is not True:
         raise ValueError("Native TileLang compiler regression must pass CPU replay before GPU handoff")
+    if config.get("hf_causal_overlay") and report.get("native_causal_overlay_cpu_audited") is not True:
+        raise ValueError("Native convolution CPU build/import must precede GPU full fast-path qualification")
     if config.get("hf_precision_diagnostic"):
         rehearsal = report.get("native_precision_control_cpu_rehearsal") or {}
         if (rehearsal.get("samples_per_variant") != 20 or rehearsal.get("variants") != config["diagnostic_variants"]

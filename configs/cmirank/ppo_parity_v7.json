@@ -1,0 +1,11 @@
+{
+  "schema_version": 7,
+  "inherits": "configs/cmirank/ppo_parity_v6.json",
+  "prepare_run_id": "cmirank-ppo-parity-data-v7-20261013-hnv",
+  "run_id": "cmirank-ppo-vllm-hf-parity-v7-full-fastpath-20261013-hnv",
+  "hf_causal_overlay": "cmirank-causalconv17-torch211-cu129-v1-hnv",
+  "native_causal_gradient_samples": 20,
+  "toolchain_prepare_source_commit": "78a2c07793827c9470e02d24fffc25e362cb6b45",
+  "toolchain_prepare_report_sha256": "84a542cc7b36a68d84e73554bf4d94306c8a966ba39f89ff4bbc92075eb55c50",
+  "reason": "Qualify the complete officially recommended HF native fast path, not a best-scoring diagnostic variant. V6 native GDN backward passed20 but HF convolution still used Torch fallback and parity failed17/20. Build latest official causal-conv1d1.7.0 in a new private Torch2.11/cu129 ABI overlay without source/framework/weights patches. Same20 BF16/FA2/token/response/EOS/numerical-bound tests; causal forward/backward20 and actual full-model fast-path guards added. Reviewed private compiler is reused with its producing source/report SHA pinned, not relabeled as newly built. Cross-run vLLM drift remains an independent unresolved warning; no production/PPO promotion from passing one comparison set alone."
+}

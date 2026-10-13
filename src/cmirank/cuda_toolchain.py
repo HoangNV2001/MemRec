@@ -2,6 +2,8 @@
 
 import json
 import os
+import hashlib
+import subprocess
 from pathlib import Path, PurePosixPath
 
 from .provenance import file_sha256
@@ -50,11 +52,15 @@ def verify_cuda_toolchain(private, root, config):
     contract = json.loads(contract_path.read_text())
     run = private / "runs" / contract["run_id"]
     report = json.loads((run / "report.json").read_text())
+    accepted_sha = config.get("toolchain_prepare_report_sha256")
+    producing_commit = config.get("toolchain_prepare_source_commit", os.environ["MEMREC_EXPECTED_COMMIT"])
+    if accepted_sha and file_sha256(run / "report.json") != accepted_sha:
+        raise ValueError("Reviewed reusable compiler receipt changed")
     if (config["hf_cuda_toolchain"] != contract["toolchain_name"]
             or config["toolchain_prepare_run_id"] != contract["run_id"]
             or report["status"] != "PRIVATE_CUDA129_CPU_REPLAY_PASS_GPU_KERNEL_GATES_REMAIN"
             or report["config_sha256"] != file_sha256(contract_path)
-            or report["source_commit"] != os.environ["MEMREC_EXPECTED_COMMIT"]
+            or report["source_commit"] != producing_commit
             or report["toolchain_name"] != contract["toolchain_name"]
             or report["gpu_requested"] or report["cuda_initialized"] or report["training_ready"]
             or not report["base_environment_unchanged"] or not report["system_nvcc_unchanged"]
@@ -62,7 +68,11 @@ def verify_cuda_toolchain(private, root, config):
             or not report["exact_failed_kernel_cpu_compile_passed"]):
         raise ValueError("Private compiler requires completed CPU-only regression replay")
     for name in ("src/cmirank/cuda_toolchain.py", "scripts/cmirank/26_prepare_cuda_toolchain_cpu.py"):
-        if report["code_sha256"].get(name) != file_sha256(root / name):
+        # Accepted receipts stay bound to their producing source, not relabeled
+        # as freshly built by a downstream consumer's different commit.
+        digest = (hashlib.sha256(subprocess.check_output(["git", "show", producing_commit + ":" + name], cwd=root)).hexdigest()
+                  if accepted_sha else file_sha256(root / name))
+        if report["code_sha256"].get(name) != digest:
             raise ValueError("Private compiler CPU harness changed")
     toolchain = private / "toolchains" / contract["toolchain_name"]
     for name, digest in report["toolchain_sha256"].items():

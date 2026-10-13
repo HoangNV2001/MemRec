@@ -835,6 +835,79 @@ same20 comparisons and original bounds before promotion. No numerical claim
 from compiler replay alone; full-model backward/worker/optimizer/format gates
 still follow. Preserve any old default TileLang home-cache bytes untouched.
 
+**Verification/launch:** **439 CPU tests PASS** (7.19s), compilation/shell syntax/
+whitespace checks PASS. Source **78a2c07793827c9470e02d24fffc25e362cb6b45**
+pushed and deployed as an exact clean fast-forward. The same ControlMaster SSH
+channel launched the CPU compiler-preparation task in allocation21820; exec
+session **98755** was active at its single inspection, printing
+`CPU_TOOLCHAIN_START`. No compiler-replay or v6 GPU result yet. The bounded
+server-side chain proceeds only on successful compiler receipt/hash checks,
+fresh20-schema CPU parity preparation and current keeper1 guards, then uses the
+original oneGPU1 controller. No new SSH polling loop or source deployment while
+active. Provisional **5–15min total** including download/unpack/compiler replay
+and cold GPU JIT/server startup; estimates are not observed throughput. CPU
+compiler task15min, parity preparation10min and GPU task25min hard caps remain
+separate. GPU1 stays with keeper during CPU work; model task handback remains
+mandatory on success/error/timeout. Review terminal artifacts before further
+production/worker promotion.
+
+### 0.41 Private compiler and native backward PASS; v6 numerical FAIL — 2026-10-13
+
+Source **78a2c07793827c9470e02d24fffc25e362cb6b45** completed the conditional
+chain: private NVCC/header preparation and **exact failed-kernel CPU replay
+PASS52.920s**, no CUDA context/base/system mutation; report
+**`84a542cc7b36a68d84e73554bf4d94306c8a966ba39f89ff4bbc92075eb55c50`**.
+V6 CPU native20-schema preparation **PASS34.491s**, report
+**`47696eb6a5a9ef256d2a6a2787bdc980bcb0c6f9c44246a5dbe151b020ab9ab6`**;
+token/request hashes unchanged. Do not rebuild/relabel an already-qualified
+compiler at every downstream source change: consuming contracts must pin its
+producing commit/report SHA and verify original producing-code/toolkit bytes.
+
+GPUv6 **219.178s**, **20/20 native GDN forward/backward probes PASS**, actual
+TileLang backend verified. Full4B HF20 forward probes103.649s including JIT,
+peak9013.417MiB allocated/9252MiB reserved; no optimizer/generation in HF.
+vLLM20 actual physical requests completed. **Numerical parity remains FAIL17/20**:
+token max**0.128436 >0.05**, worst response mean**0.014271 ≤0.02**, worst action
+absolute logratio**0.128435 >ln(1.1)**. Failed synthetic IDs−10004/−10007/−10010
+all differ at response offset4 (label digit). These are not recommendation
+accuracy scores. No bound, case, seed or checkpoint is changed. GPU report
+**`b3882f3cea3efb83549b5c061cf9e40d58f86db1270e51d5ec4a55cee6263b4a`**;
+all19 small GPU artifacts independently hash-verified.
+
+Owned HF and service exited, GPU1 released1MiB, parent RUNNING, originalkeeper1
+restored **21820.298**; protected GPU0 actor3118209 never signalled. Kernel
+execution/compilation success is genuine infrastructure progress, **not PPO
+eligibility** or proof of a full-model gradient/optimizer fit.
+
+**Independent warning:** reanalysis of existing v3/v6 journals confirms identical
+physical request payloads and unchanged vLLM-serving scientific/runtime options,
+but cross-run response logprobs differ by up to**0.1032078266**. This is observed
+cross-start drift, not a proven root cause or an intentional batching change.
+Missing HF convolution alone may not explain parity failure. The installed
+selector has an explicit guard against unsupported batch-invariant Mamba/GDN;
+[upstream reports](https://github.com/vllm-project/vllm/issues/42960) describe
+this unsupported GDN mode. Do not flip a support flag or patch inference-only
+kernels to pretend determinism. Before PPO, require a fixed same-backend
+repeatability diagnosis as well as trainer/rollout parity; do not select the
+best of repeated measurements on these20 cases.
+
+**Next bounded qualification, not a ranking-method pivot:** complete HF's
+officially recommended native dependency stack. Installed source selects FLA
+GDN/fused RMSNorm but still Torch convolution, because `causal-conv1d` is absent;
+the log's generic fast-path warning must not be misread as “all FLA ignored.”
+Pin latest official [causal-conv1d1.7.0](https://pypi.org/project/causal-conv1d/1.7.0/)
+source30328bytes/SHA`3202758494eaa7b597ce1c282dfa188889506bfcb92cad3c407d26736bfcd32b`
+before GPU outcomes. Build the unmodified source against private Torch2.11/cu129
+into a **new** overlay, CPU8/MAX_JOBS1/native NVCC4threads; no guessed TorchABI
+wheel, base-env/driver upgrade, source patch or GPU resource during compilation.
+CPU20 callable bindings respect HF's CUDA-only availability guard, not fake GPU
+dispatch. V7 keeps every v6 scientific field/bound/request20; add20 actual native
+causal-convolution forward/backward probes and require actual full-model complete
+fast path. HF child only gets this overlay; vLLM remains unchanged. If parity
+passes, the independent repeatability/full-model gradient/native-worker gates
+still remain; if it fails, preserve it and reassess runtime alternatives instead
+of tuning rules/prompts/thresholds to these diagnostic cases.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.

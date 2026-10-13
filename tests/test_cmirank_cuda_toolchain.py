@@ -1,8 +1,9 @@
 import tarfile
+import json
 
 import pytest
 
-from src.cmirank.cuda_toolchain import failed_cuda_source, validate_archive_members
+from src.cmirank.cuda_toolchain import failed_cuda_source, validate_archive_members, verify_cuda_toolchain
 
 
 def member(name, kind=tarfile.REGTYPE, link=""):
@@ -30,3 +31,18 @@ def test_compiler_replay_uses_only_exact_failed_generated_source():
     assert failed_cuda_source(log) == "#include <x>\nvoid kernel_kernel() {}\n"
     with pytest.raises(ValueError):
         failed_cuda_source(log.replace("cp.async.bulk.tensor", "other"))
+
+
+def test_reusable_compiler_receipt_requires_its_previously_reviewed_hash(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+    private = tmp_path / "private"
+    path = root / "configs/cmirank/cuda_toolchain_v1.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"run_id":"compiler-run"}))
+    run = private / "runs/compiler-run"
+    run.mkdir(parents=True)
+    (run / "report.json").write_text('{}')
+    monkeypatch.setenv("MEMREC_EXPECTED_COMMIT", "new-consumer")
+    with pytest.raises(ValueError, match="Reviewed reusable compiler receipt changed"):
+        verify_cuda_toolchain(private, root, {"toolchain_prepare_source_commit":"old-producer",
+            "toolchain_prepare_report_sha256":"not-the-actual-review-hash"})

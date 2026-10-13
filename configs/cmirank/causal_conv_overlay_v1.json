@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "run_id": "cmirank-causalconv17-cpu-v1-20261013-hnv",
+  "overlay_name": "cmirank-causalconv17-torch211-cu129-v1-hnv",
+  "version": "1.7.0",
+  "source_url": "https://files.pythonhosted.org/packages/f4/d1/eba27735f31bd5527d39a3c7f693e6ded7b844cab275db719a15ad37b6cd/causal_conv1d-1.7.0.tar.gz",
+  "source_size": 30328,
+  "source_sha256": "3202758494eaa7b597ce1c282dfa188889506bfcb92cad3c407d26736bfcd32b",
+  "hf_cuda_toolchain": "cuda-12.9.1-nvcc-12.9.86-hnv",
+  "toolchain_prepare_run_id": "cmirank-cuda129-toolchain-cpu-v1-20261013-hnv",
+  "toolchain_prepare_source_commit": "78a2c07793827c9470e02d24fffc25e362cb6b45",
+  "toolchain_prepare_report_sha256": "84a542cc7b36a68d84e73554bf4d94306c8a966ba39f89ff4bbc92075eb55c50",
+  "cpus": 8,
+  "max_jobs": 1,
+  "compile_timeout_seconds": 1800,
+  "samples": 20,
+  "gpu_requested": false,
+  "base_environment_mutation": false,
+  "training_ready": false
+}
