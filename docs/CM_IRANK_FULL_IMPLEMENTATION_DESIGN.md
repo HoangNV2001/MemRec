@@ -1238,6 +1238,18 @@ is a harness correction, not a sampler/profile/threshold amendment. Preserve
 the failed attempt in the local diagnostic ledger; optional-engine warnings
 do not establish failure of the selected FSDP2 backend.
 
+**Second CPU execution:** source72069fb passed native input packing but the
+output proxy invoked FA2 cross entropy on CPU logits. The pinned native
+dispatcher selects this CUDA-only kernel whenever FA2 is installed; failure
+is `invalid argument to exchangeDevice` with CUDA visibility empty. No GPU
+handoff, model/request/update or receipt directory. Do not patch the native
+dispatcher or fake CUDA availability. CPU rehearsal now explicitly qualifies
+native packing plus **unfused CPU temperature/next-token arithmetic and native
+correction/loss**; it does not claim to execute the CUDA-only output kernel.
+Actual native FSDP2 output processing remains mandatory on all20 generated
+GPU cases. This repairs an invalid CPU harness assumption; all scientific,
+native GPU kernel, input, mask, repeat and resource requirements stay unchanged.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.

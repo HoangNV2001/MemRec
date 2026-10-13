@@ -116,7 +116,7 @@ def native_microbatch(ids, c, torch):
 
 
 def native_cpu_rehearsal(c):
-    """20 native input/output/correction proxies; never a full FSDP worker claim."""
+    """20 native packing/unfused arithmetic proxies; native CE is CUDA-only."""
     import torch
     from types import SimpleNamespace
     from verl.workers.engine.fsdp.transformer_impl import FSDPEngineWithLMHead
@@ -140,9 +140,16 @@ def native_cpu_rehearsal(c):
         data = native_microbatch(ids, c, torch)
         inputs, args = FSDPEngineWithLMHead.prepare_model_inputs(proxy, data)
         logits = torch.arange(ids.numel() * 32, dtype=torch.float32).reshape(1, -1, 32) / 200
-        out = FSDPEngineWithLMHead.prepare_model_outputs(proxy, SimpleNamespace(logits=logits), args, data, None)
+        # The pinned native output dispatcher chooses FA2 cross entropy when
+        # the overlay is installed, even for CPU logits. Do not fake CUDA or
+        # patch the dispatcher. Rehearse its documented arithmetic unfused on
+        # CPU; the actual native output kernel remains mandatory in GPU30.
         expected = (logits / c["temperature"]).log_softmax(-1).gather(-1, torch.roll(ids, -1)[None, :, None]).reshape(-1)
-        observed = out["log_probs"].values()
+        scaled = logits / args["temperature"].unsqueeze(-1).unsqueeze(-1)
+        observed = scaled.log_softmax(-1).reshape(-1, 32).gather(
+            -1, args["input_ids_rmpad_rolled"][:, None]).reshape(-1)
+        if not torch.equal(inputs["input_ids"][0], ids):
+            raise ValueError("Native input packing changed the exact token sequence")
         if not torch.allclose(observed, expected, atol=1e-5, rtol=1e-5):
             raise ValueError("Native next-token/temperature alignment failed")
         mask = torch.ones((1, 3))
@@ -156,5 +163,6 @@ def native_cpu_rehearsal(c):
             raise ValueError("Native CPU correction/loss proxy failed")
     if torch.cuda.is_initialized():
         raise ValueError("CPU rehearsal initialized CUDA")
-    return {"samples": 20, "native_inputs_outputs_temperature_and_loss_pass": True,
-            "scope": "CPU_LOGIT_PROXY_NOT_GPU_FSDP_MODEL", "gpu_requested": False}
+    return {"samples": 20, "native_input_packing_and_unfused_temperature_loss_proxy_pass": True,
+            "native_gpu_output_kernel_executed": False,
+            "scope": "CPU_PACKING_UNFUSED_ARITHMETIC_NOT_NATIVE_CUDA_CE_OR_FSDP_MODEL", "gpu_requested": False}
