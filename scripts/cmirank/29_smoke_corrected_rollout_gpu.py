@@ -3,7 +3,7 @@
 
 import argparse
 import importlib.metadata
-from importlib import import_module
+from importlib.util import module_from_spec, spec_from_file_location
 import json
 import os
 from pathlib import Path
@@ -29,7 +29,9 @@ from src.cmirank.gpu_resources import canonical_gpu_uuid, select_reserved_gpu, v
 from src.cmirank.parser import parse_action
 from src.cmirank.provenance import file_sha256
 from src.cmirank.reserved_handoff import gpu_snapshot, handoff
-_owned_runtime = import_module("scripts.cmirank.23_smoke_vllm_hf_parity_gpu")
+_spec = spec_from_file_location("memrec_owned_parity_runtime", ROOT / "scripts/cmirank/23_smoke_vllm_hf_parity_gpu.py")
+_owned_runtime = module_from_spec(_spec)
+_spec.loader.exec_module(_owned_runtime)
 append, save, stop_owned = _owned_runtime.append, _owned_runtime.save, _owned_runtime.stop_owned
 
 

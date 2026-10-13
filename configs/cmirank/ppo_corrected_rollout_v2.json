@@ -1,0 +1,8 @@
+{
+  "schema_version": 2,
+  "inherits": "configs/cmirank/ppo_corrected_rollout_v1.json",
+  "prepare_run_id": "cmirank-corrected-rollout-data-v2-20261013-hnv",
+  "run_id": "cmirank-corrected-rollout-smoke-v2-20261013-hnv",
+  "review_run_id": "cmirank-corrected-rollout-review-v2-20261013-hnv",
+  "reason": "Integration-only retry: an installed regular scripts package shadows the repository namespace. Load the unchanged owned process helper by verified absolute source path; fresh source-bound CPU receipt and run namespaces preserve successful v1 CPU evidence. All20 synthetic prompts, model/checkpoint/backend/dtype/sampler/IS/masks/numerical bounds/resource caps unchanged. No GPU model or request occurred in v1 import failure; original keeper was never stopped."
+}

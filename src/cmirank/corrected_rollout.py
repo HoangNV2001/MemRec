@@ -8,7 +8,9 @@ from .ppo_parity import load_parity_config, server_options
 from .provenance import file_sha256
 
 
-def load_corrected_config(root):
+def load_corrected_config(root, version=2):
+    if type(version) is not int or version not in (1, 2):
+        raise ValueError("Unknown corrected qualification contract")
     path = root / "configs/cmirank/ppo_corrected_rollout_v1.json"
     c = json.loads(path.read_text())
     expected = {"schema_version": 1, "samples": 20, "physical_request_cap": 20,
@@ -30,6 +32,17 @@ def load_corrected_config(root):
         "parent_diagnostic_report_sha256", "tokens_sha256", "acceptance"}
     if set(c) != set(expected) | extra:
         raise ValueError("No hidden server/profile/sampler override permitted")
+    if version == 2:
+        path = root / "configs/cmirank/ppo_corrected_rollout_v2.json"
+        retry = json.loads(path.read_text())
+        if (set(retry) != {"schema_version", "inherits", "prepare_run_id", "run_id", "review_run_id", "reason"}
+                or retry["schema_version"] != 2
+                or retry["inherits"] != "configs/cmirank/ppo_corrected_rollout_v1.json"
+                or retry["prepare_run_id"] != "cmirank-corrected-rollout-data-v2-20261013-hnv"
+                or retry["run_id"] != "cmirank-corrected-rollout-smoke-v2-20261013-hnv"
+                or retry["review_run_id"] != "cmirank-corrected-rollout-review-v2-20261013-hnv"):
+            raise ValueError("Source integration retry cannot alter scientific or resource fields")
+        c.update(retry)
     native, _ = load_parity_config(root, 8)
     native.update(c)
     return native, path
@@ -37,6 +50,7 @@ def load_corrected_config(root):
 
 def corrected_code_hashes(root):
     return {n: file_sha256(root / n) for n in (
+        "configs/cmirank/ppo_corrected_rollout_v1.json", "configs/cmirank/ppo_corrected_rollout_v2.json",
         "src/cmirank/corrected_rollout.py", "scripts/cmirank/28_prepare_corrected_rollout_cpu.py",
         "scripts/cmirank/29_smoke_corrected_rollout_gpu.py", "scripts/cmirank/30_native_logprob_worker_gpu.py",
         "scripts/cmirank/31_review_corrected_rollout_cpu.py", "src/cmirank/ppo_parity.py",
@@ -91,13 +105,19 @@ def verify_corrected_preparation(private, root, c, path, commit):
     if (report["status"] != "CORRECTED_ROLLOUT_CPU_PREPARATION_PASS_GENERATED_GPU_GATES_REMAIN"
             or report["source_commit"] != commit or report["config_sha256"] != file_sha256(path)
             or report["code_sha256"] != corrected_code_hashes(root)
-            or report["gpu_requested"] or report["training_ready"]):
+            or report["gpu_requested"] or report["training_ready"]
+            or report["full_weights_loaded"] or report["optimizer_updates"]
+            or report["physical_requests"] != 0 or report["native_schema_probes"] != 20
+            or report["cpu_rehearsal"]["samples"] != 20
+            or not report["cpu_rehearsal"]["native_input_packing_and_unfused_temperature_loss_proxy_pass"]
+            or report["cpu_rehearsal"]["native_gpu_output_kernel_executed"]):
         raise ValueError("Exact-source corrected CPU receipt required")
     for n, sha in report["artifact_sha256"].items():
         if Path(n).name != n or file_sha256(p / n) != sha:
             raise ValueError("Corrected preparation bytes changed")
     rows = list(map(json.loads, (p / "tokens.jsonl").read_text().splitlines()))
-    if len(rows) != 20 or len({r["user_id"] for r in rows}) != 20:
+    if (file_sha256(p / "tokens.jsonl") != c["tokens_sha256"]
+            or len(rows) != 20 or len({r["user_id"] for r in rows}) != 20):
         raise ValueError("All20 frozen synthetic inputs required")
     return rows, report
 

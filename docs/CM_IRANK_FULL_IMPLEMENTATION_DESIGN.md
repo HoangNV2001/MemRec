@@ -1250,6 +1250,25 @@ Actual native FSDP2 output processing remains mandatory on all20 generated
 GPU cases. This repairs an invalid CPU harness assumption; all scientific,
 native GPU kernel, input, mask, repeat and resource requirements stay unchanged.
 
+**V1 CPU PASS / integration import failure before GPU use:** source41e4042
+CPU20 proxies/schemas **PASS19.537s**,3 artifacts retrieved/SHA-matched,
+report **`eeac485170d17f8c93edbaf79735322355cb9e01211de364de2d1a92f792651e`**.
+An initial scheduler-format error stopped the login chain before its controller;
+the recovered chain independently validated the completed CPU receipt instead
+of overwriting it. The GPU entry then failed at module import: an installed
+regular `scripts` package shadows this repo's namespace package. No model
+loaded, physical request, handoff signal or GPU run directory. Original keeper
+remained running and was independently reverified; reservation/GPU0 unchanged.
+
+**V2 integration-only retry:** load the already-reviewed process cleanup helper
+using its explicit source path under ROOT, not the ambiguous package name.
+`ppo_corrected_rollout_v2.json` changes only source-integration run namespaces/
+schema version/reason; its loader rejects scientific/resource overrides.
+Preserve successful v1 CPU and all failures unchanged. Fresh source-bound20 CPU
+qualification precedes the identical20 generated-response GPU gate and original
+keeper handback/post-release CPU review. New regression tests reproduce an
+installed conflicting `scripts` module and prove v1/v2 scientific equality.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.

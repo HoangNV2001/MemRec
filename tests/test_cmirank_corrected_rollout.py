@@ -98,3 +98,23 @@ def test_coordinator_has_no_torch_and_releases_before_scoring():
 def test_import_coordinator_does_not_load_training_frameworks():
     module = importlib.import_module("scripts.cmirank.29_smoke_corrected_rollout_gpu")
     assert callable(module.main) and callable(module.stop_owned)
+
+
+def test_absolute_helper_loading_ignores_installed_scripts_package(monkeypatch):
+    import sys
+    from types import ModuleType
+    from importlib.util import module_from_spec, spec_from_file_location
+    monkeypatch.setitem(sys.modules, "scripts", ModuleType("scripts"))
+    spec = spec_from_file_location("cpu_test_owned_coordinator", ROOT / "scripts/cmirank/29_smoke_corrected_rollout_gpu.py")
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert callable(module.stop_owned)
+    assert Path(module._spec.origin) == ROOT / "scripts/cmirank/23_smoke_vllm_hf_parity_gpu.py"
+
+
+def test_v2_is_source_integration_only():
+    a, _ = load_corrected_config(ROOT, 1)
+    b, _ = load_corrected_config(ROOT, 2)
+    allowed = {"schema_version", "inherits", "prepare_run_id", "run_id", "review_run_id", "reason"}
+    assert all(a[k] == b[k] for k in a if k not in allowed)
+    assert b["schema_version"] == 2 and b["run_id"] != a["run_id"]
