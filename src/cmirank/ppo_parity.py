@@ -179,7 +179,7 @@ def wait_owned_hf_release(snapshot, config, expected_uuid, *, child_exited, emit
     sample. Do not load the next model until the same physical card is clear.
     """
     from .gpu_resources import select_reserved_gpu
-    if not child_exited or child_kind not in ("hf", "vllm") or config.get("hf_release_wait_seconds") != 15:
+    if not child_exited or child_kind not in ("hf", "vllm", "cuda_identity_check", "native_fsdp2") or config.get("hf_release_wait_seconds") != 15:
         raise ValueError("Only confirmed owned-child exit permits the fixed15s release drain")
     started = clock()
     attempts = 0

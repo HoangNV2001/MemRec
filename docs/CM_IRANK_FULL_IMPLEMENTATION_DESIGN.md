@@ -1026,6 +1026,208 @@ diagnosis and verified native framework options, not another unregistered
 backend/precision search. Real native worker/optimizer and scientific PPO
 remain blocked by their unmet gates.
 
+**V9 verification/launch:** **455 CPU tests PASS5.44s**, compilation/shell/
+whitespace checks pass. Exact source **c9241c5eb288c90b60c85702f2d7edac9b8cc96e**
+pushed/deployed clean. Fresh CPU20 preparation **PASS31.986s**, native overlay/
+source/weight-stat receipts verified; report
+**`1f6a615beb1950a4cedbb842f8b1975734161f0c0c634749e6d60706d3d9c52e`**.
+Foreground same-master exec **44960** automatically entered the original
+GPU1 controller with dynamically resolved keeper **21820.315** after CPU PASS.
+Its single inspection showed an active command, no terminal diagnosis or
+keeper-handback result yet. Provisional **6–10min** for full HF20/cold native JIT
+and2 sequential cold vLLM startups plus80 requests; this is an extrapolation
+from prior103–104s HF and roughly110s server phases, not measured v9 throughput.
+CPU10min/GPU25min hard caps remain. Resume the same session once; no local SSH
+poll loop or source redeployment while active. All4 replay groups, within/
+across-start vectors and owned-model exit/GPU release/originalkeeper1 restoration
+must be reviewed before choosing any new runtime protocol. Diagnostic process
+success explicitly does not turn v8's numerical FAIL into PPO eligibility.
+
+### 0.44 V9 repeatability diagnosis completed; primary numerical gate still FAIL — 2026-10-13
+
+Exact producing source **c9241c5eb288c90b60c85702f2d7edac9b8cc96e**;
+CPU20 preparation **31.986s PASS**, diagnostic GPU execution **331.941s
+(5.53min) /80 requests**, all2 boots ×2 ordered replays ×20 cases completed.
+GPU report SHA256
+**`78e42b5a2d2dbc1a272e6196fe170f243a1e9d68f444c21da6aae55641b9f090`**.
+All **27 GPU +3 CPU** small artifacts were retrieved and independently SHA256
+matched. CPU/source/config receipts, the80 observations/comparisons, both
+repeatability aggregates and all4 HF comparison counts were independently
+recomputed. HF20 serialized vectors again exactly match v7/v8:
+**`2f88c7e4c042ac1dc8e3a7caf789deb655a9013015aa7587b3c399e679126626`**.
+Native full HF forward took109.652s; no model generation/update in that worker.
+
+| Diagnostic comparison | Pairs | Exact equal JSON vectors | Pass original drift bounds | Worst token delta | Worst action absolute log-ratio |
+|---|---:|---:|---:|---:|---:|
+| Same server, replay0 vs replay1 |40|0|27|0.116498|0.116497|
+| Different cold boots, matched replay |40|2|25|0.116870|0.116868|
+
+HF-vLLM original numerical gate passes **14/20,17/20,13/20,16/20**, respectively
+for `(boot,replay)=(0,0),(0,1),(1,0),(1,1)`. Every response/EOS token and failed
+case remains in the denominator; no best replay, relaxed threshold, dropped
+case or profile selection. Exit0 means the diagnostic finished correctly,
+**not a primary parity PASS**. Historical v8 FAIL12/20 is unchanged.
+
+**Interpretation:** within-process drift is observed too, so a cross-start
+cache-only explanation is insufficient. HF's reviewed full-forward vectors
+repeat exactly, whereas this vLLM **prompt-logprob** path does not satisfy the
+registered bounds. This does not identify a particular defective kernel,
+prove generated behavior likelihoods are equally inaccurate, or show that
+CM-IRank/PPO cannot work. There are still **zero PPO updates, zero new ranking
+metrics and no learned CM-IRank checkpoint**. Do not add another arbitrary
+backend/precision/seed search, force unsupported batch invariance, or label
+this infrastructure diagnosis a research-method result.
+
+**Cleanup:** owned HF and both vLLM servers exited; each server passed the
+original physical-GPU1 idle guard before its successor. HF release took
+2 observations/1.268s; server release0/1 took0.090/0.119s. Final GPU release
+**1MiB/no selected compute actor**, allocation still RUNNING, original
+`omni-gen-1` restored and verified. No reserved-job/GPU0 cancellation; exact
+private keeper identities are retained only in the internal runbook.
+
+**Next decision boundary:** inspect the pinned native framework before
+amending any gate. The installed VeRL commit has decoupled PPO with recomputed
+old-policy logprobs, rollout importance correction, and a vanilla PPO loss
+that actually consumes its weights. Its native defaults are sequence IS,
+upper cap2.0, no batch normalization/rejection sampling, bypass=false,
+PPO-clip; these are upstream defaults, **not settings tuned on the20 probes**.
+[Pinned VeRL configuration](https://github.com/verl-project/verl/blob/483b8a009ba3a97563edee3a19887e4862b8094a/verl/trainer/config/algorithm.py),
+[official rollout-correction guide](https://verl.readthedocs.io/en/latest/algo/rollout_corr.html).
+HF rollout is present as legacy source but **not registered in the installed
+worker's rollout registry**; do not promise a supported HF-only drop-in.
+[Pinned rollout registry](https://github.com/verl-project/verl/blob/483b8a009ba3a97563edee3a19887e4862b8094a/verl/workers/rollout/base.py).
+Read-only native CPU correction checks are allowed as diagnostics; they do
+not authorize promoting this failed gate into a corrected-PPO training gate.
+Any such amended acceptance protocol requires an explicit recorded decision,
+preserves every historical FAIL, and first measures **actual sampled-token
+behavior logprobs**, not these greedy prompt-logprob probes.
+
+### 0.45 Native CPU correction check and proposed T0 amendment — 2026-10-13
+
+**Executed without reclaiming a GPU:** pinned VeRL0.9/commit483b8a0, CUDA
+visibility empty,2 CPUs inside the existing allocation, no weights/optimizer/
+install/framework mutation. All4 original20-case groups were retained. Native
+`compute_rollout_correction_weights` matched the independent formula
+`min(2, exp(sum(logπ_HF − logπ_probe)))` across every response/EOS token.
+The actual vanilla PPO loss consumed these native weights and produced finite
+input-logprob gradients for fixed dummy +/- advantages. Dummy current=old
+logprobs gave PPO ratio1; **this is an arithmetic/wiring test, not real model
+forward consistency or an optimizer update**. Source/code/parent hashes and
+the exact executed CPU probe are retained with the v9 local review artifacts.
+The initial2 CPU harness attempts failed required native `ActorConfig` fields
+`strategy` then `rollout_n` before any probe; supplying explicit dummy fields
+fixed the harness. No failed sample/Books outcome was removed or retuned.
+Parity helper regression tests **38 PASS**.
+
+| Boot/replay | Cases | Sequence weight min–max | ESS fraction | Above native cap2 |
+|---|---:|---:|---:|---:|
+|0/0|20|0.906419–1.103470|0.997999|0|
+|0/1|20|0.942883–1.068115|0.999047|0|
+|1/0|20|0.922141–1.117945|0.997892|0|
+|1/1|20|0.918577–1.077697|0.998745|0|
+
+**Do not overinterpret:** these weights come from diagnostic **prompt
+logprobs**, not the probability of tokens sampled during PPO at temperature0.9.
+High ESS here is not a new acceptance threshold or proof that generation,
+off-policy correction, actual worker/optimizer stability or ranking quality
+will work. The strict numerical gate remains FAIL; `training_ready=false`.
+
+**Recommendation awaiting researcher decision:** retain Qwen3.5-4B, its exact
+format initializer, full text tuning, PPO+GAE, N−1, R1/terminal/MPSS arms and
+all split/data controls. Adopt the installed framework's **native decoupled
+PPO with default sequence IS** rather than repeatedly searching kernels to
+make two different engines numerically identical. Keep upstream defaults
+unchanged (cap2.0,no rejection sampling/no batch normalization,bypass=false,
+PPO-clip). This is a proposed *runtime/acceptance-protocol amendment*, not a
+new thesis contribution, a promise of fixing vLLM, or permission to relabel
+old numerical FAILs. **Not yet approved/selected.**
+
+If approved, advance in this order:
+
+1. **Freeze a source-bound T0 corrected-PPO qualification contract before any
+   new GPU result.** Preserve the old exact-parity reports as failed baseline
+   qualification; mark the new protocol explicitly. No threshold/seed/backend
+   search or implicit promotion. Use native validations and fixed upstream IS
+   defaults; ESS/weight/clipping statistics are diagnostics, not values chosen
+   to make these20 probes pass.
+2. **CPU20 preparation:** token/mask/EOS/temperature audit, actual native worker
+   routing and correction-to-loss wiring, revision/overlay/source hashes,
+   explicit model dtype/offload/one-card memory profile. Do not mistake BF16
+   forward smoke for native FP32-parameter optimizer fit. No unsupported HF
+   rollout registry patch or direct prefill-logprob substitution.
+3. **GPU20 generated stochastic rollout, no update:** obtain **actual sampled
+   token IDs and corresponding behavior logprobs** at the fixed training
+   temperature; recompute native old/reference logprobs with correct
+   temperature and masks, retaining malformed cases/EOS. Audit weight sync,
+   sampled support, native correction/no silent rejection, finite values,
+   pre-update same-training-engine consistency and VRAM/host-memory usage.
+   Expose all20 cases and stop on native/resource/mask/accounting failure.
+4. **Only after those gates:** separately bounded native actor+critic optimizer
+   smoke with synthetic rewards, then tiny pseudo-train PPO/GAE reward-placement
+   audit. No ranking-label training hidden inside compatibility checks.
+   Require finite gradients/updates, actual optimizer-state memory,
+   checkpoint round-trip and exact resource cleanup before expansion.
+5. **Then resume the research plan**, not infrastructure-only iterations:
+   primary memory qualification/cache, fixed R1/terminal/MPSS controls on
+   pseudo-train/validation, learning curves and paired full-MemRec/SASRec
+   comparisons; sealed evaluation still needs its separate preregistration.
+
+If not approved, retain the existing strict gate and investigate/change the
+runtime only under a separately agreed scope; do not launch more repetitions
+of this failing configuration by default. During this decision, MemRec holds
+**no GPU model** and the original GPU1 keeper remains active.
+
+### 0.46 Researcher-approved corrected-PPO qualification protocol — 2026-10-13
+
+Researcher replied **“okay, tiếp đi”** to the explicit proposal in§0.45.
+Native decoupled PPO/default sequence IS is now approved for qualification;
+Qwen3.5-4B/full text tuning/PPO+GAE/rewards/data controls remain unchanged.
+Historical strict cross-engine parity and repeatability FAILs stay FAILs;
+the original default parity contract remainsv8. Approval is **not a PPO update
+or ranking result** and does not authorize GRPO/LoRA/new driver/extra GPU.
+
+Frozen new contract `configs/cmirank/ppo_corrected_rollout_v1.json`: the same
+20 disjoint synthetic iterative prompts, one generated response each,64-token
+cap justified by the previous response-length audit, temperature0.9 from the
+R1 reference recipe,seed42,top-p1/top-k−1/min-p0/no penalties/no constrained
+decoding/no retry/repair. These full-support settings ensure the native scorer
+and behavior distribution differ only by engine numerics, not hidden filtering.
+Use **native processed sampled-token logprobs**, not prompt-logprob replay;
+the installed VeRL rollout default is also `processed_logprobs`.
+[vLLM logprob semantics](https://docs.vllm.ai/en/stable/api/vllm/config/model/).
+
+CPU qualification precedes GPU: verify immutable parent artifacts, all weights/
+native sources/overlays; rehearse20 native input/output temperature/next-token
+alignment and correction/loss proxies with no CUDA/full weights. GPU task:
+one owned vLLM server/20 requests → exit/physical release → one native FSDP2
+forward-only engine/20 responses scored twice → exit/physical release →
+original GPU1 keeper restoration. Native engine parameters explicitly BF16,
+world-size1/no padding removal/no fused kernels/no compile/no optimizer;
+this inference profile **does not freeze or prove optimizer precision/memory**.
+Same-engine repeat uses the original numerical bounds; cross-engine drift
+is measured rather than relabeled as exact-parity PASS.
+
+Retain raw/malformed/truncated outputs and every observed EOS. No synthesized
+EOS, selected successful subgroup, ESS/format threshold or outcome-dependent
+tuning. All20 likelihood/mask/accounting/native/resource checks must pass;
+actual native sequence correction/loss review runs on CPU **after** GPU release
+and keeper handback. Shared actor/reference initial weights are scored by the
+same no-update engine; this is explicitly **not** separate actor/reference/
+critic optimizer co-residency or a multi-turn PPO trainer qualification.
+After reviewed success, proceed to a separate native worker/optimizer memory
+smoke and PPO/GAE/reward placement gates before any research training expansion.
+
+**Implementation verification:** new source-bound CPU preparation28, guarded
+GPU coordinator29, native FSDP2 scorer30 and post-handback CPU review31 reuse
+the existing keeper controller. Full local suite **481 tests PASS10.36s**;
+compilation/shell/whitespace checks pass. New26 tests reject hidden sampler/
+resource/precision/IS overrides, missing/nonfinite probabilities, wrong token/
+EOS accounting, silently repaired truncation and default-parity mutation.
+Coordinator imports no Torch; a short-lived UUID-check child must exit and
+pass the original physical drain before sampler loading. Actual native scorer
+also verifies its full UUID and audited complete GDN/causal fast path. No new
+GPU result or optimizer eligibility follows from these local tests.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.

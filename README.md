@@ -9,7 +9,7 @@ thesis đã được xác nhận.
 Hướng hiện tại là **CM-IRank**: giữ Stage-R/Stage-W, thay Stage-ReRank bằng
 chính sách loại dần candidate, fine-tune **Qwen/Qwen3.5-4B bằng PPO** với MPSS.
 
-## Trạng thái hiện hành — 2026-10-12
+## Trạng thái hiện hành — 2026-10-13
 
 | Phần việc | Bằng chứng / giới hạn |
 |---|---|
@@ -17,9 +17,22 @@ chính sách loại dần candidate, fine-tune **Qwen/Qwen3.5-4B bằng PPO** v�
 | Data/protocol CM-IRank | Khóa 1.497 train / 300 validation; snapshot target-blind và 3.594 candidate sets v2 đã audit CPU, không có cờ trong 7 probe cố định; chưa chứng minh không còn shortcut |
 | Policy infrastructure | RankRequest/replay, N−1, parser, MPSS có CPU tests; Qwen3.5 synthetic smoke 20/20 và một optimizer update bỏ đi đã pass; **chưa train PPO** |
 | Real memory | V6 fail đã review; **v7 secondary control + independent review pass**, 20/20 user, 100 calls, 20 warm-up writes / 0 pseudo writes; không chứng minh semantic grounding hay thay primary |
+| Format / PPO runtime | Format-only SFT 256 synthetic examples /64 updates đã xong; full actor/reference/critic compatibility pass. **Chưa PPO**: v8 HF–vLLM parity fail12/20; v9 chẩn đoán đủ80 requests xác nhận drift cả trong cùng server, không chọn lượt tốt nhất để promote |
 | Method result | **Chưa có checkpoint/score CM-IRank**; held-out 5.377 users vẫn niêm phong |
 
-Kế hoạch và đánh giá khả thi mới nhất: [design §0.14](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#014-overall-review-and-next-gates--2026-10-07).
+**Gate hiện tại:** v9 đã hoàn tất5,53 phút; HF lặp lại đúng vector cũ, vLLM
+prompt-logprob lệch tối đa0,1165 trong cùng server. GPU đã nhả và keeper1 bật
+lại. Đang đánh giá protocol PPO có correction native của VeRL, không nới
+ngưỡng hay tuyên bố training pass. Kết quả/giới hạn và quyết định tiếp theo ở
+[design §0.44](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#044-v9-repeatability-diagnosis-completed-primary-numerical-gate-still-fail--2026-10-13).
+Native correction đã kiểm tra CPU đủ4×20 vector, không update/model/GPU;
+**researcher đã đồng ý protocol mới**, đang triển smoke sinh thật20 mẫu trước
+optimizer, giữ nguyên các numerical FAIL cũ. Quyết định và scope ở
+[§0.45](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#045-native-cpu-correction-check-and-proposed-t0-amendment--2026-10-13).
+Contract đã khóa ở
+[§0.46](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#046-researcher-approved-corrected-ppo-qualification-protocol--2026-10-13).
+Tổng quan phương pháp vẫn ở [design §0.14](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#014-overall-review-and-next-gates--2026-10-07).
+Các đoạn dưới là lịch sử gate; không dùng trạng thái launch cũ làm tiến độ hiện tại.
 CPU review v6 đã đối chiếu 35 request/schema và replay đúng 11 lần Stage-W;
 không sửa ID, bỏ user, tune prompt hay nới hard gate để thông qua smoke.
 Researcher đã duyệt **v7 constrained-decoding secondary control**: schema chỉ cho
