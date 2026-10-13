@@ -173,3 +173,16 @@ def test_native_fla_candidate_changes_only_hf_kernel_dependency_not_weight_or_bo
     assert 'env=hf_environment' in source and 'env=server_environment' in source
     worker = (ROOT / "scripts/cmirank/24_hf_parity_worker_gpu.py").read_text()
     assert worker.index("native_gdn_gradient_probes(config, run, torch)") < worker.index("model, info =")
+
+
+def test_private_compiler_retry_preserves_fla_probes_and_every_scientific_field():
+    old, _ = load_parity_config(ROOT, 5)
+    new, _ = load_parity_config(ROOT, 6)
+    assert {k for k in old if old[k] != new[k]} == {"schema_version", "inherits", "prepare_run_id", "run_id", "reason"}
+    assert new["hf_worker_environment"] == {"FLA_TILELANG": "1"}
+    source = (ROOT / "scripts/cmirank/23_smoke_vllm_hf_parity_gpu.py").read_text()
+    assert source.index("verify_cuda_toolchain(private, ROOT, config)") < source.index("= handoff(run,")
+    assert 'hf_environment.update(CUDA_HOME=' in source
+    assert 'hf_environment.update(config["hf_worker_environment"])' in source
+    worker = (ROOT / "scripts/cmirank/24_hf_parity_worker_gpu.py").read_text()
+    assert '"common:chunk_bwd_dqkwg:tilelang" not in registry._logged' in worker

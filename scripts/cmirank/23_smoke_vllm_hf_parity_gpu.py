@@ -2,7 +2,7 @@
 """Twenty raw-token vLLM/HF parity probes; CPU coordinator, one authorized GPU.
 
 HF child exits/release-audits before vLLM starts. No held model waits for CPU
-preparation or researcher input. Outer controller always restores keeper0.
+preparation or researcher input. Outer controller restores the authorized keeper.
 """
 
 import argparse
@@ -28,6 +28,7 @@ from src.cmirank.ppo_parity import (compare_logprobs, completion_request, diagno
                                     verify_fla_overlay, verify_parity_preparation)
 from src.cmirank.ppo_runtime import load_runtime_config
 from src.cmirank.provenance import artifact_json_dumps, file_sha256
+from src.cmirank.cuda_toolchain import verify_cuda_toolchain
 from src.cmirank.reserved_handoff import gpu_snapshot, handoff
 
 
@@ -84,6 +85,7 @@ def main():
         commit=commit, config_sha=file_sha256(path), code_sha=parity_code_hashes(ROOT))
     if config.get("hf_kernel_overlay"):
         verify_fla_overlay(private, config)  # File/hash preparation BEFORE handoff.
+    toolchain = verify_cuda_toolchain(private, ROOT, config)[0] if config.get("hf_cuda_toolchain") else None
     checkpoint = private / "runs" / compat["sft_run_id"] / "checkpoint"
     for name, expected in prepared["checkpoint_stat"].items():
         stat = (checkpoint / name).stat()
@@ -139,6 +141,16 @@ def main():
         hf_environment = dict(os.environ)
         if config.get("hf_kernel_overlay"):
             hf_environment["PYTHONPATH"] = str(private / "overlays" / config["hf_kernel_overlay"]) + os.pathsep + os.environ["PYTHONPATH"]
+        if toolchain:
+            hf_environment.update(config["hf_worker_environment"])
+            hf_environment.update(CUDA_HOME=str(toolchain), CUDA_PATH=str(toolchain),
+                PATH=str(toolchain / "bin") + os.pathsep + os.environ["PATH"],
+                TILELANG_CACHE_DIR=str(private / "cache/runtime-hnv" / config["run_id"] / "tilelang"),
+                TILELANG_TMP_DIR=str(private / "cache/runtime-hnv" / config["run_id"] / "tilelang-tmp"))
+            manifest["hf_private_compiler"] = {"cuda_home": str(toolchain),
+                "preparation_report_sha256": file_sha256(private / "runs" / config["toolchain_prepare_run_id"] / "report.json"),
+                "environment": {k: hf_environment[k] for k in ("CUDA_HOME", "CUDA_PATH", "FLA_TILELANG", "TILELANG_CACHE_DIR", "TILELANG_TMP_DIR")}}
+            save(run / "manifest.json", manifest)
         worker = subprocess.Popen([sys.executable, "-u", worker_marker, "--run-dir", str(run)], env=hf_environment,
             stdout=hf_log, stderr=subprocess.STDOUT, start_new_session=True)
         if worker.wait(timeout=600) != 0:

@@ -1,0 +1,10 @@
+{
+  "schema_version": 6,
+  "inherits": "configs/cmirank/ppo_parity_v5.json",
+  "prepare_run_id": "cmirank-ppo-parity-data-v6-20261013-hnv",
+  "run_id": "cmirank-ppo-vllm-hf-parity-v6-fla-cuda129-20261013-hnv",
+  "hf_cuda_toolchain": "cuda-12.9.1-nvcc-12.9.86-hnv",
+  "toolchain_prepare_run_id": "cmirank-cuda129-toolchain-cpu-v1-20261013-hnv",
+  "hf_worker_environment": {"FLA_TILELANG": "1"},
+  "reason": "V5 failed in native TileLang backward at system NVCC12.2 TMA assembly, before model load. Replay the exact failed CUDA kernel on CPU with a pinned private CUDA12.9 compiler. Keep the official Hopper TileLang backward workaround (#640), original FLA bytes, all20 native gradient probes and all20 unchanged BF16/FA2/checkpoint/token/bound parity comparisons. Only HF child gets private compiler and TileLang env; no driver/system/Python runtime upgrade or vLLM change."
+}

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "run_id": "cmirank-cuda129-toolchain-cpu-v1-20261013-hnv",
+  "toolchain_name": "cuda-12.9.1-nvcc-12.9.86-hnv",
+  "manifest_url": "https://developer.download.nvidia.com/compute/cuda/redist/redistrib_12.9.1.json",
+  "failed_run_id": "cmirank-ppo-vllm-hf-parity-v5-fla-20261012-hnv",
+  "failed_log_sha256": "bd3059f835b5579ec4dde85a093c562950d951bd1edf675bdbabd0f9d767973b",
+  "timeout_minutes": 15,
+  "gpu_requested": false,
+  "base_environment_mutation": false,
+  "driver_or_system_cuda_mutation": false,
+  "components": [
+    {"name": "cuda_nvcc", "version": "12.9.86", "relative_path": "cuda_nvcc/linux-x86_64/cuda_nvcc-linux-x86_64-12.9.86-archive.tar.xz", "size": 81100244, "sha256": "7a1a5b652e5ef85c82b721d10672fc9a2dbaab44e9bd3c65a69517bf53998c35"},
+    {"name": "cuda_cudart", "version": "12.9.79", "relative_path": "cuda_cudart/linux-x86_64/cuda_cudart-linux-x86_64-12.9.79-archive.tar.xz", "size": 1514676, "sha256": "1f6ad42d4f530b24bfa35894ccf6b7209d2354f59101fd62ec4a6192a184ce99"},
+    {"name": "cuda_cccl", "version": "12.9.27", "relative_path": "cuda_cccl/linux-x86_64/cuda_cccl-linux-x86_64-12.9.27-archive.tar.xz", "size": 997888, "sha256": "8b1a5095669e94f2f9afd7715533314d418179e9452be61e2fde4c82a3e542aa"}
+  ]
+}

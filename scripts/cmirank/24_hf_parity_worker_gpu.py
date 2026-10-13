@@ -119,6 +119,10 @@ def native_gdn_gradient_probes(config, run, torch):
     from transformers.models.qwen3_5 import modeling_qwen3_5 as hf
     if hf.chunk_gated_delta_rule is not chunk_gated_delta_rule:
         raise ValueError("Actual GPU HF dispatch did not select the CPU-audited native FLA operator")
+    if config.get("hf_cuda_toolchain"):
+        from fla.ops.common.backends.tilelang import TileLangBackend
+        if os.environ.get("FLA_TILELANG") != "1" or not TileLangBackend.is_available() or not TileLangBackend.is_enabled():
+            raise ValueError("Official Hopper TileLang backward workaround must remain enabled")
     probes = []
     for i in range(config["native_gdn_gradient_samples"]):
         length = config["kernel_probe_lengths"][i % len(config["kernel_probe_lengths"]) ]
@@ -137,10 +141,16 @@ def native_gdn_gradient_probes(config, run, torch):
         norm = sum(float(x.float().square().sum()) for x in gradients) ** 0.5
         if not 0 < norm < float("inf"):
             raise ValueError("Native GDN backward norm is not finite/positive")
+        if config.get("hf_cuda_toolchain"):
+            from fla.ops.backends import BackendRegistry
+            registry = BackendRegistry._registries.get("common")
+            if registry is None or "common:chunk_bwd_dqkwg:tilelang" not in registry._logged:
+                raise ValueError("Actual native backward did not execute the pinned TileLang path")
         probes.append({"sample": i, "sequence_tokens": length, "gradient_norm": norm})
         del query, key, value, g, beta, output, state, gradients
     (run / "native-gdn-gradient.json").write_text(artifact_json_dumps({"samples":len(probes),
-        "probes":probes,"optimizer_updates":0,"official_weights_loaded":False,"native_hf_dispatch_verified":True}))
+        "probes":probes,"optimizer_updates":0,"official_weights_loaded":False,"native_hf_dispatch_verified":True,
+        "native_tilelang_backward_verified":bool(config.get("hf_cuda_toolchain"))}))
     gc.collect()
     torch.cuda.empty_cache()
 

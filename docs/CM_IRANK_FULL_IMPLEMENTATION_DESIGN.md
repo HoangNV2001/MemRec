@@ -773,6 +773,68 @@ Exact source **1aa3d9d1ced203a779eb497c6f51c168df55b1aa**: CPU audit **8.406s**,
 
 Fresh `ppo_parity_v5.json` inherits v3, **not** the precision diagnostic: same BF16/FA2/checkpoint11 files/tokens20/temperature/request cap20/three numerical thresholds/oneGPU1. Before full checkpoint load, run20 actual native GDN forward/backward probes at fixed lengths33/64/65/128/529, require finite correctly shaped output and finite nonzero gradients. Verify actual GPU HF dispatch and full model's selected native trainable GDN, strict loading keys/parameter counts/BF16; no inference-only operator monkeypatch. Only the owned HF child gets the new overlay; coordinator/base/vLLM service environments stay unchanged. Hash/profile preparation remains CPU before handoff, and HF fully exits/releases before vLLM. All20 comparisons must pass unchanged gates; no primary production freeze or PPO promotion from preparation. Subsequent actor/critic/reference/worker/optimizer and fresh-format tests remain necessary for this changed native-kernel candidate.
 
+### 0.39 Native FLA parity CPU v5 recovered; GPU smoke launched — 2026-10-13
+
+Recovery independently verified the completed preparation from exact clean source
+**45992949c0c934044dd0beb126661685504d0548**: **17.587s /20 native schema probes**,
+CPU only, no weights/updates/outcomes. Report SHA256
+**`76ff794a8995113c95d2034f7c84a085a0bcb4952b80776dae6f851d186a8675`**;
+all3 downloaded artifacts match server hashes and local code/config provenance.
+Frozen token/request hashes remain identical to v3; the audited native FLA
+overlay is still a candidate, not an accepted production profile.
+
+At **2026-10-13T01:16:39Z**, allocation ownership/state and current keeper1
+**21820.259** passed read-only scope preflight under the persistent researcher
+GPU1 authority. GPU0's current keeper279/external workload is protected, not
+reclaimed. Launched the original bounded handoff/cleanup controller for
+`cmirank-ppo-vllm-hf-parity-v5-fla-20261012-hnv` using the same deployed clean
+source. One foreground SSH channel via shared ControlMaster; no local SSH
+polling loop. Local exec session **33451** was still active at its first
+inspection, with no terminal result yet.
+
+Next receipt must establish20 actual native GDN forward/backward probes and
+20/20 unchanged-threshold HF/vLLM comparisons, plus model exit/GPU release/
+originalkeeper1 restoration. Provisional **3–8min** total with cold Triton JIT,
+not measured v5 throughput; HF child has a600s limit and the unchanged outer
+task has25min hard cap. No PPO update, ranking result, relaxed threshold or
+automatic profile promotion is claimed. Resume the existing session once on
+continuation; do not deploy a new source while it is active.
+
+### 0.40 Native FLA v5 backward compiler FAIL; private toolchain repair — 2026-10-13
+
+V5 terminal **77.808s**, zero HTTP completions/optimizer updates. Native FLA
+forward reached the first kernel probe, but backward dispatched to the installed
+official **TileLang** backend; system NVCC **12.2.140** failed assembling
+`cp.async.bulk.tensor` with “State space incorrect”. Failure occurred before
+loading the SFT model, so there is no v5 full-model HF or vLLM parity result.
+All11 small artifacts independently SHA-match; failed worker log
+**`bd3059f835b5579ec4dde85a093c562950d951bd1edf675bdbabd0f9d767973b`** is retained
+as the exact compiler-regression input, not edited to hide the failure.
+
+Owned worker/server exited, GPU1 released to **1MiB**, allocation remained
+RUNNING. Originalkeeper1 restored as **21820.287**, with UID/command/cgroup/
+PythonCVD1/startticks audited; GPU0 protected actor3118209 untouched. Restoring
+the keeper is verified cleanup, **not kernel or parity success**.
+
+Installed FLA0.5.2 source enables TileLang on Hopper/Triton≥3.4 to work around
+a documented gradient precision regression ([upstream issue640](https://github.com/fla-org/flash-linear-attention/issues/640)).
+Although a native opt-out exists, **do not force the known-problematic Triton
+backward just to pass a finite-gradient smoke**. Instead use NVIDIA's pinned
+[CUDA12.9.1 redistribution manifest](https://developer.download.nvidia.com/compute/cuda/redist/redistrib_12.9.1.json):
+NVCC12.9.86, cudart headers12.9.79 and CCCL12.9.27, about83.6MB archived, installed
+only under the new private `toolchains/` directory. No runfile/root/driver/system
+CUDA modification, pip/base-env upgrade or dependency changes to other projects.
+
+Script26 first compiles the **exact failed generated CUDA source** into a cubin
+with the private compiler on CPU (no CUDA context), checks native TileLang
+compiler lookup and hashes toolkit/receipt bytes. Fresh parityv6 inherits every
+v5 scientific field; only owned HF child receives private CUDA_HOME/PATH,
+explicit native `FLA_TILELANG=1` and per-run private TileLang caches. vLLM keeps
+the reviewed environment. Require20 actual native TileLang gradient probes,
+same20 comparisons and original bounds before promotion. No numerical claim
+from compiler replay alone; full-model backward/worker/optimizer/format gates
+still follow. Preserve any old default TileLang home-cache bytes untouched.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.

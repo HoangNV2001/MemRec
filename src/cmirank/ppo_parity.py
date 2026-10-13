@@ -10,8 +10,8 @@ from pathlib import Path
 from .provenance import file_sha256
 
 
-def load_parity_config(root, version=5):
-    if version not in (1, 2, 3, 4, 5):
+def load_parity_config(root, version=6):
+    if version not in (1, 2, 3, 4, 5, 6):
         raise ValueError("Unknown parity contract")
     config = json.loads((root / "configs/cmirank/ppo_parity_v1.json").read_text())
     path = root / f"configs/cmirank/ppo_parity_v{version}.json"
@@ -45,8 +45,8 @@ def load_parity_config(root, version=5):
                     "readout_fp32_response_only", "bf16_sdpa", "fp32_sdpa"]):
             raise ValueError("Precision diagnosis cannot choose a subset, alter thresholds or promote a profile")
         config.update(retry)
-    if version == 5:
-        retry = json.loads(path.read_text())
+    if version >= 5:
+        retry = json.loads((root / "configs/cmirank/ppo_parity_v5.json").read_text())
         if (set(retry) != {"schema_version", "inherits", "prepare_run_id", "run_id", "hf_kernel_overlay",
                           "fla_prepare_run_id", "fla_prepare_report_sha256", "native_gdn_gradient_samples",
                           "kernel_probe_lengths", "reason"}
@@ -55,6 +55,16 @@ def load_parity_config(root, version=5):
                 or retry["native_gdn_gradient_samples"] != 20
                 or retry["kernel_probe_lengths"] != [33, 64, 65, 128, 529]):
             raise ValueError("Native GDN candidate cannot change checkpoint/dtype/masks/bounds/research recipe")
+        config.update(retry)
+    if version == 6:
+        retry = json.loads(path.read_text())
+        if (set(retry) != {"schema_version", "inherits", "prepare_run_id", "run_id", "hf_cuda_toolchain",
+                          "toolchain_prepare_run_id", "hf_worker_environment", "reason"}
+                or retry["inherits"] != "configs/cmirank/ppo_parity_v5.json"
+                or retry["hf_cuda_toolchain"] != "cuda-12.9.1-nvcc-12.9.86-hnv"
+                or retry["toolchain_prepare_run_id"] != "cmirank-cuda129-toolchain-cpu-v1-20261013-hnv"
+                or retry["hf_worker_environment"] != {"FLA_TILELANG": "1"}):
+            raise ValueError("Private compiler retry cannot change the numerical or scientific recipe")
         config.update(retry)
     expected_gpu = 1 if version >= 3 else 0
     expected_policy = f"gpu{expected_gpu}_only_gpu{1-expected_gpu}_all_workloads_read_only"
@@ -73,6 +83,7 @@ def parity_code_hashes(root):
         "src/cmirank/ppo_parity.py", "scripts/cmirank/22_prepare_ppo_parity_cpu.py",
         "scripts/cmirank/23_smoke_vllm_hf_parity_gpu.py", "scripts/cmirank/24_hf_parity_worker_gpu.py",
         "src/cmirank/ppo_compat.py", "src/cmirank/reserved_handoff.py", "src/cmirank/t0_authority.py", "src/cmirank/gpu_resources.py",
+        "src/cmirank/cuda_toolchain.py", "scripts/cmirank/26_prepare_cuda_toolchain_cpu.py",
         "scripts/cmirank/run_real_policy_smoke.sh", "scripts/cmirank/run_real_policy_with_keeper.sh")}
 
 
@@ -157,6 +168,8 @@ def verify_parity_preparation(directory, config, *, commit, config_sha, code_sha
         raise ValueError("Native backend/environment receipt required before the kernel retry")
     if config.get("hf_kernel_overlay") and report.get("native_fla_overlay_audited") is not True:
         raise ValueError("Native FLA overlay CPU audit receipt is required before GPU candidate qualification")
+    if config.get("hf_cuda_toolchain") and report.get("private_cuda_toolchain_cpu_replay_passed") is not True:
+        raise ValueError("Native TileLang compiler regression must pass CPU replay before GPU handoff")
     if config.get("hf_precision_diagnostic"):
         rehearsal = report.get("native_precision_control_cpu_rehearsal") or {}
         if (rehearsal.get("samples_per_variant") != 20 or rehearsal.get("variants") != config["diagnostic_variants"]
