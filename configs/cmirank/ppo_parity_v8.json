@@ -1,0 +1,10 @@
+{
+  "schema_version": 8,
+  "inherits": "configs/cmirank/ppo_parity_v7.json",
+  "prepare_run_id": "cmirank-ppo-parity-data-v8-20261013-hnv",
+  "run_id": "cmirank-ppo-vllm-hf-parity-v8-release-20261013-hnv",
+  "causal_prepare_source_commit": "132e4148c1bfa0bb21be2a6bb7fda75ab416f86d",
+  "causal_prepare_report_sha256": "440b838398d5b11ba035e83987e5c0b75caffcaad5a3bb804d89baff56fe9550",
+  "hf_release_wait_seconds": 15,
+  "reason": "V7 completed native causal20/GDN20 and full-model HF20, then the instantaneous post-HF idle guard failed before vLLM load. No snapshot at the failing instant was retained, so stale utilization is a hypothesis rather than proven cause. Record every bounded release observation; require confirmed own-child exit and exactly the original <20%/<512MiB/no-process/physicalUUID guards before serving. No process signal or GPU sharing during drain. Reuse the accepted immutable causal ABI overlay under its producing commit/report SHA instead of rebuilding it. All weights, native kernels,20 inputs,20 requests, numerical thresholds and research recipe unchanged."
+}

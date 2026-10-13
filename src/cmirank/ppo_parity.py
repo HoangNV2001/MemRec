@@ -5,13 +5,14 @@ No CUDA, model loading or HTTP at import time. Does not implement PPO training.
 
 import json
 import math
+import time
 from pathlib import Path
 
 from .provenance import file_sha256
 
 
-def load_parity_config(root, version=7):
-    if version not in (1, 2, 3, 4, 5, 6, 7):
+def load_parity_config(root, version=8):
+    if version not in (1, 2, 3, 4, 5, 6, 7, 8):
         raise ValueError("Unknown parity contract")
     config = json.loads((root / "configs/cmirank/ppo_parity_v1.json").read_text())
     path = root / f"configs/cmirank/ppo_parity_v{version}.json"
@@ -66,8 +67,8 @@ def load_parity_config(root, version=7):
                 or retry["hf_worker_environment"] != {"FLA_TILELANG": "1"}):
             raise ValueError("Private compiler retry cannot change the numerical or scientific recipe")
         config.update(retry)
-    if version == 7:
-        retry = json.loads(path.read_text())
+    if version >= 7:
+        retry = json.loads((root / "configs/cmirank/ppo_parity_v7.json").read_text())
         if (set(retry) != {"schema_version", "inherits", "prepare_run_id", "run_id", "hf_causal_overlay",
                           "native_causal_gradient_samples", "toolchain_prepare_source_commit",
                           "toolchain_prepare_report_sha256", "reason"}
@@ -77,6 +78,16 @@ def load_parity_config(root, version=7):
                 or retry["toolchain_prepare_source_commit"] != "78a2c07793827c9470e02d24fffc25e362cb6b45"
                 or retry["toolchain_prepare_report_sha256"] != "84a542cc7b36a68d84e73554bf4d94306c8a966ba39f89ff4bbc92075eb55c50"):
             raise ValueError("Full native fast-path retry cannot change the research or parity contract")
+        config.update(retry)
+    if version == 8:
+        retry = json.loads(path.read_text())
+        if (set(retry) != {"schema_version", "inherits", "prepare_run_id", "run_id", "causal_prepare_source_commit",
+                          "causal_prepare_report_sha256", "hf_release_wait_seconds", "reason"}
+                or retry["inherits"] != "configs/cmirank/ppo_parity_v7.json"
+                or retry["causal_prepare_source_commit"] != "132e4148c1bfa0bb21be2a6bb7fda75ab416f86d"
+                or retry["causal_prepare_report_sha256"] != "440b838398d5b11ba035e83987e5c0b75caffcaad5a3bb804d89baff56fe9550"
+                or retry["hf_release_wait_seconds"] != 15):
+            raise ValueError("Release-drain retry cannot weaken GPU or numerical guards")
         config.update(retry)
     expected_gpu = 1 if version >= 3 else 0
     expected_policy = f"gpu{expected_gpu}_only_gpu{1-expected_gpu}_all_workloads_read_only"
@@ -114,6 +125,38 @@ def server_options(config):
     if config.get("server_kernel_config"):
         options.extend(["--kernel-config", json.dumps(config["server_kernel_config"], sort_keys=True)])
     return options
+
+
+def wait_owned_hf_release(snapshot, config, expected_uuid, *, child_exited, emit,
+                          clock=time.monotonic, sleep=time.sleep):
+    """Bounded observation only: original idle thresholds, no PID/step signals.
+
+    A returned child exit code does not guarantee an instantaneous NVML idle
+    sample. Do not load the next model until the same physical card is clear.
+    """
+    from .gpu_resources import select_reserved_gpu
+    if not child_exited or config.get("hf_release_wait_seconds") != 15:
+        raise ValueError("Only confirmed owned-child exit permits the fixed15s release drain")
+    started = clock()
+    attempts = 0
+    while True:
+        cards, apps, raw, raw_apps = snapshot()
+        selected = [card for card in cards if card.index == config["gpu_index"]]
+        if len(selected) != 1 or selected[0].uuid != expected_uuid:
+            raise ValueError("Physical GPU changed during owned-child release; no fallback")
+        attempts += 1
+        emit({"attempt":attempts, "elapsed_seconds":clock()-started,
+              "gpu_snapshot":raw, "compute_snapshot":raw_apps,
+              "gpu_uuid":expected_uuid, "child_exited":True})
+        try:
+            card = select_reserved_gpu(cards, set(apps), gpu_index=config["gpu_index"])
+        except ValueError:
+            if clock()-started >= config["hf_release_wait_seconds"]:
+                raise ValueError("Owned HF release did not meet original idle guards within15s")
+            sleep(1)
+            continue
+        return {"child_exited":True, "gpu_released":True, "gpu_uuid":card.uuid,
+                "attempts":attempts, "elapsed_seconds":clock()-started}
 
 
 def completion_request(row, config):

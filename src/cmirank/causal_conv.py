@@ -2,6 +2,8 @@
 
 import json
 import os
+import hashlib
+import subprocess
 from pathlib import Path
 
 from .provenance import file_sha256
@@ -12,9 +14,13 @@ def verify_causal_overlay(private, root, config):
     contract = json.loads(contract_path.read_text())
     run = private / "runs" / contract["run_id"]
     report = json.loads((run / "report.json").read_text())
+    accepted_sha = config.get("causal_prepare_report_sha256")
+    producing_commit = config.get("causal_prepare_source_commit", os.environ["MEMREC_EXPECTED_COMMIT"])
+    if accepted_sha and file_sha256(run / "report.json") != accepted_sha:
+        raise ValueError("Reviewed reusable causal convolution receipt changed")
     if (config["hf_causal_overlay"] != contract["overlay_name"]
             or report["status"] != "CAUSALCONV_CPU_BUILD_IMPORT_PASS_GPU_FULL_FASTPATH_GATES_REMAIN"
-            or report["source_commit"] != os.environ["MEMREC_EXPECTED_COMMIT"]
+            or report["source_commit"] != producing_commit
             or report["config_sha256"] != file_sha256(contract_path)
             or report["source_sha256"] != contract["source_sha256"]
             or report["version"] != contract["version"] or report["gpu_requested"]
@@ -22,7 +28,9 @@ def verify_causal_overlay(private, root, config):
             or not report["base_environment_unchanged"] or report["training_ready"]):
         raise ValueError("Native causal convolution requires completed source-bound CPU build/import")
     for name in ("src/cmirank/causal_conv.py", "scripts/cmirank/27_build_causal_conv_cpu.py"):
-        if report["code_sha256"].get(name) != file_sha256(root / name):
+        digest = (hashlib.sha256(subprocess.check_output(["git", "show", producing_commit + ":" + name], cwd=root)).hexdigest()
+                  if accepted_sha else file_sha256(root / name))
+        if report["code_sha256"].get(name) != digest:
             raise ValueError("Causal convolution preparation code changed")
     overlay = private / "overlays" / contract["overlay_name"]
     for name, digest in report["overlay_sha256"].items():

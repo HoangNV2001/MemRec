@@ -908,6 +908,64 @@ passes, the independent repeatability/full-model gradient/native-worker gates
 still remain; if it fails, preserve it and reassess runtime alternatives instead
 of tuning rules/prompts/thresholds to these diagnostic cases.
 
+**V7 verification/launch:** **442 CPU tests PASS5.04s**, compilation/shell/
+whitespace checks pass. Exact source **132e4148c1bfa0bb21be2a6bb7fda75ab416f86d**
+was pushed and cleanly fast-forward deployed. Foreground shared-master SSH exec
+**85590** launched the CPU8 native convolution build inside allocation21820;
+its single inspection showed `CPU_CAUSALCONV_OFFICIAL_BUILD_START`, still active,
+no wheel/import or GPUv7 result. The unmodified source compiles its native
+multi-architecture defaults, MAX_JOBS1/NVCC4threads; no source patch to shorten
+the build. Provisional **10–25min CPU +3–8min GPU**, not measured build throughput;
+compile30min/CPUouter40min/CPUparity10min/GPU25min hard caps apply. Keepers remain
+active during CPU work. The same bounded server-side command automatically
+proceeds only on strict compiler/overlay/source-bound CPU20 receipt success,
+then fresh standing-authority keeper1 guards and the original GPU1 controller.
+No SSH poll loop, source deployment during the active chain, unsupported BIC
+flag patch, PPO update or outcome access. Terminal cleanup/handback and original
+threshold comparisons must be reviewed; repeatability warning remains even if
+v7's single comparison pass count improves.
+
+### 0.42 Complete HF fast-path execution PASS; v7 release guard stopped serving — 2026-10-13
+
+Source **132e4148c1bfa0bb21be2a6bb7fda75ab416f86d**: native causal-conv1d1.7.0
+unpatched ABI build/import **PASS417.642s** (6.96min), no CUDA context or base-env
+mutation. Report **`440b838398d5b11ba035e83987e5c0b75caffcaad5a3bb804d89baff56fe9550`**,
+wheel **`2fe0357819f0238ac7462e148b7df21842174690a475f4d88ee713d1ae1ba27b`**;
+4 small CPU artifacts SHA-verified. CPU parity20 preparation **PASS17.981s**,
+report **`ee73bfd4e1e49104f46473d66c66a4b6724f9c5f397164b6efc1693e4cae341e`**,
+same tokens/requests. The compiler and native ABI overlays are accepted immutable
+infrastructure receipts, not new scientific checkpoints.
+
+GPUv7 completed **20 native causal forward/backward +20 native GDN forward/
+backward +20 full4B HF forward probes** with actual complete HF fast path and
+TileLang verified. HF103.795s including cold JIT, peak9013.417MiB allocated/
+9252MiB reserved. Coordinator then stopped **115.786s /0 physical completions**
+at the instantaneous post-HF empty-GPU guard, before starting vLLM. The failing
+instant's snapshot was not persisted, so trailing utilization/async driver
+accounting is only a hypothesis, **not an established attribution to stale
+telemetry or a foreign process**. All15 small GPU artifacts SHA-match.
+
+Owned children exited, GPU1 released1MiB, allocation stayed RUNNING; original
+keeper1 restored **21820.308** with UID/cgroup/command/PythonCVD1/startticks audit,
+protected GPU0 actor3118209 untouched. This is kernel/HF execution success but
+neither a completed paired HF/vLLM parity gate nor PPO/full-model-gradient proof.
+An outcome-free CPU diagnostic comparing v7 HF to **old v6** vLLM vectors gives
+16/20/max0.0648091; those are cross-run stored vectors, **not paired v7 success**
+and not a reason to choose a profile or loosen0.05. Cross-start drift remains.
+
+Fresh v8 is **resource sequencing only**: after confirmed owned HF-child exit,
+observe/record GPU snapshots for at most15s; next service may load only when the
+same physical GPU1 meets all original **util<20%, memory<512MiB, no compute PID**
+guards. No PID/step signal, threshold change, GPU0 fallback or GPU sharing during
+drain; persistent busy/PID state or physical-UUID change fails closed. Reuse the
+reviewed causal overlay pinned to its original producing commit/report SHA/code
+bytes; no rebuild or relabeling as fresh compilation. Same full fast path,
+checkpoint/BF16/FA2/kernel20each/input20/request20/all numerical thresholds.
+Fresh CPU20 source-bound preparation must precede the original authorized
+GPU1 handoff/controller; model release and originalkeeper1 restoration still
+mandatory. Only a completed paired gate plus subsequent repeatability/worker
+gates can permit PPO.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.

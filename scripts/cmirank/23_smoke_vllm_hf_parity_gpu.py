@@ -25,7 +25,7 @@ from src.cmirank.gpu_resources import select_reserved_gpu, verified_numeric_cuda
 from src.cmirank.ppo_compat import load_compat_config
 from src.cmirank.ppo_parity import (compare_logprobs, completion_request, diagnostic_parent, load_parity_config,
                                     parity_code_hashes, response_prompt_logprobs, server_options,
-                                    verify_fla_overlay, verify_parity_preparation)
+                                    verify_fla_overlay, verify_parity_preparation, wait_owned_hf_release)
 from src.cmirank.ppo_runtime import load_runtime_config
 from src.cmirank.provenance import artifact_json_dumps, file_sha256
 from src.cmirank.cuda_toolchain import verify_cuda_toolchain
@@ -159,10 +159,15 @@ def main():
             stdout=hf_log, stderr=subprocess.STDOUT, start_new_session=True)
         if worker.wait(timeout=600) != 0:
             raise RuntimeError("Owned HF forward-only worker failed; no vLLM load")
-        cards, apps, raw, raw_apps = gpu_snapshot()
-        if select_reserved_gpu(cards, set(apps), gpu_index=gpu_index).uuid != card.uuid:
-            raise ValueError("HF child did not completely release the authorized GPU before vLLM load")
-        save(run / "hf-release.json", {"child_exited": True, "gpu_released": True, "gpu_uuid": card.uuid})
+        if config.get("hf_release_wait_seconds"):
+            release = wait_owned_hf_release(gpu_snapshot, config, card.uuid,
+                child_exited=worker.poll() == 0, emit=lambda row: append(run, "hf-release-snapshots", row))
+        else:
+            cards, apps, raw, raw_apps = gpu_snapshot()
+            if select_reserved_gpu(cards, set(apps), gpu_index=gpu_index).uuid != card.uuid:
+                raise ValueError("HF child did not completely release the authorized GPU before vLLM load")
+            release = {"child_exited":True, "gpu_released":True, "gpu_uuid":card.uuid}
+        save(run / "hf-release.json", release)
         if config.get("hf_precision_diagnostic"):
             # The only model is ALREADY unloaded. All review below is CPU-only.
             controls = [json.loads(s) for s in (run / "precision-logprobs.jsonl").read_text().splitlines()]

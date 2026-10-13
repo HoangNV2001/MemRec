@@ -5,7 +5,9 @@ from pathlib import Path
 import pytest
 
 from src.cmirank.ppo_parity import (compare_logprobs, completion_request, load_parity_config,
-                                    response_prompt_logprobs, server_options, verify_parity_preparation)
+                                    response_prompt_logprobs, server_options, verify_parity_preparation,
+                                    wait_owned_hf_release)
+from src.cmirank.gpu_resources import GPUCard
 from src.cmirank.provenance import file_sha256
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -208,3 +210,51 @@ def test_causal_build_is_private_no_deps_and_bounded_owned_cpu_process_group():
     assert 'start_new_session=True' in source and 'os.killpg(child.pid, signal.SIGTERM)' in source
     assert 'hf.causal_conv1d_fn is None' in source  # Respect CPU availability guard.
     assert 'source_hashes' in source and 'Build patched immutable official source' in source
+
+
+def test_release_retry_preserves_every_scientific_field_and_idle_threshold():
+    old, _ = load_parity_config(ROOT, 7)
+    new, _ = load_parity_config(ROOT, 8)
+    assert {k for k in old if old[k] != new[k]} == {"schema_version", "inherits", "prepare_run_id", "run_id", "reason"}
+    assert new["hf_release_wait_seconds"] == 15
+    source = (ROOT / "scripts/cmirank/23_smoke_vllm_hf_parity_gpu.py").read_text()
+    assert source.index("wait_owned_hf_release(gpu_snapshot") < source.index("server = subprocess.Popen")
+
+
+def test_owned_release_waits_for_trailing_utilization_without_relaxing_guard():
+    c, _ = load_parity_config(ROOT)
+    t = [0]
+    records = []
+    selected = GPUCard(1,"GPU-approved","H100",80,1,81559)
+    protected = GPUCard(0,"GPU-protected","H100",100,10000,81559)
+    def snapshot():
+        card = selected if not t[0] else GPUCard(1,"GPU-approved","H100",0,1,81559)
+        return [protected,card], {"GPU-protected":{42}}, "raw-cards", "raw-apps"
+    def sleep(dt): t[0] += dt
+    report = wait_owned_hf_release(snapshot,c,"GPU-approved",child_exited=True,
+                                  emit=records.append,clock=lambda:t[0],sleep=sleep)
+    assert report["attempts"] == 2 and report["elapsed_seconds"] == 1
+    assert len(records) == 2 and report["gpu_released"] and report["gpu_uuid"] == "GPU-approved"
+
+
+@pytest.mark.parametrize("util,used,pids", [(20,1,set()),(0,512,set()),(0,1,{99})])
+def test_owned_release_never_loads_when_original_boundary_or_pid_guard_stays_busy(util,used,pids):
+    c, _ = load_parity_config(ROOT)
+    t = [0]
+    records = []
+    cards = [GPUCard(0,"GPU-other","H100",0,1,81559),GPUCard(1,"GPU-approved","H100",util,used,81559)]
+    def sleep(dt): t[0] += dt
+    with pytest.raises(ValueError,match="original idle guards"):
+        wait_owned_hf_release(lambda:(cards,{"GPU-approved":pids} if pids else {},"cards","apps"),
+            c,"GPU-approved",child_exited=True,emit=records.append,clock=lambda:t[0],sleep=sleep)
+    assert t[0] == 15 and len(records) == 16
+
+
+def test_owned_release_does_not_wait_on_unexited_child_or_changed_physical_card():
+    c, _ = load_parity_config(ROOT)
+    def snapshot():
+        return [GPUCard(1,"GPU-changed","H100",0,1,81559)],{},"cards","apps"
+    with pytest.raises(ValueError,match="confirmed owned-child exit"):
+        wait_owned_hf_release(snapshot,c,"GPU-approved",child_exited=False,emit=lambda row:None)
+    with pytest.raises(ValueError,match="Physical GPU changed"):
+        wait_owned_hf_release(snapshot,c,"GPU-approved",child_exited=True,emit=lambda row:None)
