@@ -134,7 +134,7 @@ def native_cpu_rehearsal(c):
         raise ValueError("Native behavior-logprob mode changed")
     actor = ActorConfig(strategy="fsdp", rollout_n=1, ppo_mini_batch_size=20,
                         ppo_micro_batch_size_per_gpu=1, use_dynamic_bsz=False)
-    proxy = SimpleNamespace(use_ulysses_sp=False)
+    proxy = SimpleNamespace(use_ulysses_sp=False, pad_to_length=False)
     for i in range(20):
         ids = torch.tensor([1, 2, 3, 4, 5, 6, 7, 8 + i % 8])
         data = native_microbatch(ids, c, torch)

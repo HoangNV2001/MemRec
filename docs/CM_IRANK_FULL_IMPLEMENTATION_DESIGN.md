@@ -1228,6 +1228,16 @@ pass the original physical drain before sampler loading. Actual native scorer
 also verifies its full UUID and audited complete GDN/causal fast path. No new
 GPU result or optimizer eligibility follows from these local tests.
 
+**First CPU execution:** deployed source912bd46; native CLI, immutable weights/
+parents/overlays and20 stochastic schemas passed far enough to reach the CPU
+proxy. It stopped before its first proxy call because the harness lacked the
+native engine's `pad_to_length` attribute. No preparation directory/report,
+GPU handoff/model/API call or optimizer was created. Mirror the native default
+`pad_to_length=false` in the CPU proxy, rerun exact-source preparation; this
+is a harness correction, not a sampler/profile/threshold amendment. Preserve
+the failed attempt in the local diagnostic ledger; optional-engine warnings
+do not establish failure of the selected FSDP2 backend.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.
