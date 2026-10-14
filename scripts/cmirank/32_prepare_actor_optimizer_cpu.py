@@ -88,8 +88,8 @@ def main():
     model = HFModelConfig(path=str(checkpoint), load_tokenizer=False, use_remove_padding=False,
         use_fused_kernels=False, enable_gradient_checkpointing=True)
     engine = FSDPEngineConfig(strategy="fsdp2", model_dtype="fp32", dtype="bfloat16", forward_only=False,
-        use_torch_compile=False, use_dynamic_bsz=False, train_micro_batch_size_per_gpu=1,
-        param_offload=False, optimizer_offload=False, offload_policy=False)
+        use_torch_compile=False, use_dynamic_bsz=False, micro_batch_size_per_gpu=1,
+        use_remove_padding=False, param_offload=False, optimizer_offload=False, offload_policy=False)
     optim = FSDPOptimizerConfig(lr=c["actor_lr"], total_training_steps=1,
         override_optimizer_config={"foreach": False})
     tiny_optimizer = build_optimizer([torch.nn.Parameter(torch.zeros(3))], optim)

@@ -75,6 +75,9 @@ def test_coordinator_import_and_owned_resource_order():
     assert "import torch" not in source
     assert source.index('verify_optimizer_preparation(private') < source.index('handoff(run') < source.index('worker = subprocess.Popen')
     worker = (ROOT / "scripts/cmirank/34_native_actor_optimizer_gpu.py").read_text()
+    cpu = (ROOT / "scripts/cmirank/32_prepare_actor_optimizer_cpu.py").read_text()
+    assert "train_micro_batch_size_per_gpu" not in worker + cpu
+    assert "micro_batch_size_per_gpu=1" in worker and "micro_batch_size_per_gpu=1" in cpu
     assert "engine.train_batch(data, loss_function=partial(ppo_loss" in worker
     assert "engine.optimizer.step(" not in worker and "torch.optim.AdamW(" not in worker
     assert worker.index('p.requires_grad_(not visual)') < worker.index('with engine.eval_mode()')

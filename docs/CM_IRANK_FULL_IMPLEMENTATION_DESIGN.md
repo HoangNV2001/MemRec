@@ -1383,6 +1383,16 @@ reject hidden scope/precision/optimizer/GPU changes and observation filtering,
 and require native train_batch/loss plus CPU-before-handoff ordering. They are
 not a substitute for CPU32's installed-native schemas or GPU34's actual states.
 
+First CPU launches stopped **before receipt creation or GPU handoff**: Slurm
+replaced inherited emptyCUDA visibility with0,1 (source/prefix/clean status
+independently correct); set emptyvisibility explicitly inside CPU srun. The
+next CPU attempt caught a harness schema error: installed EngineConfig field
+is `micro_batch_size_per_gpu`, not `train_micro_batch_size_per_gpu`. Correct
+the CPU/GPU constructors to the actual native field; keep microbatch1 and all
+scientific/memory/resource settings unchanged. Neither attempt loaded full
+weights, stopped a keeper or performed an optimizer update. Preserve failures,
+rerun fresh-source CPU gate; no failed-gate bypass or native framework patch.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.
