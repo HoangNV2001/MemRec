@@ -1393,6 +1393,60 @@ scientific/memory/resource settings unchanged. Neither attempt loaded full
 weights, stopped a keeper or performed an optimizer update. Preserve failures,
 rerun fresh-source CPU gate; no failed-gate bypass or native framework patch.
 
+**CPU32 terminal PASS20 /13.850s**, producing source
+**f225e64db474806a883f50295ffa991f67d92126** (full508tests PASS5.62s).
+The resumed foreground chain applied emptyCUDA visibility explicitly inside
+srun, completed all native20 loss/alignment proxies and invoked the original
+GPU1 keeper controller after success. At the single inspection the GPU smoke
+was still running: **no optimizer result, peak training memory or final release
+receipt yet**. Estimate5–10min for native initialization,40 pre-update scorings
+and20 backward microbatches/one AdamW update; this is not measured throughput.
+Controller restores original keeper on all terminal paths. Do not redeploy
+source or poll repeatedly while this exact-source task is active.
+
+### 0.50 Native actor update passed; v1 coordinator release integration failed — 2026-10-14
+
+Single foreground inspection found terminal exit1. Native worker itself passed
+all20 cases/one discarded update in **108.997s**, producing source
+**f225e64db474806a883f50295ffa991f67d92126**. Independent local review downloaded
+and SHA-matched19 artifacts, matched every CPU source hash to that exact Git
+object, recomputed all20 response/EOS/sequence IS statistics, verified sampled
+memory peaks, actual release and original keeper restoration.
+
+| Native actor evidence | Actual result / scope |
+|---|---|
+| Precision / optimizer | Native FSDP2 FP32 master/BF16 forward; full-text native AdamW,foreach=false |
+| Full-text state | 4,205,751,296 parameters;16,823,005,184 FP32 gradient bytes /33,646,010,368 moment bytes; frozen vision has no gradient/optimizer state |
+| Actual update | Finite native pre-clip grad norm3.265951;426 parameter samples changed; one update discarded, no research checkpoint |
+| Peak allocator VRAM | 70,369.274MiB=**68.720GiB allocated**;70,664MiB=**69.008GiB reserved** |
+| Own host allocation | Maximum sampled usage33.388GiB against own64GiB cap, not global-node memory |
+| Actual old-policy scoring | 20 same-training-engine repeat probes passed; sequence IS0.836197–1.151585, recomputed independently; no subgroup/cap adjustment |
+| Boundary | Actor-only feasibility on these20 synthetic token lengths/microbatch1; critic/reference/rollout co-residency, checkpoint/resume and multi-turn GAE still unproven |
+
+Worker report SHA **17e22e14878b5a664353ad5536eb1f91d56a38040d2dcf7d4c11e2c9711e3af6**;
+CPU receipt **47967dcdf24aeeeff9de76f9fe0dccf8ad9eb34f3a89785533e3b1f1a47b23ac**.
+The coordinator failed **after confirmed worker exit** at122.316s because it
+passed `native_actor_optimizer` to a release helper whose supported kind is
+`native_fsdp2`. This is a concrete integration mismatch, not an OOM, optimizer
+failure or proof of PPO quality. Outer cleanup recorded actual GPU1 release
+**1MiB/no actor** and verified original keeper handback; GPU0/parent allocation
+untouched. **Overall v1 remains FAIL**, its failure/receipts never overwritten
+or relabeled PASS simply because the native worker passed.
+
+V2 is an integration-only retry: use the existing supported `native_fsdp2`
+kind and actual `worker.poll()==0`; keep the release helper/15s drain/idle/UUID/
+ownership guards unchanged. `ppo_actor_optimizer_v2.json` inherits the original
+scientific/resource profile and permits only schema/run namespaces/reason;
+fresh source-bound CPU20 before an identical20-case one-update GPU smoke.
+No new requests, seed/weights/LR/precision/reward/microbatch/threshold change.
+Regression test calls the real release helper on a CPU snapshot and rejects
+unconfirmed worker exit; v1/v2 equivalence/override tests prevent scope drift.
+Expected retry3–5min based on measured109s worker plus CPU/controller/handback,
+not a full PPO ETA. Only reviewed end-to-end PASS advances the critic gate.
+Full local suite **514 PASS5.17s**; compilation, controller shell syntax and
+whitespace checks PASS. These regression checks do not relabel v1 or replace
+the fresh source-bound CPU/physical GPU-release/handback receipts in v2.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.

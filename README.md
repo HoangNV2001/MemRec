@@ -33,6 +33,13 @@ FP32 master/BF16 forward, một update synthetic bỏ đi; sau đó critic, chec
 và multi-turn PPO/GAE trước research training. Không suy từ smoke BF16 inference
 rằng full PPO vừa một H100.
 [Protocol optimizer §0.49](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#049-native-actor-optimizer-and-memory-smoke-preregistered--2026-10-14).
+**Actor optimizer v1:** native worker đã pass20 mẫu / một update bỏ đi trong
+109s; peak allocated68,72GiB/reserved69,01GiB, đủ FP32 gradients/Adam states
+cho toàn text backbone. Coordinator lỗi tên child-kind ở bước receipt release,
+nên **v1 tổng thể vẫn FAIL**; model thực tế đã nhả1MiB và keeper phục hồi.
+Đã review19 artifacts/SHA/source độc lập; đang sửa integration và smoke lại
+v2, không đổi profile/ngưỡng hay suy ra full PPO vừa một card.
+[Chi tiết §0.50](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#050-native-actor-update-passed-v1-coordinator-release-integration-failed--2026-10-14).
 Tổng quan phương pháp vẫn ở [design §0.14](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#014-overall-review-and-next-gates--2026-10-07).
 Các đoạn dưới là lịch sử gate; không dùng trạng thái launch cũ làm tiến độ hiện tại.
 CPU review v6 đã đối chiếu 35 request/schema và replay đúng 11 lần Stage-W;

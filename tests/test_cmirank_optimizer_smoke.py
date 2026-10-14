@@ -29,13 +29,13 @@ def test_actor_only_native_profile_and_legacy_failure_contract_unchanged():
     ("training_ready", True), ("physical_requests", 20), ("optimizer_offload", True),
     ("co_residency_proven", True), ("full_checkpoint_roundtrip_proven", True), ("surprise", 1)])
 def test_rejects_hidden_expansion_or_training_profile_tuning(tmp_path, key, value):
-    c, _ = load_optimizer_config(ROOT)
+    c, _ = load_optimizer_config(ROOT, 1)
     c[key] = value
     p = tmp_path / "configs/cmirank"
     p.mkdir(parents=True)
     (p / "ppo_actor_optimizer_v1.json").write_text(json.dumps(c))
     with pytest.raises(ValueError):
-        load_optimizer_config(tmp_path)
+        load_optimizer_config(tmp_path, 1)
 
 
 def observations():
@@ -83,3 +83,39 @@ def test_coordinator_import_and_owned_resource_order():
     assert worker.index('p.requires_grad_(not visual)') < worker.index('with engine.eval_mode()')
     for name in ("run_real_policy_smoke.sh", "run_real_policy_with_keeper.sh"):
         assert "actor_optimizer" in (ROOT / "scripts/cmirank" / name).read_text()
+
+
+def test_v2_only_changes_release_integration_namespaces():
+    original, _ = load_optimizer_config(ROOT, 1)
+    retry, _ = load_optimizer_config(ROOT, 2)
+    permitted = {"schema_version", "inherits", "prepare_run_id", "run_id", "reason"}
+    assert all(original[k] == retry[k] for k in original if k not in permitted)
+    assert original["run_id"] != retry["run_id"] and retry["schema_version"] == 2
+
+
+def test_release_kind_is_supported_and_owned_exit_still_required():
+    from src.cmirank.gpu_resources import GPUCard
+    from src.cmirank.ppo_parity import wait_owned_hf_release
+    source = (ROOT / "scripts/cmirank/33_smoke_actor_optimizer_gpu.py").read_text()
+    assert 'child_exited=worker.poll() == 0, child_kind="native_fsdp2"' in source
+    config, _ = load_parity_config(ROOT, 8)
+    snapshot = lambda: ([GPUCard(1, "GPU-tested", "H100", 0, 1, 81559)], {}, "cards", "apps")
+    result = wait_owned_hf_release(snapshot, config, "GPU-tested", child_exited=True,
+        child_kind="native_fsdp2", emit=lambda row: None)
+    assert result["gpu_released"]
+    with pytest.raises(ValueError):
+        wait_owned_hf_release(snapshot, config, "GPU-tested", child_exited=False,
+            child_kind="native_fsdp2", emit=lambda row: None)
+
+
+@pytest.mark.parametrize("key,value", [("optimizer_updates", 2), ("gpu_index", 0),
+    ("foreach", True), ("model_dtype", "bfloat16")])
+def test_v2_rejects_profile_override(tmp_path, key, value):
+    folder = tmp_path / "configs/cmirank"
+    folder.mkdir(parents=True)
+    (folder / "ppo_actor_optimizer_v1.json").write_bytes((ROOT / "configs/cmirank/ppo_actor_optimizer_v1.json").read_bytes())
+    c = json.loads((ROOT / "configs/cmirank/ppo_actor_optimizer_v2.json").read_text())
+    c[key] = value
+    (folder / "ppo_actor_optimizer_v2.json").write_text(json.dumps(c))
+    with pytest.raises(ValueError):
+        load_optimizer_config(tmp_path)

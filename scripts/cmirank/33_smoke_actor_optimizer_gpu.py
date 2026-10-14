@@ -117,7 +117,7 @@ def main():
         if worker.wait(timeout=c["worker_timeout_seconds"]) != 0:
             raise RuntimeError("Owned native actor optimizer failed; no automatic profile search")
         save(run / "native-release.json", wait_owned_hf_release(gpu_snapshot, native, card.uuid,
-            child_exited=True, child_kind="native_actor_optimizer", emit=lambda x: append(run, "native-release-snapshots", x)))
+            child_exited=worker.poll() == 0, child_kind="native_fsdp2", emit=lambda x: append(run, "native-release-snapshots", x)))
         report = json.loads((run / "native-worker-report.json").read_text())
         if (report["status"] != "NATIVE_ACTOR_OPTIMIZER_ONE_UPDATE_PASS_CRITIC_MULTITURN_CHECKPOINT_GATES_REMAIN"
                 or report["source_commit"] != commit or report["optimizer_updates"] != 1

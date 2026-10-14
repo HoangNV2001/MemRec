@@ -1,0 +1,7 @@
+{
+  "schema_version": 2,
+  "inherits": "configs/cmirank/ppo_actor_optimizer_v1.json",
+  "prepare_run_id": "cmirank-actor-optimizer-data-v2-20261014-hnv",
+  "run_id": "cmirank-actor-optimizer-smoke-v2-20261014-hnv",
+  "reason": "V1 native actor update passed but coordinator used an unsupported owned-child kind in the strict release helper. Use the existing native_fsdp2 kind, preserve all release guards and v1 artifacts; fresh source-bound CPU and GPU namespaces, no optimizer/profile/reward change."
+}

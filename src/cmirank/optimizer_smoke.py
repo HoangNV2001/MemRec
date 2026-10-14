@@ -15,7 +15,9 @@ TEXT_PARAMETERS = 4205751296
 VISION_PARAMETERS = 333514240
 
 
-def load_optimizer_config(root):
+def load_optimizer_config(root, version=2):
+    if type(version) is not int or version not in (1, 2):
+        raise ValueError("Unknown native actor optimizer contract")
     path = root / "configs/cmirank/ppo_actor_optimizer_v1.json"
     c = json.loads(path.read_text())
     fixed = {"schema_version": 1, "samples": 20, "optimizer_updates": 1,
@@ -42,11 +44,22 @@ def load_optimizer_config(root):
               "parent_review_report_sha256", "generated_sha256", "native_logprobs_sha256"):
         if len(c[k]) != (40 if k == "parent_source_commit" else 64) or any(x not in "0123456789abcdef" for x in c[k]):
             raise ValueError("Immutable parent provenance required")
+    if version == 2:
+        path = root / "configs/cmirank/ppo_actor_optimizer_v2.json"
+        retry = json.loads(path.read_text())
+        if (set(retry) != {"schema_version", "inherits", "prepare_run_id", "run_id", "reason"}
+                or retry["schema_version"] != 2
+                or retry["inherits"] != "configs/cmirank/ppo_actor_optimizer_v1.json"
+                or retry["prepare_run_id"] != "cmirank-actor-optimizer-data-v2-20261014-hnv"
+                or retry["run_id"] != "cmirank-actor-optimizer-smoke-v2-20261014-hnv"):
+            raise ValueError("Release-integration retry cannot change the scientific/resource profile")
+        c.update(retry)
     return c, path
 
 
 def optimizer_code_hashes(root):
-    names = ("configs/cmirank/ppo_actor_optimizer_v1.json", "src/cmirank/optimizer_smoke.py",
+    names = ("configs/cmirank/ppo_actor_optimizer_v1.json", "configs/cmirank/ppo_actor_optimizer_v2.json",
+        "src/cmirank/optimizer_smoke.py",
         "scripts/cmirank/32_prepare_actor_optimizer_cpu.py", "scripts/cmirank/33_smoke_actor_optimizer_gpu.py",
         "scripts/cmirank/34_native_actor_optimizer_gpu.py", "scripts/cmirank/23_smoke_vllm_hf_parity_gpu.py",
         "src/cmirank/ppo_parity.py", "src/cmirank/reserved_handoff.py", "src/cmirank/gpu_resources.py",
