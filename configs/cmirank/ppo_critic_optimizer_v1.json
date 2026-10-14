@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "inherits": "configs/cmirank/ppo_actor_optimizer_v2.json",
+  "role": "critic",
+  "prepare_run_id": "cmirank-critic-optimizer-data-v1-20261014-hnv",
+  "run_id": "cmirank-critic-optimizer-smoke-v1-20261014-hnv",
+  "critic_lr": 0.000002,
+  "scalar_head_parameters": 2561,
+  "returns": "native_old_values_plus_alternating_one_by_frozen_row_order",
+  "actor_run_id": "cmirank-actor-optimizer-smoke-v2-20261014-hnv",
+  "actor_source_commit": "89ec5b8760ddbb9b9d141c6d8a6f3cc495315454",
+  "actor_report_sha256": "d2951f12d4f24d8c00ef3449aeee754c0834599e34d83e27581289a903b27ebe",
+  "actor_worker_report_sha256": "e783feca20908789536561298092a41c6b0beeb9e6029211b5aa2bbef2a7382f"
+}

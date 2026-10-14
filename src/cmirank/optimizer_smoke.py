@@ -13,6 +13,7 @@ from .provenance import file_sha256
 
 TEXT_PARAMETERS = 4205751296
 VISION_PARAMETERS = 333514240
+CRITIC_HEAD_PARAMETERS = 2561
 
 
 def load_optimizer_config(root, version=2):
@@ -59,6 +60,7 @@ def load_optimizer_config(root, version=2):
 
 def optimizer_code_hashes(root):
     names = ("configs/cmirank/ppo_actor_optimizer_v1.json", "configs/cmirank/ppo_actor_optimizer_v2.json",
+        "configs/cmirank/ppo_critic_optimizer_v1.json", "src/cmirank/native_critic.py",
         "src/cmirank/optimizer_smoke.py",
         "scripts/cmirank/32_prepare_actor_optimizer_cpu.py", "scripts/cmirank/33_smoke_actor_optimizer_gpu.py",
         "scripts/cmirank/34_native_actor_optimizer_gpu.py", "scripts/cmirank/23_smoke_vllm_hf_parity_gpu.py",
@@ -67,14 +69,64 @@ def optimizer_code_hashes(root):
     return {n: file_sha256(root / n) for n in names}
 
 
-def memory_profile():
+def memory_profile(role="actor"):
     # Native FP32 master parameters, FP32 gradients and two FP32 Adam moments.
     # Frozen visual branch has parameters only; activation/workspace is extra.
+    if role not in ("actor", "critic"):
+        raise ValueError("Only one declared native optimizer role")
+    count = TEXT_PARAMETERS + (CRITIC_HEAD_PARAMETERS if role == "critic" else 0)
     return {"text_parameters": TEXT_PARAMETERS, "frozen_vision_parameters": VISION_PARAMETERS,
-        "parameter_bytes": 4 * (TEXT_PARAMETERS + VISION_PARAMETERS),
-        "gradient_bytes": 4 * TEXT_PARAMETERS, "adam_moment_bytes": 8 * TEXT_PARAMETERS,
-        "persistent_train_bytes": 16 * TEXT_PARAMETERS + 4 * VISION_PARAMETERS,
-        "roles_resident": ["actor"], "actor_critic_rollout_fit_proven": False}
+        "scalar_head_parameters": CRITIC_HEAD_PARAMETERS if role == "critic" else 0,
+        "parameter_bytes": 4 * (count + VISION_PARAMETERS),
+        "gradient_bytes": 4 * count, "adam_moment_bytes": 8 * count,
+        "persistent_train_bytes": 16 * count + 4 * VISION_PARAMETERS,
+        "roles_resident": [role], "actor_critic_rollout_fit_proven": False}
+
+
+def load_optimizer_profile(root, role="actor"):
+    c, path = load_optimizer_config(root)
+    if role not in ("actor", "critic"):
+        raise ValueError("Only native actor or native critic qualification")
+    if role == "critic":
+        path = root / "configs/cmirank/ppo_critic_optimizer_v1.json"
+        r = json.loads(path.read_text())
+        expected = {"schema_version": 1, "inherits": "configs/cmirank/ppo_actor_optimizer_v2.json",
+            "role": "critic", "prepare_run_id": "cmirank-critic-optimizer-data-v1-20261014-hnv",
+            "run_id": "cmirank-critic-optimizer-smoke-v1-20261014-hnv", "critic_lr": 2e-6,
+            "scalar_head_parameters": CRITIC_HEAD_PARAMETERS,
+            "returns": "native_old_values_plus_alternating_one_by_frozen_row_order",
+            "actor_run_id": "cmirank-actor-optimizer-smoke-v2-20261014-hnv",
+            "actor_source_commit": "89ec5b8760ddbb9b9d141c6d8a6f3cc495315454",
+            "actor_report_sha256": "d2951f12d4f24d8c00ef3449aeee754c0834599e34d83e27581289a903b27ebe",
+            "actor_worker_report_sha256": "e783feca20908789536561298092a41c6b0beeb9e6029211b5aa2bbef2a7382f"}
+        if r != expected or any(type(r[k]) is not type(v) for k, v in expected.items()):
+            raise ValueError("Critic gate cannot change data, optimizer, scalar-head or resource profile")
+        c.update(r)
+    c["role"] = role
+    c["optimizer_lr"] = c["actor_lr"] if role == "actor" else c["critic_lr"]
+    c["trainable_parameters"] = TEXT_PARAMETERS + (CRITIC_HEAD_PARAMETERS if role == "critic" else 0)
+    c["worker_status"] = ("NATIVE_ACTOR_OPTIMIZER_ONE_UPDATE_PASS_CRITIC_MULTITURN_CHECKPOINT_GATES_REMAIN"
+        if role == "actor" else "NATIVE_CRITIC_OPTIMIZER_ONE_UPDATE_PASS_COMBINED_MULTITURN_CHECKPOINT_GATES_REMAIN")
+    return c, path
+
+
+def verify_actor_dependency(private, c):
+    if c.get("role") != "critic":
+        return
+    p = private / "runs" / c["actor_run_id"]
+    if (file_sha256(p / "report.json") != c["actor_report_sha256"]
+            or file_sha256(p / "native-worker-report.json") != c["actor_worker_report_sha256"]):
+        raise ValueError("Independent-review-passed native actor dependency changed")
+    r = json.loads((p / "report.json").read_text())
+    cleanup = json.loads((p / "cleanup.json").read_text())
+    handback = json.loads((p / "keeper-handback.json").read_text())
+    if (r["source_commit"] != c["actor_source_commit"] or r["samples"] != 20 or r["optimizer_updates"] != 1
+            or r["status"] != "NATIVE_ACTOR_OPTIMIZER_ONE_UPDATE_PASS_CRITIC_MULTITURN_CHECKPOINT_GATES_REMAIN"
+            or r["training_ready"] or cleanup["process_exit_code"] or not cleanup["gpu_released"]
+            or not cleanup["child_exited"] or not cleanup["allocation_still_running"]
+            or handback["status"] != "KEEPER_GPU1_HANDBACK_VERIFIED"
+            or handback["gpu0_signalled"] or handback["reserved_job_cancelled"]):
+        raise ValueError("Successful actor plus actual release and keeper restoration required first")
 
 
 def allocation_memory(job):
@@ -184,12 +236,48 @@ def native_actor_batch(observations, old_logprobs, c, torch, device="cpu"):
     return data, weights
 
 
+def native_critic_batch(observations, old_values, c, torch, device="cpu"):
+    """Native value-loss TensorDict. Synthetic returns, no GAE/reward claim."""
+    from tensordict import TensorDict
+    from verl.utils import tensordict_utils as tu
+    if len(observations) != 20 or len(old_values) != 20:
+        raise ValueError("All20 frozen critic responses required")
+    fields = {k: [] for k in ("input_ids", "position_ids", "prompts", "responses", "loss_mask",
+        "response_mask", "values", "returns")}
+    for i, (obs, previous) in enumerate(zip(observations, old_values)):
+        ids = torch.tensor(obs["input_ids"], device=device)
+        p, n = obs["prompt_tokens"], len(obs["response_token_ids"])
+        old = torch.tensor(previous, dtype=torch.float32, device=device)
+        if old.numel() != n or not torch.isfinite(old).all():
+            raise ValueError("Every response/EOS needs a finite native old value")
+        values = {"input_ids": ids, "position_ids": torch.arange(p+n, device=device),
+            "prompts": ids[:p], "responses": ids[p:],
+            "loss_mask": torch.cat((torch.zeros(p, device=device), torch.ones(n, device=device))),
+            "response_mask": torch.ones(n, device=device), "values": old,
+            "returns": old + (1.0 if i % 2 == 0 else -1.0)}
+        for key, value in values.items():
+            fields[key].append(value)
+    data = TensorDict({k: torch.nested.as_nested_tensor(v, layout=torch.jagged) for k, v in fields.items()},
+        batch_size=[20])
+    # Input preparer shares this field with actor; native value readout does
+    # NOT temperature-scale values. No importance weights or policy LP fields.
+    data["temperature"] = torch.full((20,), 0.9, device=device)
+    tu.assign_non_tensor(data, use_remove_padding=False, use_fused_kernels=False,
+        calculate_entropy=False, calculate_sum_pi_squared=False, use_dynamic_bsz=False,
+        micro_batch_size_per_gpu=1, global_batch_size=20,
+        max_response_len=max(len(x["response_token_ids"]) for x in observations), return_model_output=False)
+    return data
+
+
 def verify_optimizer_preparation(private, root, c, path, commit):
     p = private / "runs" / c["prepare_run_id"]
     report = json.loads((p / "report.json").read_text())
-    if (report["status"] != "NATIVE_ACTOR_OPTIMIZER_CPU_PREPARATION_PASS_GPU_GATE_REMAINS"
+    expected_status = ("NATIVE_ACTOR_OPTIMIZER_CPU_PREPARATION_PASS_GPU_GATE_REMAINS" if c["role"] == "actor"
+        else "NATIVE_CRITIC_OPTIMIZER_CPU_PREPARATION_PASS_GPU_GATE_REMAINS")
+    if (report["status"] != expected_status
             or report["source_commit"] != commit or report["config_sha256"] != file_sha256(path)
             or report["code_sha256"] != optimizer_code_hashes(root)
+            or report.get("role") != c.get("role")
             or report["samples"] != 20 or report["gpu_requested"] or report["optimizer_updates"]
             or report["full_weights_loaded"] or report["training_ready"]):
         raise ValueError("Exact-source native optimizer CPU receipt required")
@@ -197,4 +285,5 @@ def verify_optimizer_preparation(private, root, c, path, commit):
         if Path(n).name != n or file_sha256(p / n) != sha:
             raise ValueError("Prepared CPU optimizer probes changed")
     verified_parents(private, c)
+    verify_actor_dependency(private, c)
     return report

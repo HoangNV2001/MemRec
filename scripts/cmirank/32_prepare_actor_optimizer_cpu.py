@@ -14,8 +14,9 @@ import time
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from src.cluster_runtime import require_allocation, require_project_root
-from src.cmirank.optimizer_smoke import (allocation_memory, load_optimizer_config,
-    memory_profile, native_actor_batch, optimizer_code_hashes, verified_parents)
+from src.cmirank.optimizer_smoke import (allocation_memory, load_optimizer_profile,
+    memory_profile, native_actor_batch, native_critic_batch, optimizer_code_hashes,
+    verified_parents, verify_actor_dependency)
 from src.cmirank.ppo_compat import load_compat_config
 from src.cmirank.ppo_runtime import load_runtime_config
 from src.cmirank.corrected_rollout import load_corrected_config
@@ -28,10 +29,11 @@ from src.cmirank.provenance import artifact_json_dumps, file_sha256
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", type=Path, required=True)
+    parser.add_argument("--role", choices=("actor", "critic"), default="actor")
     args = parser.parse_args()
     private = require_project_root(Path(os.environ["MEMREC_ROOT"]))
     job = require_allocation()
-    c, path = load_optimizer_config(ROOT)
+    c, path = load_optimizer_profile(ROOT, args.role)
     compat, _ = load_compat_config(ROOT)
     runtime, _ = load_runtime_config(ROOT)
     native, _ = load_corrected_config(ROOT)
@@ -48,6 +50,7 @@ def main():
         if importlib.metadata.version(name) != version:
             raise ValueError("Pinned runtime changed")
     observations, previous, parent = verified_parents(private, c)
+    verify_actor_dependency(private, c)
     verify_fla_overlay(private, native)
     verify_cuda_toolchain(private, ROOT, native)
     verify_causal_overlay(private, ROOT, native)
@@ -61,7 +64,7 @@ def main():
     for n, sha in parent["overlay_sha256"].items():
         if file_sha256(private / "overlays" / compat["overlay_name"] / n) != sha:
             raise ValueError("Reviewed FA2 overlay changed")
-    profile = memory_profile()
+    profile = memory_profile(args.role)
     host = allocation_memory(job)
     if host["maximum_bytes"] - host["current_bytes"] < c["host_load_reserve_bytes"]:
         raise ValueError("Own64GiB allocation lacks the fixed20GiB host-load margin; keep keeper active")
@@ -73,30 +76,55 @@ def main():
     import torch
     from types import SimpleNamespace
     from verl.workers.config.actor import ActorConfig
+    from verl.workers.config.critic import CriticConfig
     from verl.workers.config.engine import FSDPEngineConfig
     from verl.workers.config.model import HFModelConfig
     from verl.workers.config.optimizer import FSDPOptimizerConfig, build_optimizer
-    from verl.workers.engine.fsdp.transformer_impl import FSDPEngineWithLMHead, prepare_micro_batches
+    from verl.workers.engine.fsdp.transformer_impl import FSDPEngineWithLMHead, FSDPEngineWithValueHead, prepare_micro_batches
     from verl.workers.engine.base import BaseEngine
     from torch.distributed.fsdp._fully_shard._fsdp_param_group import FSDPParamGroup
-    from verl.workers.utils.losses import ppo_loss
+    from verl.workers.utils.losses import ppo_loss, value_loss
     from verl.workers.utils.padding import no_padding_2_padding
     from verl.utils import tensordict_utils as tu
     torch.set_num_threads(4)
-    actor = ActorConfig(strategy="fsdp", rollout_n=1, ppo_mini_batch_size=20,
+    loss_config_class = ActorConfig if args.role == "actor" else CriticConfig
+    loss_config = loss_config_class(strategy="fsdp", rollout_n=1, ppo_mini_batch_size=20,
         ppo_micro_batch_size_per_gpu=1, use_dynamic_bsz=False)
     model = HFModelConfig(path=str(checkpoint), load_tokenizer=False, use_remove_padding=False,
-        use_fused_kernels=False, enable_gradient_checkpointing=True)
+        use_fused_kernels=False, enable_gradient_checkpointing=True,
+        model_type="language_model" if args.role == "actor" else "value_model")
     engine = FSDPEngineConfig(strategy="fsdp2", model_dtype="fp32", dtype="bfloat16", forward_only=False,
         use_torch_compile=False, use_dynamic_bsz=False, micro_batch_size_per_gpu=1,
         use_remove_padding=False, param_offload=False, optimizer_offload=False, offload_policy=False)
-    optim = FSDPOptimizerConfig(lr=c["actor_lr"], total_training_steps=1,
+    optim = FSDPOptimizerConfig(lr=c["optimizer_lr"], total_training_steps=1,
         override_optimizer_config={"foreach": False})
     tiny_optimizer = build_optimizer([torch.nn.Parameter(torch.zeros(3))], optim)
     if (type(tiny_optimizer) is not torch.optim.AdamW or tiny_optimizer.defaults["foreach"] is not False
             or model.lora_rank or engine.forward_only or engine.model_dtype != "fp32"):
         raise ValueError("Native training/storage/optimizer schema changed")
-    data, weights = native_actor_batch(observations, [x["old_logprobs"] for x in previous], c, torch)
+    critic_scope = None
+    if args.role == "actor":
+        data, weights = native_actor_batch(observations, [x["old_logprobs"] for x in previous], c, torch)
+    else:
+        from copy import deepcopy
+        from transformers import AutoModelForImageTextToText, AutoModelForTokenClassification
+        from src.cmirank.native_critic import native_critic_contract, parameter_shapes
+        official = deepcopy(model.hf_config)
+        official.num_labels = 1
+        official.classifier_dropout = 0.0
+        with torch.device("meta"):
+            meta_actor = AutoModelForImageTextToText.from_config(official, dtype=torch.float32, attn_implementation="sdpa")
+            meta_critic = AutoModelForTokenClassification.from_config(official, dtype=torch.float32, attn_implementation="sdpa")
+        critic_scope = native_critic_contract(parameter_shapes(meta_actor), parameter_shapes(meta_critic),
+            official.text_config.hidden_size, tied_lm_head=bool(official.text_config.tie_word_embeddings), official=True)
+        if critic_scope["scope"]["scalar_head_parameters"] != c["scalar_head_parameters"]:
+            raise ValueError("Native scalar-head scope changed")
+        del meta_actor, meta_critic
+        weights = []
+        # Distinct nonzero miniature values detect a shifted response or an
+        # accidental temperature scaling; never substitute these for GPU values.
+        data = native_critic_batch(observations,
+            [[0.01*(i+j+1) for j in range(len(x["response_token_ids"]))] for i, x in enumerate(observations)], c, torch)
     tokens = sum(len(x["response_token_ids"]) for x in observations)
     tu.assign_non_tensor(data, dp_size=1, batch_num_tokens=tokens)
     batches, _ = prepare_micro_batches(data, dp_group=None, same_micro_num_in_dp=False)
@@ -104,44 +132,53 @@ def main():
         raise ValueError("Native fixed microbatch packing changed")
     probes = []
     for obs, micro in zip(observations, batches):
-        proxy = SimpleNamespace(use_ulysses_sp=False, pad_to_length=False)
+        proxy = SimpleNamespace(use_ulysses_sp=False, pad_to_length=False, module=SimpleNamespace())
         packed, _ = FSDPEngineWithLMHead.prepare_model_inputs(proxy, micro)
         if packed["input_ids"][0].tolist() != obs["input_ids"]:
             raise ValueError("Native model input packing changed token order")
         # CPU full-sequence LP proxy only; actual CE/backward/AdamW is mandatory GPU34.
         p, n = obs["prompt_tokens"], len(obs["response_token_ids"])
-        current = torch.cat((torch.zeros(p-1), micro["old_log_probs"].values().detach(), torch.zeros(1))).requires_grad_()
-        output = {"log_probs": torch.nested.as_nested_tensor([current], layout=torch.jagged)}
-        extracted = no_padding_2_padding(output["log_probs"], micro)
-        if not torch.equal(extracted[0], micro["old_log_probs"].values()):
+        field = "old_log_probs" if args.role == "actor" else "values"
+        current = torch.cat((torch.zeros(p-1), micro[field].values().detach(), torch.zeros(1))).requires_grad_()
+        if args.role == "actor":
+            output = {"log_probs": torch.nested.as_nested_tensor([current], layout=torch.jagged)}
+            loss_fn = ppo_loss
+        else:
+            output = FSDPEngineWithValueHead.prepare_model_outputs(proxy,
+                SimpleNamespace(logits=current[None, :, None]), {}, micro, None)
+            loss_fn = value_loss
+        extracted = no_padding_2_padding(output["log_probs" if args.role == "actor" else "values"], micro)
+        if not torch.equal(extracted[0], micro[field].values()):
             raise ValueError("Response/EOS next-token shift differs")
-        loss, _ = ppo_loss(actor, output, micro)
+        loss, _ = loss_fn(loss_config, output, micro)
         loss.backward()
         if not torch.isfinite(loss) or current.grad is None or not torch.isfinite(current.grad).all():
             raise ValueError("Native PPO loss proxy did not propagate finite LP gradients")
         if current.grad[:p-1].count_nonzero() or current.grad[-1] != 0:
             raise ValueError("Prompt or wraparound token received policy-loss gradients")
         probes.append({"user_id": obs["user_id"], "response_tokens_including_eos": n,
-            "native_loss": float(loss), "native_response_alignment_pass": True, "prompt_gradient_zero": True})
+            "native_loss": float(loss.detach()), "native_response_alignment_pass": True, "prompt_gradient_zero": True})
     if torch.cuda.is_initialized():
         raise ValueError("CPU rehearsal initialized CUDA")
-    classes = (ActorConfig, FSDPEngineConfig, FSDPOptimizerConfig, build_optimizer,
+    classes = (ActorConfig, CriticConfig, FSDPEngineConfig, FSDPOptimizerConfig, build_optimizer,
         FSDPEngineWithLMHead, BaseEngine, ppo_loss, no_padding_2_padding, prepare_micro_batches,
-        FSDPParamGroup, torch.optim.AdamW)
+        FSDPParamGroup, torch.optim.AdamW, FSDPEngineWithValueHead, value_loss)
     sources = {**parent["native_source_sha256"], **{str(Path(inspect.getfile(x)).relative_to(Path(sys.prefix))):
         file_sha256(Path(inspect.getfile(x))) for x in classes}}
     run.mkdir()
     (run / "probes.jsonl").write_text("".join(json.dumps(x, sort_keys=True)+"\n" for x in probes))
-    report = {"status": "NATIVE_ACTOR_OPTIMIZER_CPU_PREPARATION_PASS_GPU_GATE_REMAINS",
+    report = {"status": ("NATIVE_ACTOR_OPTIMIZER_CPU_PREPARATION_PASS_GPU_GATE_REMAINS" if args.role == "actor"
+            else "NATIVE_CRITIC_OPTIMIZER_CPU_PREPARATION_PASS_GPU_GATE_REMAINS"),
         "source_commit": commit, "config_sha256": file_sha256(path), "code_sha256": optimizer_code_hashes(ROOT),
         "samples": 20, "gpu_requested": False, "optimizer_updates": 0, "full_weights_loaded": False,
+        "role": args.role, "native_critic_contract": critic_scope,
         "training_ready": False, "native_microbatches": len(batches), "response_tokens": tokens,
         "memory_profile": profile, "allocation_memory": host, "physical_gpu_uuid": gpu_uuid,
         "physical_gpu_total_mib": int(total), "native_source_sha256": sources,
         "overlay_sha256": parent["overlay_sha256"], "checkpoint_stat": {n: {
             "size": (checkpoint/n).stat().st_size, "mtime_ns": (checkpoint/n).stat().st_mtime_ns,
             "inode": (checkpoint/n).stat().st_ino} for n in compat["checkpoint_files_sha256"]},
-        "proxy_weights_min": min(weights), "proxy_weights_max": max(weights),
+        "proxy_weights_min": min(weights) if weights else None, "proxy_weights_max": max(weights) if weights else None,
         "artifact_sha256": {"probes.jsonl": file_sha256(run / "probes.jsonl")},
         "elapsed_seconds": time.monotonic()-began}
     (run / "report.json").write_text(artifact_json_dumps(report))

@@ -1447,6 +1447,71 @@ Full local suite **514 PASS5.17s**; compilation, controller shell syntax and
 whitespace checks PASS. These regression checks do not relabel v1 or replace
 the fresh source-bound CPU/physical GPU-release/handback receipts in v2.
 
+**V2 launched:** source89ec5b8760ddbb9b9d141c6d8a6f3cc495315454 clean-deployed;
+fresh CPU20 **PASS14.418s**. At the single foreground inspection the original
+GPU1 controller was invoked; no terminal optimizer/release receipt yet. Same
+20-case/profile/native update, original automatic keeper restoration,3–5min
+provisional ETA. No redeploy/repeated status polling while active.
+
+### 0.51 Actor v2 reviewed PASS; native critic optimizer preregistered — 2026-10-14
+
+The v2 foreground chain exited0; native worker **105.877s**, full coordinator
+**119.712s**, same20 synthetic cases/one discarded full-text update. Peak
+allocated **68.720GiB**,reserved **69.008GiB**; native grad norm3.263307,
+all4,205,751,296 FP32 text gradients and two FP32 moments present/finite,
+426 parameter samples changed, frozen vision no grad/state. Old-policy vector
+SHA is byte-identical to v1; no best-run/gradient selection or quality result.
+Independent review SHA-matched **21 artifacts**, checked producing-source89ec5b8
+against all code bytes and native response/EOS/repeat/sequence IS wiring.
+
+GPU report **d2951f12d4f24d8c00ef3449aeee754c0834599e34d83e27581289a903b27ebe**;
+worker **e783feca20908789536561298092a41c6b0beeb9e6029211b5aa2bbef2a7382f**;
+CPU **e0cab497ed5fa7f6c1469976863c6e50599687dd12f2b2188800b11ea199ce49**.
+Strict post-worker physical drain passed first snapshot/0.152s; outer cleanup
+confirmed1MiB/no selected actor and original keeper handback. GPU0/reservation
+untouched. Historical v1 overallFAIL and strict cross-engine FAILs unchanged.
+Actor-only feasibility on the tested lengths is now demonstrated; **not**
+fullPPO, combined-worker fit, checkpoint/resume, GAE or ranking quality.
+
+Next approved role gate uses **the same coordinator/CPU/GPU implementation**
+with explicit `--role critic`, not a custom trainer or copied optimizer. Frozen
+`ppo_critic_optimizer_v1.json` pins the reviewed actor dependency, same20 generated
+synthetic inputs/zero newHTTP, FP32 master/BF16 forward, full text backbone plus
+native scalar `score` head (**2560 weights+1 bias**), frozen vision, native
+AdamW foreach=false at reference criticLR2e−6, microbatch1/one discardedupdate.
+Native `HFModelConfig(model_type=value_model)` → unmodified native
+`FSDPEngineWithValueHead`/Qwen3_5ForTokenClassification → native `value_loss`.
+No TRL fallback, model/forward patch, manual optimizer or Books target allowed.
+
+CPU32 must pass20 actual native value-readout/packing/next-token+EOS mask/loss
+gradient proxies, fresh official meta shape/scope and native schema/source/
+weight/overlay hashes plus the original host/card budgets before handoff.
+Nonuniform nonzero CPU miniature values make off-by-one/temperature-scaling
+errors observable. GPU values are instead **recomputed twice in the actual
+native full-model engine**, finite/exact-repeat checked on every token. Value
+predictions are not temperature-scaled policy logprobs; no sequenceIS field in
+the critic batch. Fixed synthetic returns = oldvalues+alternating±1 by immutable
+row order, for compatibility only; **not GAE or MPSS learning**. Require finite
+nonzero backbone and head gradient evidence, all full-text+head FP32 moment/
+gradient states, actual backbone sample change, head shape, memory telemetry
+and original physical release/keeper handback. Head-only regression is not a pass.
+
+One GPU1 only; actor/reference/rollout models stay unloaded. Own64GiB host cap/
+20GiB load margin and fixed8GiB workspace allowance remain; persistent critic
+estimate is actor estimate+40,976bytes for its2561 trainable head parameters,
+not proof of combined fit. Same GPU25min/worker20min/CPU10min caps, provisional
+3–5min total based on measured actor timings. Preserve failures; fix in-scope
+harness faults without changing science/profile. After independent criticPASS:
+native checkpoint/resume+offload/co-residency memory gate, then multi-turn GAE/
+MPSS and tiny pseudo-train PPO before scaling. No current researcher choice
+is needed; ask only if single-card/topology/scientific scope must change.
+
+Implementation reuses the existing process ownership, strict release-kind and
+keeper wrappers; new role validation rejects LR/head/data/resource overrides
+and requires the immutable reviewed actor+cleanup dependency. Local suite
+**521 tests PASS5.53s**, compilation/shell/whitespace checks PASS; native critic
+CPU schemas and full GPU optimizer are still pending, not proven by local tests.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.

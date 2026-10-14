@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from src.cmirank.optimizer_smoke import (load_optimizer_config, memory_profile,
-    TEXT_PARAMETERS, VISION_PARAMETERS, validate_observations)
+    TEXT_PARAMETERS, VISION_PARAMETERS, validate_observations, load_optimizer_profile, CRITIC_HEAD_PARAMETERS)
 from src.cmirank.ppo_parity import load_parity_config
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -78,7 +78,8 @@ def test_coordinator_import_and_owned_resource_order():
     cpu = (ROOT / "scripts/cmirank/32_prepare_actor_optimizer_cpu.py").read_text()
     assert "train_micro_batch_size_per_gpu" not in worker + cpu
     assert "micro_batch_size_per_gpu=1" in worker and "micro_batch_size_per_gpu=1" in cpu
-    assert "engine.train_batch(data, loss_function=partial(ppo_loss" in worker
+    assert "engine.train_batch(data, loss_function=partial(loss_fn" in worker
+    assert 'loss_fn = ppo_loss if args.role == "actor" else value_loss' in worker
     assert "engine.optimizer.step(" not in worker and "torch.optim.AdamW(" not in worker
     assert worker.index('p.requires_grad_(not visual)') < worker.index('with engine.eval_mode()')
     for name in ("run_real_policy_smoke.sh", "run_real_policy_with_keeper.sh"):
@@ -119,3 +120,41 @@ def test_v2_rejects_profile_override(tmp_path, key, value):
     (folder / "ppo_actor_optimizer_v2.json").write_text(json.dumps(c))
     with pytest.raises(ValueError):
         load_optimizer_config(tmp_path)
+
+
+def test_native_critic_separate_full_backbone_scalar_head_and_native_lr():
+    actor, _ = load_optimizer_profile(ROOT)
+    critic, _ = load_optimizer_profile(ROOT, "critic")
+    assert actor["role"] == "actor" and actor["optimizer_lr"] == 1e-6
+    assert critic["role"] == "critic" and critic["optimizer_lr"] == 2e-6
+    assert critic["samples"] == 20 and critic["physical_requests"] == 0
+    assert critic["trainable_parameters"] == TEXT_PARAMETERS + CRITIC_HEAD_PARAMETERS
+    assert not critic["training_ready"] and not critic["co_residency_proven"]
+    profile = memory_profile("critic")
+    assert profile["roles_resident"] == ["critic"]
+    assert profile["adam_moment_bytes"] == 8 * (TEXT_PARAMETERS + CRITIC_HEAD_PARAMETERS)
+    for key in ("gpu_index", "model_dtype", "forward_dtype", "optimizer_updates", "foreach", "freeze_vision"):
+        assert critic[key] == actor[key]
+
+
+@pytest.mark.parametrize("key,value", [("critic_lr", 1e-5), ("scalar_head_parameters", 2049),
+    ("gpu_index", 0), ("returns", "books_target_rewards"), ("optimizer_updates", 2)])
+def test_critic_contract_rejects_tuning_or_expansion(tmp_path, key, value):
+    folder = tmp_path / "configs/cmirank"
+    folder.mkdir(parents=True)
+    for name in ("ppo_actor_optimizer_v1.json", "ppo_actor_optimizer_v2.json", "ppo_critic_optimizer_v1.json"):
+        c = json.loads((ROOT / "configs/cmirank" / name).read_text())
+        if name == "ppo_critic_optimizer_v1.json":
+            c[key] = value
+        (folder / name).write_text(json.dumps(c))
+    with pytest.raises(ValueError):
+        load_optimizer_profile(tmp_path, "critic")
+
+
+def test_critic_native_dispatch_and_no_policy_probability_substitution():
+    worker = (ROOT / "scripts/cmirank/34_native_actor_optimizer_gpu.py").read_text()
+    assert 'else "value_model"' in worker and "FSDPEngineWithValueHead" in worker
+    assert "hf.Qwen3_5ForTokenClassification" in worker and '"native-old-values.jsonl"' in worker
+    assert 'head_parameters != c["scalar_head_parameters"]' in worker
+    for name in ("run_real_policy_smoke.sh", "run_real_policy_with_keeper.sh"):
+        assert "critic_optimizer" in (ROOT / "scripts/cmirank" / name).read_text()

@@ -14,7 +14,7 @@ import time
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from src.cluster_runtime import require_allocation, require_project_root
-from src.cmirank.optimizer_smoke import (allocation_memory, load_optimizer_config, verify_optimizer_preparation)
+from src.cmirank.optimizer_smoke import (allocation_memory, load_optimizer_profile, verify_optimizer_preparation)
 from src.cmirank.corrected_rollout import load_corrected_config
 from src.cmirank.ppo_compat import load_compat_config
 from src.cmirank.ppo_runtime import load_runtime_config
@@ -34,10 +34,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--owner-confirmed-generator-step", required=True)
+    parser.add_argument("--role", choices=("actor", "critic"), default="actor")
     args = parser.parse_args()
     private = require_project_root(Path(os.environ["MEMREC_ROOT"]))
     job = require_allocation()
-    c, path = load_optimizer_config(ROOT)
+    c, path = load_optimizer_profile(ROOT, args.role)
     native, _ = load_corrected_config(ROOT)
     compat, _ = load_compat_config(ROOT)
     runtime, _ = load_runtime_config(ROOT)
@@ -112,14 +113,14 @@ def main():
             "TILELANG_CACHE_DIR": str(private / "cache/runtime-hnv" / c["run_id"] / "tilelang"),
             "TILELANG_TMP_DIR": str(private / "cache/runtime-hnv" / c["run_id"] / "tilelang-tmp")}
         log = (run / "native-worker.log").open("x")
-        worker = subprocess.Popen([sys.executable, "-u", marker, "--run-dir", str(run)], env=environment,
+        worker = subprocess.Popen([sys.executable, "-u", marker, "--run-dir", str(run), "--role", args.role], env=environment,
             stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         if worker.wait(timeout=c["worker_timeout_seconds"]) != 0:
             raise RuntimeError("Owned native actor optimizer failed; no automatic profile search")
         save(run / "native-release.json", wait_owned_hf_release(gpu_snapshot, native, card.uuid,
             child_exited=worker.poll() == 0, child_kind="native_fsdp2", emit=lambda x: append(run, "native-release-snapshots", x)))
         report = json.loads((run / "native-worker-report.json").read_text())
-        if (report["status"] != "NATIVE_ACTOR_OPTIMIZER_ONE_UPDATE_PASS_CRITIC_MULTITURN_CHECKPOINT_GATES_REMAIN"
+        if (report["status"] != c["worker_status"] or report["role"] != args.role
                 or report["source_commit"] != commit or report["optimizer_updates"] != 1
                 or report["samples"] != 20 or report["training_ready"]):
             raise ValueError("Native actor worker scope/result differs")
