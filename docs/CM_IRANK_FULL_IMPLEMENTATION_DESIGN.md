@@ -1269,6 +1269,120 @@ qualification precedes the identical20 generated-response GPU gate and original
 keeper handback/post-release CPU review. New regression tests reproduce an
 installed conflicting `scripts` module and prove v1/v2 scientific equality.
 
+### 0.47 V2 CPU qualified; generated GPU smoke launched — 2026-10-14
+
+Continuation audit found v2 had never launched: all3 v2 run directories absent,
+reserved allocation/keeper unchanged. Exact source **d5b36ceeacb2397d636ec70d0ea5db8416ffa247**
+was confirmed on GitHub and clean-deployed; full local suite **483 PASS8.33s**,
+compile/shell/whitespace checks pass. The existing shared SSH master was reused,
+not recreated for individual operations.
+
+**CPU v2 PASS20 /18.941s**, report SHA256
+**`97f4a5321d47a693ac0507eb166e8f5bf55aef05e559ad6a33f2cd1e0b7f9deb`**.
+All3 artifacts retrieved/local SHA-matched; source/config/code and full20 native
+schema/packing/unfused arithmetic receipts independently reviewed. The frozen
+tokens and stochastic request hashes remain byte-identical to v1. This CPU
+result still explicitly does **not** execute the CUDA-only native readout.
+
+Immediately after the worker wrote its receipt, the login node first returned
+FileNotFound for that new path, stopping the chain before GPU handoff. Later
+the file was visible on both login and worker; independent worker-side receipt
+validation passed. This is consistent with transient shared-filesystem
+visibility, **not a proven NFS root cause**. The resumed chain validates the
+same source-bound receipt inside the allocation; no overwriting/re-running a
+completed CPU gate, skipped provenance or weakened GPU guard.
+
+The original GPU1 controller is now invoked for the frozen20 stochastic
+requests/native FSDP2 forward-only comparison, followed automatically by keeper
+handback and CPU correction review on success. Initial foreground output
+confirms source-bound CPU20 and dynamic keeper resolution; **no terminal GPU
+result, model-release/handback or optimizer eligibility is reported yet**.
+Provisional **5–10min total GPU/review** based on prior cold server/model phases,
+not measured FSDP2 throughput. GPU25min/CPU-review5min hard caps remain. Do not
+redeploy while the source-bound process runs; inspect the same foreground
+session on continuation rather than repeatedly opening SSH status channels.
+This is still no-update infrastructure qualification, not thesis ranking gain.
+
+### 0.48 Generated rollout v2 and native correction review PASS — 2026-10-14
+
+Recovered the terminal foreground task once; independent review rehashed all
+24 GPU and2 CPU-review artifacts, reparsed20 raw physical responses and
+recomputed likelihood alignment, repeat statistics and sequence IS/ESS.
+Producing source remains **d5b36ceeacb2397d636ec70d0ea5db8416ffa247**; completed
+receipts are never relabeled as produced by subsequent optimizer source.
+
+| Qualification | Observed result / limit |
+|---|---|
+| CPU preparation | 20 PASS18.941s; report97f4a5321d47a693ac0507eb166e8f5bf55aef05e559ad6a33f2cd1e0b7f9deb |
+| Actual vLLM sampling | 20 requests /180 response+EOS tokens;20/20 valid format,0 truncation, no retry/repair |
+| Native FSDP2 | Full4.54B forward-only /40 scorings,104.882s; same-engine repeat delta0; shared-initial-reference identity only |
+| GPU task total | 236.523s; native scorer allocator peak2517.56MiB/reserved2756MiB, **CPU-offloaded forward-only**, not training memory |
+| Native default sequence IS | All20 retained; weights0.866597–1.151585,ESS fraction0.993629946,0 above cap2 |
+| Resource cleanup | Owned sampler/scorer exited; actual GPU release1MiB/no selected actor before original keeper restoration; protected workloads/allocation untouched |
+| Research claims | **0 optimizer updates,0 Books outcomes,0 ranking metrics; training_ready=false**; strict v8/v9 failures unchanged |
+
+GPU report SHA256 **219a500951bc083d4fe4f176643e3cd015ae1a3ca1cb8c4f9a8e94264a0d4c83**;
+CPU review **56d756da7e5abf26b40114c67ead39c5ebdc44fd3cd05368587526cb62200f38**.
+Native worker report **31e40df555a774d0bc35930b68fae6d4d8695358052f1bc4daf62262831eb437**.
+Generated behavior IDs/logprobs SHA **6ec64b305f6abb8d79037c10b3dc62e4058be62ca52ba2a374a7e5c38115fb5b**;
+native old-policy outputs **8ace67a31a957087330c85faf1779f339ff60abb4d919444b9de2378a68bd103**.
+These finite-weight observations qualify correction wiring on these20 cases,
+not convergence, a quality guarantee, full PPO or a separate reference worker.
+
+Proceed automatically to the already-approved optimizer/memory ladder; no
+researcher choice is currently missing. Do not rerun numerical diagnostics
+or change precision/IS thresholds to seek a better outcome.
+
+### 0.49 Native actor optimizer and memory smoke preregistered — 2026-10-14
+
+Pinned installed-source inspection found native FSDP2 training defaults to
+**FP32 model/master storage**; engine dtypeBF16 controls forward mixed precision,
+not optimizer storage. For4,205,751,296 text parameters, params+grad+two FP32
+Adam moments alone occupy62.673GiB; frozen333,514,240 vision parameters add
+1.242GiB. Activations, mixed-precision copies, allocator/kernel/NCCL overhead
+are additional. Allocation host cap is64GiB; cached pages count toward its
+usage. No assumption of actor+critic+reference+rollout co-residency is allowed.
+
+New fixed `ppo_actor_optimizer_v1.json` qualifies **actor only**, never a
+scientific training result: all20 immutable synthetic generated responses from
+§0.48, zero new requests, native FP32 parameters/BF16 forward, checkpointing,
+microbatch1/one native `train_batch` update at reference actorLR1e−6, ordinary
+native AdamW `foreach=false` to avoid whole-model foreach temporaries. No
+offload/8-bit/LoRA/custom optimizer/framework patch. Synthetic advantages are
+fixed alternating±1 by original row order; no Books reward/target is read.
+The update is discarded, not saved or evaluated as a method checkpoint.
+
+CPU32 first verifies immutable parent and current-source/weight/overlay/native
+hashes, actual20 native batch packing/next-token+EOS masks/loss-to-LP gradients,
+native optimizer/schema, own allocation host margin20GiB and persistent GPU
+estimate+fixed8GiB workspace allowance against the actual card. No model or
+GPU during CPU prep. GPU33 owns one worker34, uses original handoff/strict UUID
+guards and keeper restoration. Native actor recalculates old likelihoods twice
+in its **actual FP32-master training engine** before the update; native sequence
+IS uses these old likelihoods and the frozen behavior probabilities. Historical
+BF16 inference likelihoods are only CPU packing proxies, not substituted for
+actual training-engine old probabilities. No threshold/weight tuning.
+
+Freeze visual `requires_grad` before FSDP2's first forward/lazy initialization;
+the pinned ActorConfig freeze flag has no native consumer, so merely setting it
+would be a false freeze claim. Ordinary Torch parameter freezing must be proven
+by the absence of visual gradients/Adam states/update. Require20 repeat probes,
+finite nonzero native grad norm, all full-text FP32 grads and complete FP32
+Adam first-update moments, actual parameter-sample change and VRAM/own-host
+telemetry. Small parameter probes are **not checkpoint round-trip proof**.
+On error/timeout, preserve artifacts, unload owned models and restore original
+keeper immediately; no hidden profile search or second GPU. GPU hard cap25min,
+worker20min. Expected runtime is provisional5–10min, not measured optimizer
+throughput. Only after reviewed PASS: bounded critic optimizer gate, then native
+full checkpoint/resume, multi-turn action masks/GAE/reward placement/weight-sync
+and tiny pseudo-train PPO; remaining research gates and sealed cohort unchanged.
+
+Local implementation verification: **508 tests PASS5.61s**, Python compilation,
+both keeper-controller shell checks and whitespace checks PASS. These tests
+reject hidden scope/precision/optimizer/GPU changes and observation filtering,
+and require native train_batch/loss plus CPU-before-handoff ordering. They are
+not a substitute for CPU32's installed-native schemas or GPU34's actual states.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.

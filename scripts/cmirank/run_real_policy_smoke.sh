@@ -9,7 +9,7 @@ MEMREC_TASK_KIND=${MEMREC_TASK_KIND:-real_policy}
 export MEMREC_PARITY_CONTRACT_VERSION=${MEMREC_PARITY_CONTRACT_VERSION:-8}
 [[ "$MEMREC_PARITY_CONTRACT_VERSION" == 8 || "$MEMREC_PARITY_CONTRACT_VERSION" == 9 ]] || exit 2
 MEMREC_SFT_PHASE=${MEMREC_SFT_PHASE:-smoke}
-[[ "$MEMREC_TASK_KIND" == real_policy || "$MEMREC_TASK_KIND" == format_sft || "$MEMREC_TASK_KIND" == ppo_compat || "$MEMREC_TASK_KIND" == ppo_parity || "$MEMREC_TASK_KIND" == corrected_rollout ]] || exit 2
+[[ "$MEMREC_TASK_KIND" == real_policy || "$MEMREC_TASK_KIND" == format_sft || "$MEMREC_TASK_KIND" == ppo_compat || "$MEMREC_TASK_KIND" == ppo_parity || "$MEMREC_TASK_KIND" == corrected_rollout || "$MEMREC_TASK_KIND" == actor_optimizer ]] || exit 2
 [[ "$MEMREC_SFT_PHASE" == smoke || "$MEMREC_SFT_PHASE" == full ]] || exit 2
 MEMREC_ROOT=/mnt/data/users/hoangnv242/memrec-hnv
 cd "$MEMREC_ROOT/repo/MemRec-hnv"
@@ -25,11 +25,14 @@ if [[ "$MEMREC_TASK_KIND" == format_sft ]]; then
   read -r RUN_ID MEMREC_GPU_INDEX MEMREC_TIMEOUT < <("$MEMREC_PYTHON" -c 'import sys;from pathlib import Path;from src.cmirank.format_sft import load_format_config;c,_=load_format_config(Path.cwd());print(c[sys.argv[1]+"_run_id"],c["gpu_index"],c["timeout_minutes"])' "$MEMREC_SFT_PHASE")
   MEMREC_TASK_SCRIPT=scripts/cmirank/16_train_format_sft_gpu.py
   MEMREC_TASK_ARGS=(--phase "$MEMREC_SFT_PHASE")
-elif [[ "$MEMREC_TASK_KIND" == ppo_compat || "$MEMREC_TASK_KIND" == ppo_parity || "$MEMREC_TASK_KIND" == corrected_rollout ]]; then
+elif [[ "$MEMREC_TASK_KIND" == ppo_compat || "$MEMREC_TASK_KIND" == ppo_parity || "$MEMREC_TASK_KIND" == corrected_rollout || "$MEMREC_TASK_KIND" == actor_optimizer ]]; then
   read -r MEMREC_ENV_NAME MEMREC_OVERLAY < <("$MEMREC_PYTHON" -c 'from pathlib import Path;from src.cmirank.ppo_runtime import load_runtime_config;from src.cmirank.ppo_compat import load_compat_config;r,_=load_runtime_config(Path.cwd());c,_=load_compat_config(Path.cwd());print(r["environment_name"],c["overlay_name"])')
   MEMREC_PYTHON="$MEMREC_ROOT/envs/$MEMREC_ENV_NAME/bin/python"
   export PYTHONPATH="$MEMREC_ROOT/overlays/$MEMREC_OVERLAY"
-  if [[ "$MEMREC_TASK_KIND" == corrected_rollout ]]; then
+  if [[ "$MEMREC_TASK_KIND" == actor_optimizer ]]; then
+    read -r RUN_ID MEMREC_GPU_INDEX MEMREC_TIMEOUT < <("$MEMREC_PYTHON" -c 'from pathlib import Path;from src.cmirank.optimizer_smoke import load_optimizer_config;c,_=load_optimizer_config(Path.cwd());print(c["run_id"],c["gpu_index"],c["timeout_minutes"])')
+    MEMREC_TASK_SCRIPT=scripts/cmirank/33_smoke_actor_optimizer_gpu.py
+  elif [[ "$MEMREC_TASK_KIND" == corrected_rollout ]]; then
     read -r RUN_ID MEMREC_GPU_INDEX MEMREC_TIMEOUT < <("$MEMREC_PYTHON" -c 'from pathlib import Path;from src.cmirank.corrected_rollout import load_corrected_config;c,_=load_corrected_config(Path.cwd());print(c["run_id"],c["gpu_index"],c["timeout_minutes"])')
     MEMREC_TASK_SCRIPT=scripts/cmirank/29_smoke_corrected_rollout_gpu.py
   elif [[ "$MEMREC_TASK_KIND" == ppo_parity ]]; then

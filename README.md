@@ -9,7 +9,7 @@ thesis đã được xác nhận.
 Hướng hiện tại là **CM-IRank**: giữ Stage-R/Stage-W, thay Stage-ReRank bằng
 chính sách loại dần candidate, fine-tune **Qwen/Qwen3.5-4B bằng PPO** với MPSS.
 
-## Trạng thái hiện hành — 2026-10-13
+## Trạng thái hiện hành — 2026-10-14
 
 | Phần việc | Bằng chứng / giới hạn |
 |---|---|
@@ -20,17 +20,19 @@ chính sách loại dần candidate, fine-tune **Qwen/Qwen3.5-4B bằng PPO** v�
 | Format / PPO runtime | Format-only SFT 256 synthetic examples /64 updates đã xong; full actor/reference/critic compatibility pass. **Chưa PPO**: v8 HF–vLLM parity fail12/20; v9 chẩn đoán đủ80 requests xác nhận drift cả trong cùng server, không chọn lượt tốt nhất để promote |
 | Method result | **Chưa có checkpoint/score CM-IRank**; held-out 5.377 users vẫn niêm phong |
 
-**Gate hiện tại:** v9 đã hoàn tất5,53 phút; HF lặp lại đúng vector cũ, vLLM
-prompt-logprob lệch tối đa0,1165 trong cùng server. GPU đã nhả và keeper1 bật
-lại. Đang đánh giá protocol PPO có correction native của VeRL, không nới
-ngưỡng hay tuyên bố training pass. Kết quả/giới hạn và quyết định tiếp theo ở
-[design §0.44](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#044-v9-repeatability-diagnosis-completed-primary-numerical-gate-still-fail--2026-10-13).
-Native correction đã kiểm tra CPU đủ4×20 vector, không update/model/GPU;
-**researcher đã đồng ý protocol mới**, đang triển smoke sinh thật20 mẫu trước
-optimizer, giữ nguyên các numerical FAIL cũ. Quyết định và scope ở
-[§0.45](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#045-native-cpu-correction-check-and-proposed-t0-amendment--2026-10-13).
-Contract đã khóa ở
-[§0.46](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#046-researcher-approved-corrected-ppo-qualification-protocol--2026-10-13).
+**Mới nhất:** corrected-rollout v2 **PASS**: 20/20 responses sinh thật đúng
+format, 0 truncation; native FSDP2 chấm 40 lượt, repeat delta0. CPU review
+sequence IS native đạt ESS0,99363, weights0,86660–1,15159, không mẫu vượt cap2.
+GPU task3,94 phút; model đã nhả về1MiB và keeper1 phục hồi. Artifacts được
+đối chiếu SHA và tính lại độc lập; đây vẫn là **0 optimizer updates / không
+có kết quả ranking**, không đổi các strict parity FAIL cũ.
+[Kết quả và giới hạn §0.48](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#048-generated-rollout-v2-and-native-correction-review-pass--2026-10-14).
+
+**Gate tiếp theo:** CPU20 packing/loss/memory → actor native FSDP2/AdamW riêng,
+FP32 master/BF16 forward, một update synthetic bỏ đi; sau đó critic, checkpoint
+và multi-turn PPO/GAE trước research training. Không suy từ smoke BF16 inference
+rằng full PPO vừa một H100.
+[Protocol optimizer §0.49](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#049-native-actor-optimizer-and-memory-smoke-preregistered--2026-10-14).
 Tổng quan phương pháp vẫn ở [design §0.14](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#014-overall-review-and-next-gates--2026-10-07).
 Các đoạn dưới là lịch sử gate; không dùng trạng thái launch cũ làm tiến độ hiện tại.
 CPU review v6 đã đối chiếu 35 request/schema và replay đúng 11 lần Stage-W;
