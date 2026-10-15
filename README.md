@@ -24,18 +24,14 @@ chưa có kết quả train/ranking LoRA. CPU20 scope/roundtrip phải pass trư
 | Format / PPO runtime | Format-only SFT 256 synthetic examples /64 updates đã xong; full actor/reference/critic compatibility pass. **Chưa PPO**: v8 HF–vLLM parity fail12/20; v9 chẩn đoán đủ80 requests xác nhận drift cả trong cùng server, không chọn lượt tốt nhất để promote |
 | Method result | **Chưa có checkpoint/score CM-IRank**; held-out 5.377 users vẫn niêm phong |
 
-**LoRA mới nhất:** CPU v1 lỗi mixed precision ở value head; v2 chặn đúng
-backbone không đồng nhất dtype. Meta-only replay đã xác nhận factory critic
-giữ723 tensor BF16; native engine có bước `.to(FP32)` mà harness bỏ sót.
-V3 bổ sung đúng bước đó và BF16 autocast, giữ các FAIL/artifacts và mọi
-rank/LR/scope/precision đã khóa. 549 tests local pass; chưa dùng GPU hay có
-LoRA GPU-fit/PPO/ranking result.
-V3 bounded wait đã hết hạn. Audit RAM cho thấy56,36GiB là file cache, anonymous
-chỉ3,90GiB: v4 sửa **hạch toán CPU/meta** bằng credit cache sạch/inactive có
-giới hạn; vẫn cap64GiB/margin20GiB, không xóa cache/cgroup hay đổi GPU-load guard.
-Chưa có CPU v4 PASS; keeper/workloads khác không bị tác động.
-[Chi tiết và retry §0.55](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#055-lora-cpu-v1-fail-native-equivalent-autocast-retry--2026-10-15).
-[Resource accounting §0.56](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#056-cpu-cache-accounting-correction-not-a-ramgpu-expansion--2026-10-15).
+**LoRA mới nhất: CPU v4 PASS đã review**,20/20 mẫu/role trong17,05s,
+14 artifacts/source/hash khớp, reload logit delta0; peak RSS1,07GiB.
+Actor train64,93M adapter parameters, critic thêm2561 value-head parameters.
+Lỗi dtype/autocast và hạch toán page cache đã sửa, giữ nguyên các FAIL cũ;
+không tăng cap RAM/GPU, không xóa cache hay tác động keeper.
+569 tests local pass. Tiếp theo CPU37→smoke full4B actor/critic cùng nằm trên
+GPU1 với hai native updates bỏ đi; **chưa có LoRA GPU-fit/PPO/ranking result**.
+[Kết quả và joint gate §0.57](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#057-lora-cpu-v4-reviewed-pass-native-joint-gpu-gate--2026-10-15).
 
 **Mới nhất:** corrected-rollout v2 **PASS**: 20/20 responses sinh thật đúng
 format, 0 truncation; native FSDP2 chấm 40 lượt, repeat delta0. CPU review

@@ -1892,6 +1892,67 @@ unchanged margin/node/cgroup caps. On the captured own-job counters the estimate
 is22.210GiB including a capped20GiB cache credit, versus2.210GiB raw headroom.
 This is still a sizing estimate; no v4 remote CPU or native GPU pass yet.
 
+### 0.57 LoRA CPU v4 reviewed PASS; native joint-GPU gate — 2026-10-15
+
+CPU36 v4 completed under source**8ff2dc33a86dab1ab2d154368a1c087728289d16**,
+**20/20 fixtures per role /17.052s**, one discarded miniature update each,
+adapter/head tensor and forward-logit reload equality0. Downloaded all**14
+artifacts**, independently checked every SHA/producing-source hash, all40 probe
+IDs/reload deltas and both cache-budget calculations. Report SHA
+**565b51744ca72be75139bd662ed02900d62520932d893cce9c4c463518913663**.
+Actual peak process RSS**1.069GiB**; own64GiB cap unchanged, no new OOM,
+no forced reclaim/keeper handoff/full4B tensors or GPU requests. Earlier
+RAM-current-only interpretation is superseded by§0.56, all failed runs retained.
+
+Official meta scopes: actor**64,929,792 adapter parameters**, critic the same
+adapters plus**2561 scalar-head parameters =64,932,353**. Frozen base/vision and
+original head storage remains FP32. This is about1.54% of the formerly trained
+text parameter count, not proof of equal recommendation quality. The ordinary
+critic CAUSAL_LM-wrapper control raised missing`prepare_inputs_for_generation`;
+the selected native pretrained **generic PEFT+score** path passed every fixture.
+Only actor/critic miniature interfaces and official meta scope are now proven.
+
+Next gate uses a **single joint native worker** on GPU1 so both roles can be
+checked in one keeper handoff, without duplicate compatibility launches. It
+loads two official4B native FSDP2 roles with the reviewed LoRA scope, FP32
+parameter/Adam state/BF16 forward, micro1/native AdamW foreach=false, one
+discarded native update per role on the unchanged20 generated synthetic
+responses. No custom optimizer/model/critic, new HTTP, Books labels or GAE
+learning. Actor LPs and critic values must be recomputed twice in their actual
+engines, with original role-repeat rules/response+EOS alignment; native sequence
+IS remains unchanged. Check complete adapter+head gradients/moments and updates,
+zero frozen-base gradient/optimizer state and unchanged bounded parameter
+samples; do not claim a full4B frozen bitwise checkpoint comparison from probes.
+
+New `ppo_lora_joint_v1.json` pins the reviewed CPU36 report/source. Fresh CPU37
+on the new GPU-code commit verifies all20 native token-packing/loss-gradient
+proxies per role, actual HFModelConfig/engine/optimizer schemas, immutable
+checkpoint/native/overlay hashes and memory budgets before handoff. GPU38
+shares those schema factories; the old full-parameter worker34 stays unchanged.
+The existing CPU coordinator33 and original guarded keeper wrappers gain an
+explicit opt-in `lora_optimizer` branch; full-parameter defaults/authority/
+release checks remain. On every terminal path model process exits, actual
+GPU1 release is audited and original keeper1 restored **before CPU review**.
+GPU0/unknown processes/reservation remain read-only.
+
+Two roles' FP32 parameters+all adapter gradients/Adam states total**35.755GiB**;
+with the unchanged8GiB workspace allowance, admission estimate**43.755GiB**
+versus actual79.647GiB card. **Not yet measured GPU fit.** Neither rollout,
+reference copy nor checkpoint staging is loaded here; joint actor/critic
+success will not prove full PPO fit. A new-profile CPU-side host-admission
+estimate explicitly uses§0.56 while CUDA is hidden, preserving the20GiB margin/
+actual64GiB cap; this estimate is not a reservation/full-model proof. Old
+full-tuning GPU raw-margin checks are not changed. Record actual GPU/host peaks;
+do not expand budgets or switch cards if the estimate is wrong.
+
+Local suite**569 PASS5.48s**, compilation/shell syntax/whitespace PASS.
+CPU37→conditional GPU native gate is next; provisional GPU5–10min with the
+existing25min outer/20min worker caps. Then review both native optimizer states
+and actual release/handback before rollout/ref sync, native checkpoint/resume,
+20 complete N−1/GAE/MPSS episodes and tiny primary Books PPO. No research
+training, sealed access, two-GPU fallback or full-method result is authorized
+by this compatibility gate.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.

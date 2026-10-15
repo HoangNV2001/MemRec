@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "prepare_run_id": "cmirank-lora-joint-optimizer-data-v1-20261015-hnv",
+  "run_id": "cmirank-lora-joint-optimizer-smoke-v1-20261015-hnv",
+  "cpu_parent_run_id": "cmirank-lora-native-cpu-v4-20261015-hnv",
+  "cpu_parent_source_commit": "8ff2dc33a86dab1ab2d154368a1c087728289d16",
+  "cpu_parent_report_sha256": "565b51744ca72be75139bd662ed02900d62520932d893cce9c4c463518913663",
+  "parameterization": "lora_joint",
+  "role": "joint",
+  "optimizer_updates": 2,
+  "updates_per_role": 1,
+  "gpu_host_admission": "cpu_hidden_cache_estimate_not_fit_proof",
+  "worker_status": "NATIVE_LORA_JOINT_UPDATE_PASS_ROLLOUT_CHECKPOINT_MULTITURN_GATES_REMAIN"
+}

@@ -9,7 +9,7 @@ MEMREC_TASK_KIND=${MEMREC_TASK_KIND:-real_policy}
 export MEMREC_PARITY_CONTRACT_VERSION=${MEMREC_PARITY_CONTRACT_VERSION:-8}
 [[ "$MEMREC_PARITY_CONTRACT_VERSION" == 8 || "$MEMREC_PARITY_CONTRACT_VERSION" == 9 ]] || exit 2
 MEMREC_SFT_PHASE=${MEMREC_SFT_PHASE:-smoke}
-[[ "$MEMREC_TASK_KIND" == real_policy || "$MEMREC_TASK_KIND" == format_sft || "$MEMREC_TASK_KIND" == ppo_compat || "$MEMREC_TASK_KIND" == ppo_parity || "$MEMREC_TASK_KIND" == corrected_rollout || "$MEMREC_TASK_KIND" == actor_optimizer || "$MEMREC_TASK_KIND" == critic_optimizer ]] || exit 2
+[[ "$MEMREC_TASK_KIND" == real_policy || "$MEMREC_TASK_KIND" == format_sft || "$MEMREC_TASK_KIND" == ppo_compat || "$MEMREC_TASK_KIND" == ppo_parity || "$MEMREC_TASK_KIND" == corrected_rollout || "$MEMREC_TASK_KIND" == actor_optimizer || "$MEMREC_TASK_KIND" == critic_optimizer || "$MEMREC_TASK_KIND" == lora_optimizer ]] || exit 2
 [[ "$MEMREC_SFT_PHASE" == smoke || "$MEMREC_SFT_PHASE" == full ]] || exit 2
 MEMREC_ROOT=/mnt/data/users/hoangnv242/memrec-hnv
 cd "$MEMREC_ROOT/repo/MemRec-hnv"
@@ -21,6 +21,8 @@ if [[ "$MEMREC_TASK_KIND" == format_sft ]]; then
   read -r MEMREC_RUN_ID MEMREC_GPU_INDEX < <("$MEMREC_ROOT/envs/llm-hnv/bin/python" -c 'import sys;from pathlib import Path;from src.cmirank.format_sft import load_format_config;c,_=load_format_config(Path.cwd());print(c[sys.argv[1]+"_run_id"],c["gpu_index"])' "$MEMREC_SFT_PHASE")
 elif [[ "$MEMREC_TASK_KIND" == ppo_compat ]]; then
   read -r MEMREC_RUN_ID MEMREC_GPU_INDEX < <("$MEMREC_ROOT/envs/llm-hnv/bin/python" -c 'from pathlib import Path;from src.cmirank.ppo_compat import load_compat_config;c,_=load_compat_config(Path.cwd());print(c["run_id"],c["gpu_index"])')
+elif [[ "$MEMREC_TASK_KIND" == lora_optimizer ]]; then
+  read -r MEMREC_RUN_ID MEMREC_GPU_INDEX < <("$MEMREC_ROOT/envs/llm-hnv/bin/python" -c 'from pathlib import Path;from src.cmirank.lora_joint import load_joint_config;c,_=load_joint_config(Path.cwd());print(c["run_id"],c["gpu_index"])')
 elif [[ "$MEMREC_TASK_KIND" == actor_optimizer || "$MEMREC_TASK_KIND" == critic_optimizer ]]; then
   MEMREC_OPTIMIZER_ROLE=actor
   [[ "$MEMREC_TASK_KIND" != critic_optimizer ]] || MEMREC_OPTIMIZER_ROLE=critic
@@ -33,7 +35,7 @@ else
   read -r MEMREC_RUN_ID MEMREC_GPU_INDEX < <("$MEMREC_ROOT/envs/llm-hnv/bin/python" -c 'import sys;from pathlib import Path;from src.cmirank.policy_smoke import load_policy_smoke_contract;c,_=load_policy_smoke_contract(Path.cwd(),int(sys.argv[1]));print(c["run_id"],c.get("gpu_index",1))' "$MEMREC_POLICY_CONTRACT_VERSION")
 fi
 MEMREC_PROTECTION_ARGS=()
-if [[ "$MEMREC_TASK_KIND" == format_sft || "$MEMREC_TASK_KIND" == ppo_compat || "$MEMREC_TASK_KIND" == ppo_parity || "$MEMREC_TASK_KIND" == corrected_rollout || "$MEMREC_TASK_KIND" == actor_optimizer || "$MEMREC_TASK_KIND" == critic_optimizer ]]; then
+if [[ "$MEMREC_TASK_KIND" == format_sft || "$MEMREC_TASK_KIND" == ppo_compat || "$MEMREC_TASK_KIND" == ppo_parity || "$MEMREC_TASK_KIND" == corrected_rollout || "$MEMREC_TASK_KIND" == actor_optimizer || "$MEMREC_TASK_KIND" == critic_optimizer || "$MEMREC_TASK_KIND" == lora_optimizer ]]; then
   MEMREC_PROTECTION_ARGS=(--protect-other-workloads)
 fi
 MEMREC_RUN_DIR="$MEMREC_ROOT/runs/$MEMREC_RUN_ID"

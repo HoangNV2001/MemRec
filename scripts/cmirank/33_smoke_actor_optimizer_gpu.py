@@ -35,10 +35,19 @@ def main():
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--owner-confirmed-generator-step", required=True)
     parser.add_argument("--role", choices=("actor", "critic"), default="actor")
+    parser.add_argument("--parameterization", choices=("full", "lora_joint"), default="full")
     args = parser.parse_args()
     private = require_project_root(Path(os.environ["MEMREC_ROOT"]))
     job = require_allocation()
-    c, path = load_optimizer_profile(ROOT, args.role)
+    if args.parameterization == "lora_joint":
+        if args.role != "actor":
+            raise ValueError("Joint LoRA mode does not select a separate critic-only worker")
+        from src.cmirank.lora_joint import load_joint_config, verify_joint_preparation
+        from src.cmirank.host_memory import cpu_memory_budget
+        c, path = load_joint_config(ROOT)
+        args.role = "joint"
+    else:
+        c, path = load_optimizer_profile(ROOT, args.role)
     native, _ = load_corrected_config(ROOT)
     compat, _ = load_compat_config(ROOT)
     runtime, _ = load_runtime_config(ROOT)
@@ -51,7 +60,10 @@ def main():
             or Path(sys.prefix).resolve() != private / "envs" / runtime["environment_name"]
             or not os.environ.get("MEMREC_KEEPER_AUTHORITY_PATH")):
         raise ValueError("Fresh clean-source GPU1 standing-authority coordinator required")
-    prepared = verify_optimizer_preparation(private, ROOT, c, path, commit)
+    if args.parameterization == "lora_joint":
+        prepared = verify_joint_preparation(private, ROOT, c, path, commit)
+    else:
+        prepared = verify_optimizer_preparation(private, ROOT, c, path, commit)
     verify_fla_overlay(private, native)
     toolchain = verify_cuda_toolchain(private, ROOT, native)[0]
     causal = verify_causal_overlay(private, ROOT, native)[0]
@@ -67,13 +79,18 @@ def main():
         if file_sha256(private / "overlays" / compat["overlay_name"] / n) != sha:
             raise ValueError("FA2 changed since CPU preparation")
     host = allocation_memory(job)
-    if host["maximum_bytes"]-host["current_bytes"] < c["host_load_reserve_bytes"]:
+    host_budget = cpu_memory_budget(job, c["host_load_reserve_bytes"]) if args.parameterization == "lora_joint" else None
+    host_fits = (host_budget["assessment"]["within_estimated_budget"] if host_budget else
+                 host["maximum_bytes"]-host["current_bytes"] >= c["host_load_reserve_bytes"])
+    if not host_fits:
         raise ValueError("Own allocation host-load margin disappeared; no handoff")
     run.mkdir()
     worker = card = log = None
     exit_code = 1
     began = time.monotonic()
     marker = "scripts/cmirank/34_native_actor_optimizer_gpu.py"
+    if args.parameterization == "lora_joint":
+        marker = "scripts/cmirank/38_native_lora_joint_gpu.py"
     def interrupted(signum, frame):
         raise InterruptedError(f"Owned actor task interrupted by signal {signum}")
     signal.signal(signal.SIGTERM, interrupted)
@@ -82,6 +99,8 @@ def main():
         "slurm_job_id": job, "allocation_memory_before": host,
         "preparation_report_sha256": file_sha256(private / "runs" / c["prepare_run_id"] / "report.json"),
         "physical_requests": 0, "training_ready": False}
+    if host_budget:
+        manifest["cpu_side_host_admission_estimate_not_fit_proof"] = host_budget
     save(run / "manifest.json", manifest)
     try:
         manifest["gpu_handoff"] = handoff(run, args.owner_confirmed_generator_step,
@@ -121,7 +140,7 @@ def main():
             child_exited=worker.poll() == 0, child_kind="native_fsdp2", emit=lambda x: append(run, "native-release-snapshots", x)))
         report = json.loads((run / "native-worker-report.json").read_text())
         if (report["status"] != c["worker_status"] or report["role"] != args.role
-                or report["source_commit"] != commit or report["optimizer_updates"] != 1
+                or report["source_commit"] != commit or report["optimizer_updates"] != c["optimizer_updates"]
                 or report["samples"] != 20 or report["training_ready"]):
             raise ValueError("Native actor worker scope/result differs")
         save(run / "report.json", {**report, "worker_report_sha256": file_sha256(run / "native-worker-report.json"),
