@@ -24,10 +24,12 @@ chưa có kết quả train/ranking LoRA. CPU20 scope/roundtrip phải pass trư
 | Format / PPO runtime | Format-only SFT 256 synthetic examples /64 updates đã xong; full actor/reference/critic compatibility pass. **Chưa PPO**: v8 HF–vLLM parity fail12/20; v9 chẩn đoán đủ80 requests xác nhận drift cả trong cùng server, không chọn lượt tốt nhất để promote |
 | Method result | **Chưa có checkpoint/score CM-IRank**; held-out 5.377 users vẫn niêm phong |
 
-**LoRA mới nhất:** CPU v1 lỗi mixed precision ở value head, chưa dùng GPU.
-Đã giữ nguyên FAIL/artifacts và sửa CPU harness để dùng BF16 autocast như
-native engine; v2 rerun đủ20 mẫu/role, không đổi rank/LR/precision hay model.
-547 tests local pass; chưa có LoRA GPU-fit/PPO/ranking result.
+**LoRA mới nhất:** CPU v1 lỗi mixed precision ở value head; v2 chặn đúng
+backbone không đồng nhất dtype. Meta-only replay đã xác nhận factory critic
+giữ723 tensor BF16; native engine có bước `.to(FP32)` mà harness bỏ sót.
+V3 bổ sung đúng bước đó và BF16 autocast, giữ các FAIL/artifacts và mọi
+rank/LR/scope/precision đã khóa. 549 tests local pass; chưa dùng GPU hay có
+LoRA GPU-fit/PPO/ranking result.
 [Chi tiết và retry §0.55](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#055-lora-cpu-v1-fail-native-equivalent-autocast-retry--2026-10-15).
 
 **Mới nhất:** corrected-rollout v2 **PASS**: 20/20 responses sinh thật đúng

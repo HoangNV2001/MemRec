@@ -53,6 +53,21 @@ def native_lora(module, shapes, c, *, adapter=None):
     return FSDPEngine._build_lora_module(proxy, module)
 
 
+def native_factory(factory, config, torch, receipts=None):
+    # Same final storage normalization as FSDPEngine._build_module. The native
+    # token-classification factory's nested config may retain BF16 parameters
+    # despite dtype=FP32; the production engine normalizes the entire module.
+    from collections import Counter
+    model = factory.from_config(config, dtype=torch.float32, attn_implementation="sdpa")
+    before = dict(Counter(str(p.dtype) for p in model.parameters()))
+    model.to(dtype=torch.float32)
+    if receipts is not None:
+        receipts.append({"factory": factory.__name__, "before": before,
+            "after_native_to_dtype": dict(Counter(str(p.dtype) for p in model.parameters())),
+            "all_meta": all(p.is_meta for p in model.parameters())})
+    return model
+
+
 def miniature_forward(model, tokens, torch):
     # The native FSDP forward_step also enters BF16 autocast. Calling the
     # value head outside that context is not a faithful precision rehearsal:
@@ -109,10 +124,10 @@ def main():
         official = AutoConfig.from_pretrained(checkpoint, local_files_only=True)
         official.num_labels = 1
         official.classifier_dropout = 0.0
-        scopes, targets = {}, {}
+        scopes, targets, factory_receipts = {}, {}, []
         with torch.device("meta"):
-            meta_actor = AutoModelForImageTextToText.from_config(official, dtype=torch.float32, attn_implementation="sdpa")
-            meta_critic = AutoModelForTokenClassification.from_config(official, dtype=torch.float32, attn_implementation="sdpa")
+            meta_actor = native_factory(AutoModelForImageTextToText, official, torch, factory_receipts)
+            meta_critic = native_factory(AutoModelForTokenClassification, official, torch, factory_receipts)
         targets["actor"], targets["critic"] = linear_targets(meta_actor), linear_targets(meta_critic)
         if targets["actor"] != targets["critic"]:
             raise ValueError("Actor and critic must adapt the identical language linear scope")
@@ -128,7 +143,7 @@ def main():
         probes, wrapper_control = [], None
         for role, factory in (("actor", AutoModelForImageTextToText), ("critic", AutoModelForTokenClassification)):
             torch.manual_seed(c["seed"])
-            base = factory.from_config(deepcopy(mini), dtype=torch.float32, attn_implementation="sdpa")
+            base = native_factory(factory, deepcopy(mini), torch)
             shapes = linear_targets(base)
             # Probe the ordinary fresh-CAUSAL_LM path too; do not silently
             # mistake its success on actors for native value-model support.
@@ -186,7 +201,7 @@ def main():
             original_state = {n: t.detach().clone() for n, t in get_peft_model_state_dict(model).items()}
             # Native pretrained-adapter path on a fresh unmodified model.
             torch.manual_seed(c["seed"])
-            fresh = factory.from_config(deepcopy(mini), dtype=torch.float32, attn_implementation="sdpa")
+            fresh = native_factory(factory, deepcopy(mini), torch)
             restored = native_lora(fresh, shapes, c, adapter=saved)
             if audit_scope(restored, shapes, c, role)["trainable_shapes"] != scope["trainable_shapes"]:
                 raise ValueError("Native adapter reload changed trainable scope")
@@ -214,6 +229,8 @@ def main():
             "critic_fresh_causal_wrapper_control": wrapper_control,
             "critic_production_route": "native_pretrained_generic_peft_adapter_with_score_modules_to_save",
             "miniature_forward_autocast": "bfloat16_cpu_not_production_fsdp_cuda",
+            "native_final_storage_normalization": "module.to_fp32_before_peft_like_native_engine",
+            "official_meta_factory_dtype_receipts": factory_receipts,
             "native_source_sha256": {str(Path(inspect.getfile(k)).relative_to(Path(sys.prefix))):
                 file_sha256(Path(inspect.getfile(k))) for k in (FSDPEngine, PeftModel, get_peft_model_state_dict)},
             "parent_generated_sha256": full["generated_sha256"], "allocation_memory": allocation_memory(job),

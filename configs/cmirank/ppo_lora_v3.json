@@ -1,0 +1,8 @@
+{
+  "schema_version": 3,
+  "inherits": "configs/cmirank/ppo_lora_v2.json",
+  "prepare_run_id": "cmirank-lora-native-cpu-v3-20261015-hnv",
+  "actor_run_id": "cmirank-lora-actor-smoke-v3-20261015-hnv",
+  "critic_run_id": "cmirank-lora-critic-smoke-v3-20261015-hnv",
+  "reason": "CPU factory-fidelity retry: mirror native FSDPEngine._build_module's final module.to(torch_dtype) after constructing each official-meta or miniature model. The token-classification factory can retain nested config BF16 weights despite dtype=FP32. V2's strict frozen-storage guard rejected that mismatch before any GPU work. Retain FP32 base/trainable storage, BF16 forward autocast, all scientific/resource fields and v1/v2 failures; no model/engine patch or learned-tensor casting repair."
+}

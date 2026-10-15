@@ -1798,6 +1798,35 @@ V1 failure/manifest producing-source hashes independently verified. V2 local
 suite **547 PASS5.62s**; compilation/whitespace checks PASS. Native CPU retry
 must still pass; unit tests do not substitute for that result or GPU fit.
 
+V2 foreground CPU retry submitted under source
+**46a70110eda3a4d2568ce31200b9305816f2c4a8**, same existing shared SSH master,
+4CPUs/CUDAhidden/600s cap, fresh v2 namespace. No GPU handoff; original keeper1
+left running. Await the actual terminal receipt before a PASS/promotion claim;
+provisional2–5min, no repeated status polling or source redeploy while active.
+
+**V2 terminal FAIL:** the new strict frozen-storage guard rejected the official
+critic's meta backbone before miniature forwards. No GPU/keeper change. The
+autocast omission was real, but not the only factory-fidelity issue. An isolated
+CPU/meta reproduction showed that `AutoModelForTokenClassification.from_config`
+with `dtype=FP32` still yields **723 BF16 +2 FP32 parameter tensors** from the
+nested pretrained config. Calling the native engine's existing final
+`module.to(torch_dtype)` gives **725 FP32 tensors**, all still meta/no CUDA.
+Thus do not weaken the storage guard or report v2 as a pass.
+
+V3 inherits the unchanged LoRA scientific/resource profile and records new
+namespaces. CPU factories now mirror that native final FP32 normalization for
+official-meta and miniature original/reloaded models, before PEFT adaptation;
+BF16 forward autocast remains. Record actual meta before/after dtype counts in
+the new report. This restores fidelity to the predeclared FP32-storage profile,
+not a production precision change, weight quantization, custom model/head cast
+or framework patch. Full4B GPU updates/rollout/joint-fit remain unqualified;
+all v1/v2 failures/partial artifacts are retained separately.
+
+V2 failure SHA **c14a25d28beb10a8aeed0c4e383f72eb42d71b2c1af6abe21ddfaa8a2eb33bb6**
+and manifest producing-source hashes independently verified. V3 local suite
+**549 PASS6.26s**, compilation/whitespace PASS. These remain CPU interface/
+contract tests; fresh allocation CPU20 and GPU qualification are still required.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.

@@ -143,4 +143,29 @@ def test_retry_rejects_hidden_profile_override(tmp_path, key, value):
     retry[key] = value
     (folder / "ppo_lora_v2.json").write_text(json.dumps(retry))
     with pytest.raises(ValueError):
+        load_lora_config(tmp_path, 2)
+
+
+def test_native_factory_normalizes_storage_before_adapter_construction():
+    source = (ROOT / "scripts/cmirank/36_prepare_lora_cpu.py").read_text()
+    assert 'model.to(dtype=torch.float32)' in source
+    assert source.count('native_factory(') == 5
+    assert source.index('meta_critic = native_factory(') < source.index('make_critic_adapter(meta_critic')
+    for version in (2, 3):
+        original, _ = load_lora_config(ROOT, 1)
+        retry, _ = load_lora_config(ROOT, version)
+        allowed = {"schema_version", "inherits", "prepare_run_id", "actor_run_id", "critic_run_id", "reason"}
+        assert all(original[k] == retry[k] for k in original if k not in allowed)
+
+
+def test_v3_cannot_relax_frozen_storage_or_scalar_head_scope(tmp_path):
+    folder = tmp_path / "configs/cmirank"
+    folder.mkdir(parents=True)
+    for version in (1, 2, 3):
+        (folder / f"ppo_lora_v{version}.json").write_bytes((ROOT / f"configs/cmirank/ppo_lora_v{version}.json").read_bytes())
+    p = folder / "ppo_lora_v3.json"
+    c = json.loads(p.read_text())
+    c["critic_modules_to_save"] = []
+    p.write_text(json.dumps(c))
+    with pytest.raises(ValueError):
         load_lora_config(tmp_path)
