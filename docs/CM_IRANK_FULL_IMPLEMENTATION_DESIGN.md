@@ -3,8 +3,8 @@
 > **Working title:** Collaborative-Memory-Grounded Iterative Ranking for Full MemRec\
 > **Short name:** **CM-IRank**\
 > **Document role:** source-of-truth implementation/research specification for agents and human reviewers\
-> **Status:** design v1.1 — user-approved model/snapshot amendment; method not yet validated\
-> **Date:** 2026-09-30; execution ledger updated 2026-10-09\
+> **Status:** design v1.1 + approved LoRA amendment (§0.54); method not yet validated\
+> **Date:** 2026-09-30; execution ledger updated 2026-10-15\
 > **Primary benchmark:** InstructRec Books unless the thesis scope is explicitly changed by the human researcher\
 > **Primary metric:** NDCG@5\
 > **Compute assumption:** self-hosted LLM/SLM and fine-tuning/RL are in scope. The existing internal GPU runbook allows **one H100 concurrently**; a two-H100 PPO run requires separate human approval and a runbook amendment. No GPU work is authorized by this design alone.
@@ -1597,6 +1597,164 @@ training layout. MemRec holds no GPU model while waiting; no claim of G0/PPO/
 method success or held-out access. Passing components and all failures remain
 available as independent evidence, not discarded because of this resource gate.
 
+### 0.53 Proposed two-H100 time/resource plan — 2026-10-15
+
+**Status: planning only, awaiting the researcher's resource/budget decision.**
+The offer of two GPUs conditional on a plan does not yet supersede the standing
+GPU1-only grant. No second card/keeper/job was touched and no GPU run launched
+for this estimate. Both individual native optimizer gates pass, but the joint
+trainer, full native optimizer checkpoint/resume and full primary memory cache
+are not qualified. CPU implementation/test time is separate from GPU occupancy;
+do not reserve model VRAM while writing code or reviewing receipts.
+
+**Measured anchors, not full-training throughput:**
+
+- Reviewed actor v2 `memory.jsonl`: update phase47.542–105.703s = **58.161s**
+  for20 single-action sequences. Reviewed critic v1:47.357–103.700s =
+  **56.343s** for20. Exclude initialization and the40 repeated qualification
+  forwards per role; adding entire119.7s/116.7s coordinators per update would
+  overcount. These are synthetic microbatch1 measurements, not real Books
+  nine-turn PPO timings; PPO epoch reuse, rollout/reference and validation are
+  not included.
+- Secondary constrained memory v7: **992.876s /20 users /100 calls**, all
+  warm-ups before pseudo requests. Linear extrapolation to1497+300 users is
+  **24.78 one-GPU hours** for the same five-call/user pipeline. This is only
+  a sizing proxy: primary is not replaced/qualified by that secondary smoke,
+  graph/context growth and possible failures are unmeasured. Do not promise
+  this as a primary-cache completion ETA or parallelize dependent Stage-W
+  writes across independent graphs. Preserve the prescribed shared memory/order.
+- At the §8 *reference* five-epoch schedule,1497×5 = **7485 episode visits**,
+  at most nine valid eliminations each = **67365 action visits per arm/seed**.
+  At the measured single-card microbatch1 update rate, actor+critic alone
+  scale to **107.13 hours**. Hypothetical perfect two-card scaling would be
+  **53.57 elapsed hours /107.13 GPU-hours**, before rollout/reference,
+  validation, checkpoint I/O and any extra PPO passes. This is a proxy, not a
+  feasible current one-card plan, a speedup promise or a lower bound: native
+  batching may improve throughput; real contexts/communication may worsen it.
+  Treat **50–100+ elapsed hours per arm/seed** as a low-confidence planning
+  envelope until a representative joint measurement, not a committed budget.
+  Five epochs remain a research reference, not authorization for a full run.
+
+**Proposed staged allocation (do not hold both cards throughout):**
+
+| Stage | Resource/time proposal | Required output before promotion |
+|---|---|---|
+| CPU preparation | No MemRec GPU model | Native two-rank config/agent loop, immutable20-case data, resource/checkpoint checks, tests and owned-process/keeper rollback for both approved cards |
+| Initial two-card qualification | **At most2 elapsed hours =4 GPU-hours**, shared wall-clock cap across model attempts, not a fresh budget on each retry | Joint actor/critic/reference/rollout fit, actual host cap/VRAM, native full checkpoint+optimizer/scheduler/RNG resume,20 complete target-blind episodes; if eligible,3–5 tiny updates and steady-state timings |
+| Full memory/request cache | **One GPU only**, sizing proxy24.78h above; re-estimate from a qualified primary smoke before expansion | Shared warm-up order, audited primary RankRequests and frozen reusable cache; no unnecessary recomputation per seed/arm |
+| Research B5 and M0 | Two GPUs only after qualification/cache gates and an explicit full-run budget | Matched binary/MPSS arms; per-arm ETA from actual episode/action/token throughput plus validation and I/O |
+| Replication/ablations/held-out | Separate budget after development evidence | Predeclared seeds/controls and sealed-cohort gates, not hidden inside the initial2h grant |
+
+The2h window is a bounded **qualification attempt**, not a guarantee that all
+gates or training finish within it. Compatibility may use reviewed synthetic/
+secondary inputs, without promoting them to primary Books learning evidence.
+Real primary Books PPO requires the primary memory/data gate first. No silent
+split reduction, dropped users, response/reward/precision change, LoRA or smaller
+critic to meet the clock. If full memory/checkpoint fit requires more host RAM,
+report that resource choice; do not change the64GiB job cap or cancel/recreate
+the reservation. Checkpoint I/O/restore peak has not yet been timed or proven.
+
+Proposed training layout: native FSDP2 shards **both trained roles across the
+same two cards**; do not assume that assigning actor to one card and critic to
+the other produces2× throughput. The audited112.158GiB GPU state+one-active-
+gradient lower bound would divide to approximately**56.079GiB/card** under
+ideal balanced sharding, still excluding reference/rollout/workspace/allocator.
+Actual role residency, rollout sleep/weight synchronization, distributed masks,
+global batch semantics and host/checkpoint peaks need the fresh topology gate.
+No claim that two cards already fit everything or remove the host constraint.
+
+After the initial window, report median/p90 real prompt lengths and episode/
+action throughput, separate rollout/reference/actor/critic/validation/I/O times,
+peak GPU/own-job host memory, failures and resume/release receipts. Recompute:
+`training hours = episode_visits * amortized seconds/episode /3600`, including
+all PPO passes, then add the explicitly counted validation/checkpoint work.
+Do not multiply9 again if the measured unit is already a complete episode.
+Validation alone is up to300×9 actions/checkpoint/arm/seed. Under ideal scaling
+of the current optimizer proxy, two arms×three seeds already imply roughly
+**321 elapsed two-card hours /643 GPU-hours**, before those extras and the
+one-time teacher cache; the thesis matrix is not covered by a2h smoke grant.
+
+Before every compute phase finish CPU work first, resolve the live allocation
+and exact approved-card keepers, preserve other workloads and never cancel the
+reserved job. Stop only authorized verified keeper steps, not arbitrary PIDs.
+On success/failure/timeout unload owned models, verify physical release and
+restore each displaced original keeper immediately, including before CPU review
+or waiting for a researcher decision. Reuse the shared SSH master and one
+bounded server-side wait; no frequent local SSH status polling. A second-card
+grant must explicitly cover that card's availability/handoff, not assume every
+process there belongs to MemRec. Only after the researcher accepts the window
+and card scope may the private authority/runbook and two-card launcher change.
+
+### 0.54 Approved LoRA amendment: one designated GPU only — 2026-10-15
+
+Researcher accepts the LoRA alternative and explicitly retains **only the
+already designated GPU1**, temporarily stopping its verified `omni-gen-1`
+keeper for compute. The conditional two-GPU proposal in§0.53 is **not approved**.
+GPU0/other workloads/reservation stay read-only; old GPU0 authority JSON is not
+permission. Standing GPU1 handoff/actual-release/original-keeper restoration
+and shared SSH rules remain. No model may hold VRAM during CPU work or review.
+
+This is an explicit **training-regime change**, not a relabeling of the full-
+parameter optimizer results. CM-IRank's N−1/PPO+GAE+MPSS,1497/300 split,
+upstream-aligned primary, matched B5/M0 controls and sealed5377 remain unchanged.
+Full-text role smoke reports are preserved as full-text infrastructure evidence;
+they do not qualify LoRA workers. There is still no CM-IRank trained checkpoint,
+recommendation-quality result, completed primary cache or joint PPO trainer.
+
+New immutable `configs/cmirank/ppo_lora_v1.json`: **r32/alpha32**,zero dropout,
+no bias adaptation, all native linear modules **under the language backbone**,
+not vision/LM head. Actor trains adapters only; critic trains backbone adapters
+plus the native scalar `score` head, never a head-only replacement. Rank32 is
+the pinned VeRL LoRA guide's recommended starting scale, selected before any
+ranking outcomes; actorLR1e−5/criticLR2e−5 follow its10× full-tuning-LR guidance.
+No rank/LR sweep or outcome-driven target-module selection. For the first
+native qualification retain **FP32 parameter/Adam storage + BF16 forward** as
+already qualified, including frozen base storage: isolate the effect of freezing
+the backbone before introducing another precision change. It uses no4-bit/8-bit
+quantization, QLoRA, custom optimizer or smaller critic. The benefit is removal
+of full-backbone gradients/moments, not a false claim that frozen weights vanish.
+[Pinned native LoRA guide](https://github.com/verl-project/verl/blob/483b8a009ba3a97563edee3a19887e4862b8094a/docs/advance/ppo_lora.rst).
+
+**CPU-first implementation:** new36 helper verifies exact runtime/PEFT0.21.2,
+initializer/native-source/frozen20 parent hashes and own-job RAM margin with
+CUDA hidden. Derive actual4B projection names/counts on **meta**, never load its
+full weights. Exercise the unmodified native LoRA builder on20 random miniature
+fixtures per role, gradients/one discarded miniature AdamW update, unchanged
+frozen base/vision, adapter+head save/reload. The miniature fixture tokens and
+non-PPO losses are explicit: this does **not** replay full policy sequences or
+prove FSDP, rollout synchronization, PPO/GAE, ranking or physical one-card fit.
+
+Critic semantics need separate verification: pinned native fresh-adapter code
+uses `TaskType.CAUSAL_LM`; a value-only token classifier cannot be assumed to
+support that generation wrapper. Record the ordinary-path control, then test
+the same engine's **supported pretrained-PEFT-adapter route**, with generic
+`task_type=None` and `modules_to_save=[score]`. PEFT performs adaptation and HF
+initializes the scalar head; no engine/model is patched or replaced. The
+official-size initial adapter materializes only adapter/head tensors on CPU
+from meta shapes, using native PEFT reset/HF initialization. No base-weight
+duplication in adapter files. Must preserve these semantics on save/reload.
+Any failed selected-path gate remains a failure; do not silently change critic
+class, freeze its adapters or claim success from the actor's different wrapper.
+
+**Promotion order:** CPU20 native LoRA scope/roundtrip → fresh source-bound
+full4B native actor/critic adapter update smoke → joint one-card residency,
+reference/rollout adapter sync + native optimizer/scheduler/RNG checkpoint
+resume →20 complete N−1 episodes with actual GAE/MPSS →tiny pseudo-train PPO
+after the primary memory gate →new measured throughput/budget before research
+training. A CPU pass or separate-role GPU pass never certifies the later gates.
+Compute real adapter counts and peak memory rather than claiming an unmeasured
+40–60GB footprint. §0.53's full-tuning107GPUh/50–100+h estimate **does not
+transfer to LoRA**; neither does LoRA reduce the teacher's memory-cache work.
+No two-card fallback or host-cap mutation if one-card smoke fails.
+
+Implementation/local validation: new immutable LoRA profile +CPU36/native PEFT
+scope helpers added; **542 tests PASS5.49s**, including20 LoRA contract/scope/
+head-only/full-backbone/target-shape rejection cases. Compilation/whitespace
+checks PASS. These local tests do not execute the remote native PEFT builder;
+the source-bound allocation CPU20 audit is the next required gate. GPU keeper
+has not been reclaimed for this amendment, and the LoRA GPU worker is not yet
+qualified. Keep the original full-tuning scripts/contracts unchanged.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.
@@ -2061,6 +2219,11 @@ J(\theta)=\mathbb{E}_{\tau\sim\pi_\theta}
 \]
 
 ### 8.1 Initial hyperparameters
+
+**Current execution amendment:** researcher-approved LoRA§0.54 supersedes the
+full-parameter regime/LRs below for the new primary feasibility path. The block
+below remains the historical full-tuning/R1 starting reference, not a runnable
+LoRA contract; use the pinned LoRA JSON and fresh qualification receipts.
 
 Use R1-Ranker's published settings as the starting reference, not as sacred optimal values:
 

@@ -8,6 +8,10 @@ thesis đã được xác nhận.
 
 Hướng hiện tại là **CM-IRank**: giữ Stage-R/Stage-W, thay Stage-ReRank bằng
 chính sách loại dần candidate, fine-tune **Qwen/Qwen3.5-4B bằng PPO** với MPSS.
+**Cập nhật đã duyệt15/10:** dùng **LoRA cho actor và critic (+value head)**,
+chỉ GPU1; không triển khai đề xuất2 GPU. Full-tuning smoke cũ được giữ riêng,
+chưa có kết quả train/ranking LoRA. CPU20 scope/roundtrip phải pass trước GPU.
+[Protocol hiện hành §0.54](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#054-approved-lora-amendment-one-designated-gpu-only--2026-10-15).
 
 ## Trạng thái hiện hành — 2026-10-15
 
@@ -42,13 +46,17 @@ nhả1MiB rồi keeper phục hồi. V1 lỗi integration vẫn giữ FAIL.
 update bỏ đi,116,72s, peak allocated68,72GiB/reserved68,96GiB. 21 artifacts
 đã review; actual GPU release1MiB/keeper phục hồi. Chưa có fullPPO/ranking gain.
 [Kết quả actor và plan critic §0.51](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#051-actor-v2-reviewed-pass-native-critic-optimizer-preregistered--2026-10-14).
-**Đang chờ quyết định tài nguyên:** CPU audit xác nhận3 layout native đã kiểm
+**Resource audit full-tuning (lịch sử, trước quyết định LoRA):** xác nhận3 layout native đã kiểm
 tra không an toàn dưới1 H100+64GiB RAM. Riêng hai model+Adam states đã96,49GiB;
 chưa tính reference/rollout/workspace. Không thử OOM/đổi precision/LoRA/critic
 để lách budget; keeper1 không bị dừng, MemRec không giữ model GPU.
 Chọn thêm host RAM (ít nhất128GiB, vẫn cần đo fit) hoặc cấp riêng2 H100 rồi
 smoke lại topology. Không hủy job reserved/động workload khác để lấy tài nguyên.
 [Review critic và resource gate §0.52](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#052-critic-reviewed-pass-combined-resource-audit--2026-10-15).
+**Đề xuất cũ, không được cấp quyền 2 GPU, đã thay bằng LoRA§0.54:** dùng trước2 H100 tối đa2 giờ
+(4 GPU-giờ) để qualify topology/save-resume và đo throughput. Cache memory đầy
+đủ còn thiếu; mốc5 epochs có thể cần50–100+ giờ/nhánh/seed, chưa phải ETA đã đo.
+[Căn cứ đo, giới hạn và kế hoạch §0.53](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#053-proposed-two-h100-time-resource-plan--2026-10-15).
 Tổng quan phương pháp vẫn ở [design §0.14](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#014-overall-review-and-next-gates--2026-10-07).
 Các đoạn dưới là lịch sử gate; không dùng trạng thái launch cũ làm tiến độ hiện tại.
 CPU review v6 đã đối chiếu 35 request/schema và replay đúng 11 lần Stage-W;
