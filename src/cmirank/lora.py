@@ -11,7 +11,9 @@ from pathlib import Path
 from .provenance import file_sha256
 
 
-def load_lora_config(root):
+def load_lora_config(root, version=2):
+    if type(version) is not int or version not in (1, 2):
+        raise ValueError("Unknown LoRA qualification profile")
     path = root / "configs/cmirank/ppo_lora_v1.json"
     c = json.loads(path.read_text())
     fixed = {"schema_version": 1, "prepare_run_id": "cmirank-lora-native-cpu-v1-20261015-hnv",
@@ -29,11 +31,23 @@ def load_lora_config(root):
         "books_outcomes_accessed": False, "ranking_metrics_computed": False, "quantization": False}
     if c != fixed or any(type(c[k]) is not type(v) for k, v in fixed.items()):
         raise ValueError("Only the preregistered one-GPU20 LoRA qualification profile is allowed")
+    if version == 2:
+        path = root / "configs/cmirank/ppo_lora_v2.json"
+        retry = json.loads(path.read_text())
+        fixed_retry = {"schema_version": 2, "inherits": "configs/cmirank/ppo_lora_v1.json",
+            "prepare_run_id": "cmirank-lora-native-cpu-v2-20261015-hnv",
+            "actor_run_id": "cmirank-lora-actor-smoke-v2-20261015-hnv",
+            "critic_run_id": "cmirank-lora-critic-smoke-v2-20261015-hnv"}
+        if (set(retry) != set(fixed_retry) | {"reason"}
+                or any(type(retry[k]) is not type(v) or retry[k] != v for k, v in fixed_retry.items())
+                or not isinstance(retry["reason"], str) or not retry["reason"]):
+            raise ValueError("CPU autocast retry cannot change scientific/resource fields")
+        c.update(retry)
     return c, path
 
 
 def lora_code_hashes(root):
-    names = ("configs/cmirank/ppo_lora_v1.json", "src/cmirank/lora.py",
+    names = ("configs/cmirank/ppo_lora_v1.json", "configs/cmirank/ppo_lora_v2.json", "src/cmirank/lora.py",
         "scripts/cmirank/36_prepare_lora_cpu.py", "src/cmirank/optimizer_smoke.py",
         "src/cmirank/native_critic.py", "src/cmirank/ppo_compat.py")
     return {n: file_sha256(root / n) for n in names}
@@ -69,10 +83,12 @@ def audit_scope(model, shapes, c, role):
     for name, p in model.named_parameters():
         count = p.numel()
         parameter_bytes += count*p.element_size()
+        if p.dtype.is_floating_point is False or p.element_size() != 4:
+            raise ValueError("Frozen base and trainable storage must preserve the FP32 profile")
         if not p.requires_grad:
             groups["frozen"] += count
             continue
-        if p.dtype.is_floating_point is False or p.element_size() != 4 or ".visual." in name:
+        if ".visual." in name:
             raise ValueError("LoRA gate preserves FP32 trainable state and frozen vision")
         if ".lora_A.default." in name or ".lora_B.default." in name:
             if ".model.language_model." not in name:

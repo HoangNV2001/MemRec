@@ -1,0 +1,8 @@
+{
+  "schema_version": 2,
+  "inherits": "configs/cmirank/ppo_lora_v1.json",
+  "prepare_run_id": "cmirank-lora-native-cpu-v2-20261015-hnv",
+  "actor_run_id": "cmirank-lora-actor-smoke-v2-20261015-hnv",
+  "critic_run_id": "cmirank-lora-critic-smoke-v2-20261015-hnv",
+  "reason": "CPU harness retry: enter the native-equivalent BF16 autocast context around all miniature forwards, including the scalar score head and reload comparisons. V1 called the PEFT value model outside the native engine context and failed on BF16 hidden states versus FP32 head storage. No model/engine patch, tensor casting, training scope, rank, LR, data, resource or production precision change. Preserve the v1 failure."
+}

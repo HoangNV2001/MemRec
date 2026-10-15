@@ -26,13 +26,13 @@ def test_lora_is_new_approved_single_card_protocol_not_relabelled_full_pass():
     ("tensor_parallel_size", 2), ("critic_modules_to_save", []), ("critic_task_type", "CAUSAL_LM"),
     ("training_ready", True), ("model_dtype", "bfloat16"), ("quantization", True), ("actor_lr", 1e-6)])
 def test_no_hidden_lora_capacity_or_resource_override(tmp_path, key, value):
-    c = deepcopy(load_lora_config(ROOT)[0])
+    c = deepcopy(load_lora_config(ROOT, 1)[0])
     c[key] = value
     folder = tmp_path / "configs/cmirank"
     folder.mkdir(parents=True)
     (folder / "ppo_lora_v1.json").write_text(json.dumps(c))
     with pytest.raises(ValueError):
-        load_lora_config(tmp_path)
+        load_lora_config(tmp_path, 1)
 
 
 def test_parameter_math_excludes_base_and_unused_vision():
@@ -102,7 +102,7 @@ def test_complete_lora_critic_counts_adapter_and_head_not_backbone():
     assert not report["joint_fit_proven"]
 
 
-@pytest.mark.parametrize("mutation", ["head_only", "backbone_unfrozen", "head_frozen", "wrong_target", "wrong_shape"])
+@pytest.mark.parametrize("mutation", ["head_only", "backbone_unfrozen", "head_frozen", "wrong_target", "wrong_shape", "frozen_dtype"])
 def test_scope_rejects_head_only_and_unintended_trainables(mutation):
     model, params, shapes = scope_fixture()
     if mutation == "head_only":
@@ -113,7 +113,34 @@ def test_scope_rejects_head_only_and_unintended_trainables(mutation):
         params[2][1].requires_grad = False
     elif mutation == "wrong_target":
         params[0] = (params[0][0].replace("q_proj", "v_proj"), params[0][1])
+    elif mutation == "frozen_dtype":
+        params[-1][1].element_size = lambda: 2
     else:
         params[0][1].shape = [2, 32]
     with pytest.raises(ValueError):
         audit_scope(model, shapes, load_lora_config(ROOT)[0], "critic")
+
+
+def test_autocast_retry_keeps_original_scientific_profile_and_failure_namespace():
+    original, _ = load_lora_config(ROOT, 1)
+    retry, _ = load_lora_config(ROOT)
+    allowed = {"schema_version", "inherits", "prepare_run_id", "actor_run_id", "critic_run_id", "reason"}
+    assert all(original[k] == retry[k] for k in original if k not in allowed)
+    assert original["prepare_run_id"] != retry["prepare_run_id"]
+    source = (ROOT / "scripts/cmirank/36_prepare_lora_cpu.py").read_text()
+    assert 'with torch.autocast(device_type="cpu", dtype=torch.bfloat16):' in source
+    assert source.count('miniature_forward(') == 5
+    assert 'eos_token_id=3, bos_token_id=1, pad_token_id=0' in source
+    assert '"bfloat16_cpu_not_production_fsdp_cuda"' in source
+
+
+@pytest.mark.parametrize("key,value", [("rank", 64), ("model_dtype", "bfloat16"), ("gpu_index", 0)])
+def test_retry_rejects_hidden_profile_override(tmp_path, key, value):
+    folder = tmp_path / "configs/cmirank"
+    folder.mkdir(parents=True)
+    (folder / "ppo_lora_v1.json").write_bytes((ROOT / "configs/cmirank/ppo_lora_v1.json").read_bytes())
+    retry = json.loads((ROOT / "configs/cmirank/ppo_lora_v2.json").read_text())
+    retry[key] = value
+    (folder / "ppo_lora_v2.json").write_text(json.dumps(retry))
+    with pytest.raises(ValueError):
+        load_lora_config(tmp_path)

@@ -1755,6 +1755,49 @@ the source-bound allocation CPU20 audit is the next required gate. GPU keeper
 has not been reclaimed for this amendment, and the LoRA GPU worker is not yet
 qualified. Keep the original full-tuning scripts/contracts unchanged.
 
+**CPU audit launched:** exact sourcea8586ff327091c874ebd30a47cdd199ada984647
+was pushed/clean-fast-forward deployed. A single foreground shared-SSH chain
+started CPU36 under the existing allocation with CUDA hidden,4CPUs/600s hard
+cap; original keepers stayed running. At the single inspection the actor's
+miniature update/adapter reload was reached, but no terminal all-role CPU report
+was available. Provisional ETA2–5min including native imports; no additional
+result polling or source redeployment while active. Review original source-
+bound artifacts/actual trainable counts and critic semantics before promoting
+any GPU work. This launch record is not a CPU or GPU PASS.
+
+### 0.55 LoRA CPU v1 FAIL; native-equivalent autocast retry — 2026-10-15
+
+The original foreground process exited1. Actor miniature update/adapter reload
+completed, but critic failed at the first scalar-head forward with BF16 hidden
+states and FP32 head weights. **Overall CPU v1 remains FAIL**, not a memory/OOM
+result or a demonstrated one-card LoRA fit. Failure SHA
+**5415f12fc0ef49b009821245a3b67c5653f6b9b542a86dd69e7c7dbe2b6e5ee6**
+and sourcea8586ff manifest were downloaded for verification; all original run
+artifacts remain. No GPU model/keeper handoff occurred. Read-only follow-up
+found GPU1keeper425 unchanged; GPU0 independently changed to a TTS step and was
+not signalled, shared allocation remains running.
+
+Installed native `FSDPEngine.forward_step` enters BF16 autocast around the whole
+module forward (including the scalar head). CPU36 bypassed that engine context
+when exercising its unmodified PEFT builder. V2 adds an explicit **CPU BF16
+autocast context** around every miniature original/control/reloaded forward,
+without casting/patching the value head or changing production precision.
+Assert FP32 storage for frozen base **and** trainable tensors. The toy256-token
+vocabulary also gets toy EOS3/BOS1/PAD0 rather than out-of-vocabulary official
+special IDs; full production/frozen parent tokens are untouched. This remains
+a CPU SDPA proxy, not native CUDA/FSDP equivalence or numerical PPO approval.
+
+New `ppo_lora_v2.json` inherits every v1 scientific/resource field and changes
+only schema/reason/fresh run namespaces. All20 fixtures per role rerun; no sample
+filtering, threshold/rank/LR/scope change, reuse of a partial pass or framework
+patch. Local regressions check frozen storage, autocast use in all forwards,
+and strict profile equivalence. On complete CPU PASS, review source/artifact
+hashes and actual scope before implementing/promoting the full GPU LoRA gate.
+
+V1 failure/manifest producing-source hashes independently verified. V2 local
+suite **547 PASS5.62s**; compilation/whitespace checks PASS. Native CPU retry
+must still pass; unit tests do not substitute for that result or GPU fit.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.

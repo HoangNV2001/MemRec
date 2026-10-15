@@ -30,7 +30,8 @@ from src.cmirank.provenance import artifact_json_dumps, file_sha256
 
 def miniature_config(official):
     tiny = deepcopy(official.to_dict())
-    tiny["text_config"].update(vocab_size=256, hidden_size=64, intermediate_size=128,
+    tiny["text_config"].update(vocab_size=256, eos_token_id=3, bos_token_id=1, pad_token_id=0,
+        hidden_size=64, intermediate_size=128,
         num_hidden_layers=2, num_attention_heads=2, num_key_value_heads=1, head_dim=32,
         linear_key_head_dim=16, linear_value_head_dim=16, linear_num_key_heads=2,
         linear_num_value_heads=2, layer_types=["linear_attention", "full_attention"],
@@ -50,6 +51,15 @@ def native_lora(module, shapes, c, *, adapter=None):
         target_modules=sorted(shapes), target_parameters=None, exclude_modules=None,
         lora_adapter_path=str(adapter) if adapter else None, use_shm=False))
     return FSDPEngine._build_lora_module(proxy, module)
+
+
+def miniature_forward(model, tokens, torch):
+    # The native FSDP forward_step also enters BF16 autocast. Calling the
+    # value head outside that context is not a faithful precision rehearsal:
+    # PEFT may return BF16 hidden states while the head's storage stays FP32.
+    # Never repair the head by mutating its dtype or casting hidden states.
+    with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+        return model(input_ids=tokens, attention_mask=torch.ones_like(tokens), use_cache=False)
 
 
 def main():
@@ -125,7 +135,7 @@ def main():
             if role == "critic":
                 try:
                     control = native_lora(deepcopy(base), shapes, c)
-                    output = control(input_ids=torch.tensor([[1, 2, 3]]), use_cache=False)
+                    output = miniature_forward(control, torch.tensor([[1, 2, 3]]), torch)
                     wrapper_control = {"passed": tuple(output.logits.shape) == (1, 3, 1)}
                     del control, output
                 except (AttributeError, TypeError, ValueError) as error:
@@ -145,7 +155,7 @@ def main():
                 # Deliberately miniature synthetic fixtures, not token-truncated
                 # Books examples or replacement production EOS/mask evidence.
                 tokens = torch.tensor([[1, 2+i, 25+i, 50+i, 3]])
-                output = model(input_ids=tokens, attention_mask=torch.ones_like(tokens), use_cache=False)
+                output = miniature_forward(model, tokens, torch)
                 logits = output.logits.float()
                 if role == "actor":
                     loss = torch.nn.functional.cross_entropy(logits[:, -1], torch.tensor([70+i]))
@@ -187,8 +197,8 @@ def main():
             with torch.no_grad():
                 for i, obs in enumerate(observations):
                     tokens = torch.tensor([[1, 2+i, 25+i, 50+i, 3]])
-                    original_logits = model(input_ids=tokens, attention_mask=torch.ones_like(tokens), use_cache=False).logits
-                    restored_logits = restored(input_ids=tokens, attention_mask=torch.ones_like(tokens), use_cache=False).logits
+                    original_logits = miniature_forward(model, tokens, torch).logits
+                    restored_logits = miniature_forward(restored, tokens, torch).logits
                     if not torch.equal(original_logits, restored_logits):
                         raise ValueError("Miniature adapter/head reload changed actual forward logits")
                     next(p for p in probes if p["role"] == role and p["user_id"] == obs["user_id"])["reload_max_logit_delta"] = 0.0
@@ -203,6 +213,7 @@ def main():
             "samples_per_role": 20, "roles": scopes, "targets": targets,
             "critic_fresh_causal_wrapper_control": wrapper_control,
             "critic_production_route": "native_pretrained_generic_peft_adapter_with_score_modules_to_save",
+            "miniature_forward_autocast": "bfloat16_cpu_not_production_fsdp_cuda",
             "native_source_sha256": {str(Path(inspect.getfile(k)).relative_to(Path(sys.prefix))):
                 file_sha256(Path(inspect.getfile(k))) for k in (FSDPEngine, PeftModel, get_peft_model_state_dict)},
             "parent_generated_sha256": full["generated_sha256"], "allocation_memory": allocation_memory(job),
