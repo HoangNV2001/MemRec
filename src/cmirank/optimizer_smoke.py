@@ -83,6 +83,45 @@ def memory_profile(role="actor"):
         "roles_resident": [role], "actor_critic_rollout_fit_proven": False}
 
 
+def standard_ppo_memory_budget(actor, critic, *, host_bytes, gpu_bytes, baseline_anon_bytes):
+    """Lower bounds for three inspected native layouts, NOT all possible layouts.
+
+    No allocation/model/optimizer and no fitted thresholds. Reference/rollout,
+    activations, communication, allocator and checkpoint buffers are extra.
+    """
+    states = []
+    gradients = []
+    for report, role in ((actor, "actor"), (critic, "critic")):
+        expected = memory_profile(role)
+        if (report["optimizer_updates"] != 1 or report["samples"] != 20
+                or report["model_dtype"] != "fp32" or report["optimizer"] != "torch.optim.AdamW"
+                or report["adam_moment_bytes"] != expected["adam_moment_bytes"]
+                or report["gradient_bytes_during_update"] != expected["gradient_bytes"]):
+            raise ValueError("Memory audit requires the qualified full native FP32 role states")
+        states.append(expected["parameter_bytes"] + expected["adam_moment_bytes"])
+        gradients.append(expected["gradient_bytes"])
+    if min(host_bytes, gpu_bytes) <= 0 or baseline_anon_bytes < 0:
+        raise ValueError("Actual positive allocation limits required")
+    gpu_lower = sum(states) + max(gradients)
+    idle_host_lower = sum(states)
+    cpu_train_lower = max(s+g for s, g in zip(states, gradients))
+    checks = [
+        {"layout": "both_roles_gpu_resident_one_active_backward", "required_gpu_bytes_lower_bound": gpu_lower,
+         "gpu_limit_bytes": gpu_bytes, "within_lower_bound_budget": gpu_lower <= gpu_bytes},
+        {"layout": "native_auto_offload_both_complete_roles_between_updates", "required_host_bytes_lower_bound": idle_host_lower,
+         "host_limit_bytes": host_bytes, "within_lower_bound_budget": idle_host_lower <= host_bytes},
+        {"layout": "one_role_fsdp2_cpu_offload_policy_active", "role_state_grad_host_bytes": cpu_train_lower,
+         "observed_other_anonymous_bytes": baseline_anon_bytes,
+         "required_host_bytes_with_observed_baseline": cpu_train_lower + baseline_anon_bytes,
+         "host_limit_bytes": host_bytes,
+         "within_lower_bound_budget": cpu_train_lower + baseline_anon_bytes <= host_bytes}]
+    return {"role_trained_state_bytes": dict(zip(("actor", "critic"), states)),
+        "layouts": checks, "all_checked_layouts_unsafe": all(not x["within_lower_bound_budget"] for x in checks),
+        "single_gpu_mathematically_impossible_proven": False,
+        "scope": "THREE_NATIVE_LAYOUT_LOWER_BOUNDS_NOT_EXHAUSTIVE_PLACEMENT_SEARCH",
+        "excluded_extra_costs": ["reference", "rollout", "activations", "communication", "allocator", "checkpoint_buffers"]}
+
+
 def load_optimizer_profile(root, role="actor"):
     c, path = load_optimizer_config(root)
     if role not in ("actor", "critic"):

@@ -1512,6 +1512,59 @@ and requires the immutable reviewed actor+cleanup dependency. Local suite
 **521 tests PASS5.53s**, compilation/shell/whitespace checks PASS; native critic
 CPU schemas and full GPU optimizer are still pending, not proven by local tests.
 
+### 0.52 Critic reviewed PASS; combined resource audit — 2026-10-15
+
+Recovered the prior foreground task once after the session handle disappeared.
+The critic actually finished on14/10; review on15/10 confirmed source
+**8c4c6bd6fa5b4fbe4c479b3e9b322807b0ef13b0**, CPU20 **PASS14.439s**, native
+worker **103.883s**, full coordinator **116.716s**/exit0. Downloaded21 artifacts,
+matched every SHA and producing-source code hash, independently checked all20
+value-vector IDs/response+EOS lengths/finite values/exact repeat delta0 and
+sampled memory peaks. Backbone+native2561-parameter scalar head received native
+FP32 gradients and complete AdamW first-update states;425 backbone parameter
+samples changed, head nonzero gradient present. Grad norm60.016 before native
+clip is a compatibility diagnostic, not a loss/reward hyperparameter decision.
+
+Total trainable parameters **4,205,753,857**; FP32 gradient bytes16,823,015,428;
+two FP32 moment bytes33,646,030,856. Peak allocated **68.720GiB**,reserved
+**68.963GiB**, no OOM. Actual post-worker drain passed first snapshot/0.161s;
+outer cleanup confirmed1MiB/no selected actor before original keeper restoration.
+Protected workload/allocation untouched. **One discarded synthetic update,
+no GAE/MPSS learning, recommendation labels, trained method checkpoint or score.**
+
+Report **e0a82a6e798550e03fd43488c52ba0d56c376dec059b4bb6e0624bd3f3fa5ff7**;
+worker **1f982a33be9f6d15e6e6b563fa9ac5caae3a4f4d4c2e53db1dcf8aa9e76aff51**;
+CPU **17a4dfc08e7d3ac8eec6cf25aa9a97c8fdbbf95071c2d45fea9b7590a9b82a65**.
+Both separate-role optimizer gates now pass; this is still not a joint trainer.
+
+**Safe next step, CPU35:** read the installed native BaseEngineCtx/FSDP2
+offload/checkpoint implementations and actual own-allocation cgroup limits;
+use measured state sizes to audit3 common native layouts before any full-size
+checkpoint or co-residency attempt. No OOM experiment, GPU handoff, model load,
+resource mutation, hidden CPU-memory increase or alternative optimizer/precision.
+The audit is explicitly **not** an exhaustive placement proof or a claim that
+all one-card methods are impossible. Reference/rollout/activations/communication/
+allocator/checkpoint buffers are excluded extras, not free memory.
+
+Source-derived hazards: native train contexts load configured whole model and
+optimizer state on entry and offload them on exit. FSDP2 CPUOffloadPolicy is a
+different mode from those manual parameter/optimizer transfers. The installed
+checkpoint helper returns nullcontext for FSDP2, so its FSDP1 CPU-state configs
+do not establish FSDP2 CPU serialization; torch.load also has no explicit CPU
+map_location. Do not assume full optimizer round-trip fits from BF16/HF/head-only
+tests, silently patch the manager or keep expensive GPU weights idle during I/O.
+
+**Decision trigger before GPU expansion:** if the checked native layouts exceed
+the actual one-card/host budgets, ask for a resource choice rather than attempt
+a known-unsafe allocation or build a custom optimizer/streaming state manager.
+Possible scope-preserving routes are more host RAM with one H100 or separately
+authorized two-H100 native FSDP. Neither is pre-authorized by passing role tests.
+Never cancel/recreate the reserved job or touch another workload to obtain them.
+Any larger configuration still needs smoke20, full native checkpoint/scheduler/
+RNG/optimizer-resume and combined/offload memory measurements before multi-turn
+GAE/MPSS, tiny pseudo-train PPO, cache expansion or research training. Primary
+memory, matched controls, validation selection and sealed-cohort gates remain.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.

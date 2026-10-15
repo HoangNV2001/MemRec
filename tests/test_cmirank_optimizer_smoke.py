@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 
 from src.cmirank.optimizer_smoke import (load_optimizer_config, memory_profile,
-    TEXT_PARAMETERS, VISION_PARAMETERS, validate_observations, load_optimizer_profile, CRITIC_HEAD_PARAMETERS)
+    TEXT_PARAMETERS, VISION_PARAMETERS, validate_observations, load_optimizer_profile, CRITIC_HEAD_PARAMETERS,
+    standard_ppo_memory_budget)
 from src.cmirank.ppo_parity import load_parity_config
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -158,3 +159,22 @@ def test_critic_native_dispatch_and_no_policy_probability_substitution():
     assert 'head_parameters != c["scalar_head_parameters"]' in worker
     for name in ("run_real_policy_smoke.sh", "run_real_policy_with_keeper.sh"):
         assert "critic_optimizer" in (ROOT / "scripts/cmirank" / name).read_text()
+
+
+def test_current_limits_fail_three_checked_native_layout_lower_bounds_not_all_possible_layouts():
+    reports = []
+    for role in ("actor", "critic"):
+        p = memory_profile(role)
+        reports.append({"optimizer_updates": 1, "samples": 20, "model_dtype": "fp32",
+            "optimizer": "torch.optim.AdamW", "adam_moment_bytes": p["adam_moment_bytes"],
+            "gradient_bytes_during_update": p["gradient_bytes"]})
+    r = standard_ppo_memory_budget(*reports, host_bytes=64*2**30, gpu_bytes=81559*2**20,
+        baseline_anon_bytes=4*2**30)
+    assert r["all_checked_layouts_unsafe"]
+    assert not r["single_gpu_mathematically_impossible_proven"]
+    assert r["layouts"][0]["required_gpu_bytes_lower_bound"] > 112*2**30
+    assert r["layouts"][1]["required_host_bytes_lower_bound"] > 96*2**30
+    larger = standard_ppo_memory_budget(*reports, host_bytes=128*2**30, gpu_bytes=81559*2**20,
+        baseline_anon_bytes=4*2**30)
+    assert not larger["all_checked_layouts_unsafe"]  # Lower bound only, not a full fit guarantee.
+    assert "checkpoint_buffers" in larger["excluded_extra_costs"]

@@ -9,7 +9,7 @@ thesis đã được xác nhận.
 Hướng hiện tại là **CM-IRank**: giữ Stage-R/Stage-W, thay Stage-ReRank bằng
 chính sách loại dần candidate, fine-tune **Qwen/Qwen3.5-4B bằng PPO** với MPSS.
 
-## Trạng thái hiện hành — 2026-10-14
+## Trạng thái hiện hành — 2026-10-15
 
 | Phần việc | Bằng chứng / giới hạn |
 |---|---|
@@ -38,9 +38,13 @@ rằng full PPO vừa một H100.
 cho toàn text backbone. 21 artifacts/SHA/source được review độc lập; model
 nhả1MiB rồi keeper phục hồi. V1 lỗi integration vẫn giữ FAIL.
 [Chi tiết §0.50](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#050-native-actor-update-passed-v1-coordinator-release-integration-failed--2026-10-14).
-**Gate tiếp:** critic native riêng, cùng20 synthetic samples, một update bỏ đi
-tại LR2e−6; CPU20 trướcGPU, không actor/critic co-residency hay fullPPO claim.
+**Critic cũng PASS toàn pipeline:** 20 samples, một native full-text+scalar-head
+update bỏ đi,116,72s, peak allocated68,72GiB/reserved68,96GiB. 21 artifacts
+đã review; actual GPU release1MiB/keeper phục hồi. Chưa có fullPPO/ranking gain.
 [Kết quả actor và plan critic §0.51](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#051-actor-v2-reviewed-pass-native-critic-optimizer-preregistered--2026-10-14).
+**Gate hiện tại:** audit layout native cho actor+critic/checkpoint/offload dưới
+giới hạn1 H100+64GiB RAM; không thử OOM hoặc đổi scope để lách tài nguyên.
+[Review critic và resource gate §0.52](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#052-critic-reviewed-pass-combined-resource-audit--2026-10-15).
 Tổng quan phương pháp vẫn ở [design §0.14](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#014-overall-review-and-next-gates--2026-10-07).
 Các đoạn dưới là lịch sử gate; không dùng trạng thái launch cũ làm tiến độ hiện tại.
 CPU review v6 đã đối chiếu 35 request/schema và replay đúng 11 lần Stage-W;
