@@ -1565,6 +1565,38 @@ RNG/optimizer-resume and combined/offload memory measurements before multi-turn
 GAE/MPSS, tiny pseudo-train PPO, cache expansion or research training. Primary
 memory, matched controls, validation selection and sealed-cohort gates remain.
 
+**CPU audit terminal:** source6ea34fb3421f1b35688be12505753d7b24a4137c,
+full522tests PASS8.31s. CPU35 exited0 with
+`CPU_NATIVE_LAYOUT_AUDIT_REQUIRES_RESOURCE_CHOICE`; downloaded report SHA
+**eabd1a5d29c945ced60bf4f11d310d8de54a383737627098130d4e3926fc6baa**,
+independently rehashed/source-checked and recomputed every byte-budget result.
+Actual own host cap64GiB, physical card81559MiB; no GPU handoff/model/update/
+checkpoint experiment or resource change. Original keeper was not stopped.
+
+| Checked native layout | Lower bound from qualified role states | Current limit |
+|---|---|---|
+| Both trained roles GPU-resident, one active backward |112.158GiB GPU, before workspace/reference/rollout |One H10080GB |
+| Whole-role native offload for both roles between updates |96.491GiB host, before runtime/reference/rollout |64GiB host |
+| Active FSDP2 CPUOffloadPolicy role |63.913GiB role state+grad;67.814GiB with observed own-allocation anonymous usage |64GiB host |
+
+This excludes3 standard native configurations, **not every conceivable one-card
+implementation**. Do not turn this into an unapproved custom tiered/swap
+optimizer, disk-offloaded trainer, smaller critic or BF16-state/LoRA variant.
+Single-role success must not be cited as proof of full PPO feasibility.
+
+**Researcher choice now required:** either retain one H100 and arrange at least
+128GiB host RAM (prefer more headroom if available; still benchmark reference,
+rollout and checkpoint buffers), or authorize two dedicated H100s for a native
+FSDP layout with a fresh topology/smoke protocol. Two-GPU allocation alone is not
+permission to displace other workloads. Prefer the standard two-card route when
+both can be made available; one-card+more-RAM is the native offload alternative.
+No job cancellation/recreation or live allocation/cgroup modification without
+the appropriate authority. Full native checkpoint/resume and joint memory gate
+are deferred until this choice to avoid spending on an unsafe/default-invalid
+training layout. MemRec holds no GPU model while waiting; no claim of G0/PPO/
+method success or held-out access. Passing components and all failures remain
+available as independent evidence, not discarded because of this resource gate.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.
