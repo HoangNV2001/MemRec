@@ -30,7 +30,12 @@ giữ723 tensor BF16; native engine có bước `.to(FP32)` mà harness bỏ só
 V3 bổ sung đúng bước đó và BF16 autocast, giữ các FAIL/artifacts và mọi
 rank/LR/scope/precision đã khóa. 549 tests local pass; chưa dùng GPU hay có
 LoRA GPU-fit/PPO/ranking result.
+V3 bounded wait đã hết hạn. Audit RAM cho thấy56,36GiB là file cache, anonymous
+chỉ3,90GiB: v4 sửa **hạch toán CPU/meta** bằng credit cache sạch/inactive có
+giới hạn; vẫn cap64GiB/margin20GiB, không xóa cache/cgroup hay đổi GPU-load guard.
+Chưa có CPU v4 PASS; keeper/workloads khác không bị tác động.
 [Chi tiết và retry §0.55](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#055-lora-cpu-v1-fail-native-equivalent-autocast-retry--2026-10-15).
+[Resource accounting §0.56](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#056-cpu-cache-accounting-correction-not-a-ramgpu-expansion--2026-10-15).
 
 **Mới nhất:** corrected-rollout v2 **PASS**: 20/20 responses sinh thật đúng
 format, 0 truncation; native FSDP2 chấm 40 lượt, repeat delta0. CPU review

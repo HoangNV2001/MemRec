@@ -1827,6 +1827,71 @@ and manifest producing-source hashes independently verified. V3 local suite
 **549 PASS6.26s**, compilation/whitespace PASS. These remain CPU interface/
 contract tests; fresh allocation CPU20 and GPU qualification are still required.
 
+**V3 preflight stopped before model/run creation:** source
+dc532da6617e6ceec552cf05214dfeac2e28ac49 clean-deployed, but the existing64GiB
+allocation lacked the locked20GiB host-load margin. The dtype fix has therefore
+not yet been exercised by a completed v3 CPU run. Do not lower the guard, claim
+another model failure/PASS or reclaim a GPU to solve a host-RAM shortage.
+
+Submitted a bounded same-source server-side RAM wait: first observation showed
+**7.599GiB** free under the actual job cap. Keepers/other workloads untouched,
+no Torch/model/GPU loaded while waiting, at most600s waiting with60s internal
+checks and no local SSH polling. Only if the original20GiB margin becomes
+available does it exec the unchanged fresh CPU v3 with its own600s timeout;
+the original failed-preflight log is preserved, this attempt has a separate log.
+On wait expiry return a resource-wait status, not an experimental pass. No
+allocation/RAM-cap mutation, cache eviction or signalling of foreign workloads.
+
+### 0.56 CPU cache accounting correction, not a RAM/GPU expansion — 2026-10-15
+
+The bounded v3 wait expired without model/run creation. On recovery, the same
+64GiB job showed raw free headroom~2.21GiB, **file cache56.36GiB, anonymous
+memory3.90GiB and inactive_file30.65GiB**; dirty/writeback0, mapped~0.47GiB,
+shared~0.065GiB. Job OOM/oom_kill counters0, sampled pressure averages0. Thus
+`memory.max - memory.current` alone was an overly restrictive admission check,
+not evidence that processes need~62GiB resident anonymous state. This corrects
+the earlier interpretation; it does not retroactively pass any prior gate.
+Linux accounts filesystem cache in the cgroup and exposes reclaim-list, mapped,
+dirty and writeback counters separately; inactive-list membership is **not a
+guarantee** that all pages can immediately be reclaimed.
+[Kernel cgroup-v2 memory counters](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html#memory).
+
+New immutable v4 is **CPU/meta audit only**. Its host estimate retains the
+actual64GiB cap and20GiB margin and adds at most one margin of eligible cache:
+
+```
+clean_estimate = max(0, min(inactive_file, file)
+                       - file_mapped - file_dirty - file_writeback
+                       - shmem - unevictable)
+cache_credit = min(clean_estimate, original_20GiB_margin)
+estimated_headroom = min(raw_headroom + cache_credit,
+                         node_MemAvailable, actual_job_cap)
+```
+
+Credit neither active cache nor slab; reject missing/invalid counters, visible
+CUDA or a cgroup already over its cap. Recheck after provenance hashing, which
+can populate cache without loading model tensors. Record before/after counters,
+actual peak process RSS and OOM/oom_kill deltas. Any cap change/new OOM stops
+qualification. This is a transparent **resource-accounting amendment**, not a
+reservation or physical4B fit proof. The original full-model GPU-load guard
+is not changed by it; use no forced reclaim/drop_caches/cgroup writes, no
+foreign signals, host-cap increase or second card. Standard kernel reclamation
+may occur under the existing cap, without an explicit eviction request.
+
+The v1–v3 scientific configuration, FP32 storage/BF16 forward, all20 fixtures
+per role, rank/LRs/head/target scope and old failures are unchanged. V4 uses
+fresh namespaces and reruns the complete CPU gate; source-bound result still
+required before native GPU adapter-update, joint fit/checkpoint or PPO work.
+The corresponding diagnostic and tests do not authorize primary memory-cache
+expansion, scientific training or sealed outcomes.
+
+Local validation: **560 tests PASS5.86s**; compilation/whitespace checks PASS.
+New accounting tests reject dirty/mapped/shared/unevictable credits, active/
+slab credit, missing/invalid counters and visible-CUDA reuse, and enforce the
+unchanged margin/node/cgroup caps. On the captured own-job counters the estimate
+is22.210GiB including a capped20GiB cache credit, versus2.210GiB raw headroom.
+This is still a sizing estimate; no v4 remote CPU or native GPU pass yet.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.

@@ -13,6 +13,7 @@ import inspect
 import json
 import os
 from pathlib import Path
+import resource
 import subprocess
 import sys
 import time
@@ -26,6 +27,7 @@ from src.cmirank.optimizer_smoke import allocation_memory, load_optimizer_config
 from src.cmirank.ppo_compat import load_compat_config
 from src.cmirank.ppo_runtime import load_runtime_config
 from src.cmirank.provenance import artifact_json_dumps, file_sha256
+from src.cmirank.host_memory import cpu_memory_budget
 
 
 def miniature_config(official):
@@ -98,7 +100,10 @@ def main():
         if importlib.metadata.version(name) != version:
             raise ValueError("Pinned runtime changed")
     host = allocation_memory(job)
-    if host["maximum_bytes"] - host["current_bytes"] < c["host_load_reserve_bytes"]:
+    budget = cpu_memory_budget(job, c["host_load_reserve_bytes"]) if c.get("cpu_memory_accounting") else None
+    fits = (budget["assessment"]["within_estimated_budget"] if budget else
+            host["maximum_bytes"] - host["current_bytes"] >= c["host_load_reserve_bytes"])
+    if not fits:
         raise ValueError("Own job lacks the fixed20GiB CPU load margin")
     full, _ = load_optimizer_config(ROOT)
     observations, _, parent = verified_parents(private, full)
@@ -109,11 +114,18 @@ def main():
     for n, sha in parent["native_source_sha256"].items():
         if file_sha256(Path(sys.prefix)/n) != sha:
             raise ValueError("Reviewed native source changed")
+    # Recheck after hashing; hashing can populate file cache but loads no
+    # full model tensors. Never modify the cgroup or evict cache to pass.
+    if budget:
+        latest = cpu_memory_budget(job, c["host_load_reserve_bytes"])
+        if (not latest["assessment"]["within_estimated_budget"]
+                or latest["memory_events"]["oom_kill"] != budget["memory_events"]["oom_kill"]):
+            raise ValueError("CPU/meta budget or OOM state changed during provenance hashing")
     began = time.monotonic()
     run.mkdir()
     (run / "manifest.json").write_text(artifact_json_dumps({"source_commit": commit,
         "config": c, "config_sha256": file_sha256(path), "code_sha256": lora_code_hashes(ROOT),
-        "job_id": job, "gpu_requested": False, "training_ready": False}))
+        "job_id": job, "gpu_requested": False, "training_ready": False, "host_budget_before": budget}))
     try:
         import torch
         from transformers import AutoConfig, AutoModelForImageTextToText, AutoModelForTokenClassification
@@ -222,6 +234,11 @@ def main():
             gc.collect()
         if torch.cuda.is_initialized():
             raise ValueError("CPU audit unexpectedly initialized CUDA")
+        budget_after = cpu_memory_budget(job, c["host_load_reserve_bytes"]) if budget else None
+        if budget and (budget_after["allocation_memory"]["maximum_bytes"] != budget["allocation_memory"]["maximum_bytes"]
+                or budget_after["memory_events"]["oom_kill"] != budget["memory_events"]["oom_kill"]
+                or budget_after["memory_events"]["oom"] != budget["memory_events"]["oom"]):
+            raise ValueError("Own-job cap changed or OOM occurred during CPU qualification")
         (run / "probes.jsonl").write_text("".join(json.dumps(x, sort_keys=True)+"\n" for x in probes))
         report = {"status": "LORA_NATIVE_CPU20_PASS_FULL_GPU_AND_MULTITURN_GATES_REMAIN",
             "source_commit": commit, "config_sha256": file_sha256(path), "code_sha256": lora_code_hashes(ROOT),
@@ -234,6 +251,8 @@ def main():
             "native_source_sha256": {str(Path(inspect.getfile(k)).relative_to(Path(sys.prefix))):
                 file_sha256(Path(inspect.getfile(k))) for k in (FSDPEngine, PeftModel, get_peft_model_state_dict)},
             "parent_generated_sha256": full["generated_sha256"], "allocation_memory": allocation_memory(job),
+            "host_budget_before": budget, "host_budget_after": budget_after,
+            "coordinator_peak_rss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
             "official_full_model_meta_only": True, "full_weights_loaded": False, "miniature_updates_per_role": 1,
             "physical_requests": 0, "books_outcomes_accessed": False, "ranking_metrics_computed": False,
             "gpu_requested": False, "keeper_stopped": False, "training_ready": False,

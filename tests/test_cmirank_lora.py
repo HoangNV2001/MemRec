@@ -168,4 +168,13 @@ def test_v3_cannot_relax_frozen_storage_or_scalar_head_scope(tmp_path):
     c["critic_modules_to_save"] = []
     p.write_text(json.dumps(c))
     with pytest.raises(ValueError):
-        load_lora_config(tmp_path)
+        load_lora_config(tmp_path, 3)
+
+
+def test_v4_changes_only_cpu_accounting_and_namespace_not_gpu_or_science():
+    original, _ = load_lora_config(ROOT, 1)
+    current, _ = load_lora_config(ROOT)
+    allowed = {"schema_version", "inherits", "prepare_run_id", "actor_run_id", "critic_run_id", "reason"}
+    assert all(original[k] == current[k] for k in original if k not in allowed)
+    assert current["host_load_reserve_bytes"] == 20*2**30
+    assert current["cpu_memory_accounting"] == "cpu_only_clean_inactive_file_estimate_not_reservation"

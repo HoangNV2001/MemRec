@@ -11,8 +11,8 @@ from pathlib import Path
 from .provenance import file_sha256
 
 
-def load_lora_config(root, version=3):
-    if type(version) is not int or version not in (1, 2, 3):
+def load_lora_config(root, version=4):
+    if type(version) is not int or version not in (1, 2, 3, 4):
         raise ValueError("Unknown LoRA qualification profile")
     path = root / "configs/cmirank/ppo_lora_v1.json"
     c = json.loads(path.read_text())
@@ -38,6 +38,8 @@ def load_lora_config(root, version=3):
             "prepare_run_id": f"cmirank-lora-native-cpu-v{revision}-20261015-hnv",
             "actor_run_id": f"cmirank-lora-actor-smoke-v{revision}-20261015-hnv",
             "critic_run_id": f"cmirank-lora-critic-smoke-v{revision}-20261015-hnv"}
+        if revision == 4:
+            fixed_retry["cpu_memory_accounting"] = "cpu_only_clean_inactive_file_estimate_not_reservation"
         if (set(retry) != set(fixed_retry) | {"reason"}
                 or any(type(retry[k]) is not type(v) or retry[k] != v for k, v in fixed_retry.items())
                 or not isinstance(retry["reason"], str) or not retry["reason"]):
@@ -48,7 +50,8 @@ def load_lora_config(root, version=3):
 
 def lora_code_hashes(root):
     names = ("configs/cmirank/ppo_lora_v1.json", "configs/cmirank/ppo_lora_v2.json",
-        "configs/cmirank/ppo_lora_v3.json", "src/cmirank/lora.py",
+        "configs/cmirank/ppo_lora_v3.json", "configs/cmirank/ppo_lora_v4.json",
+        "src/cmirank/lora.py", "src/cmirank/host_memory.py",
         "scripts/cmirank/36_prepare_lora_cpu.py", "src/cmirank/optimizer_smoke.py",
         "src/cmirank/native_critic.py", "src/cmirank/ppo_compat.py")
     return {n: file_sha256(root / n) for n in names}

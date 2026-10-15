@@ -1,0 +1,9 @@
+{
+  "schema_version": 4,
+  "inherits": "configs/cmirank/ppo_lora_v3.json",
+  "prepare_run_id": "cmirank-lora-native-cpu-v4-20261015-hnv",
+  "actor_run_id": "cmirank-lora-actor-smoke-v4-20261015-hnv",
+  "critic_run_id": "cmirank-lora-critic-smoke-v4-20261015-hnv",
+  "cpu_memory_accounting": "cpu_only_clean_inactive_file_estimate_not_reservation",
+  "reason": "CPU/meta-only host accounting correction after a bounded raw-headroom wait expired. Preserve the job's actual64GiB cap and20GiB margin. Credit only clean inactive file cache after conservatively excluding mapped/dirty/writeback/shared/unevictable pages, cap credit at one margin, and check node MemAvailable. No forced reclaim, cgroup change or GPU-load guard relaxation. All LoRA scientific/precision/resource scope fields and previous failures remain unchanged."
+}
