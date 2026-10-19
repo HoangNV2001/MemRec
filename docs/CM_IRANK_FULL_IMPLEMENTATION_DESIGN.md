@@ -2048,6 +2048,93 @@ Local **582 tests PASS5.28s**; source compilation, shell syntax and whitespace
 checks passed. CPU37 checkpoint phase → conditional GPU38 checkpoint phase is
 the next execution chain, not a completed checkpoint result.
 
+**Launch19/10:** source**9e7f8ee3c5b6bdd294ca7c2372b54d51390bba35** pushed
+and clean-deployed; latest582tests PASS4.89s. One foreground SSH chain started
+fresh CPU37 checkpoint preflight, which was still running at the single
+inspection. Only after PASS will that same chain resolve the current keeper1
+and invoke the original GPU controller/keeper-restoration wrapper. No native
+checkpoint PASS/model-loading/CPU-preflight PASS is claimed yet. Await this
+task without source redeploy or repeated status polling; CPU cap600s and GPU
+worker20min/controller25min. GPU ETA5–12min remains provisional.
+
+### 0.59 Native checkpoint reviewed PASS; sequential LoRA rollout/reference gate — 2026-10-19
+
+Checkpoint CPU20 preparation **PASS29.057s**, source
+**9e7f8ee3c5b6bdd294ca7c2372b54d51390bba35**, report
+**4b67fe8fd2f0204af3bdc8537d2559f5301df55a363a29aaecb4f27ea4f4d1f0**.
+Native worker **PASS265.183s** /coordinator **283.338s**, report
+**95daed7a66c1d748ba8e0e960526c98a3232fd2fb0fc998841ae27e31183822d**;
+worker report
+**ad9f624fc2e9a70855d099046984abc804f5ae61b454ecd5a4d2bed53a4c7d73**.
+All20 non-rendezvous GPU artifacts downloaded and matched remote SHA;
+CPU report/probe hash and all producing-source hashes independently checked.
+Large native checkpoints remain on cluster, not duplicated locally: all saved
+files were remotely hashed after keeper restoration; the six native model/
+optimizer/extra shards are pinned in the next immutable profile.
+
+Independent audit compared complete hashes for **496 actor adapter tensors and
+498 critic adapter/head tensors**, all Adam moments/steps, scheduler, Python/
+NumPy/CPU/CUDA RNG draws, and20 original/restored response+EOS readouts per role:
+all equal, readout delta0. Native resumed continuation reached logical step2
+for both roles. **Six physical discarded updates**, not a research checkpoint.
+Two native complete checkpoints total**37,875,541,917bytes (~35.28GiB)**.
+Peak allocated**53.0396GiB**, reserved**53.7441GiB**, process RSS**27.1036GiB**;
+sampled job memory.current reached**63.9999GiB**, which includes filesystem
+cache and is not anonymous/RSS use. No cap was increased or cache forcibly
+reclaimed. Actual GPU release1MiB, original keeper1 restored, no GPU0/job signal.
+This proves same-engine native checkpoint restore/continuation; it does **not**
+yet prove cold-process restart, HF merging, full PPO fit or recommendation gain.
+
+**Next fixed20 gate, not training:** `ppo_lora_rollout_v1.json` reuses those
+discarded step1 checkpoints and all20 synthetic prefixes; no Books/sealed labels.
+
+1. CPU39 revalidates native checkpoint/initializer/source hashes and actual
+   resource budgets, all20 native packing/request schemas, and the pinned
+   vLLM LoRA rank32/TP1 interface. Use ordinary trusted `torch.load(...,
+   map_location="cpu", mmap=True)` under one-rank Gloo to read saved DTensor
+   storage; CUDA is hidden. Official meta model + standard PEFT `save_pretrained`
+   exports only actor adapters, never base/vision/head or a merged checkpoint.
+   Every exported tensor must equal its complete native checkpoint audit;
+   keepers run throughout. If the native CPU DTensor/mmap path needs CUDA,
+   fail closed before any GPU handoff, do not rewrite pickle/mesh metadata.
+2. Original coordinator29/keeper wrappers gain explicit opt-in `lora_rollout`.
+   Launch one owned localhost vLLM using the same initializer + exported LoRA,
+   BF16/eager/0.45 GPU fraction/max4096/TP1, one adapter slot/rank32. No dynamic
+   remote adapter loading or inference of a second-card grant. **60 physical
+   completion calls maximum, no retries:**20 frozen-sequence controls on base,
+   20 on updated adapter,20 actual adapter-sampled responses. Same temperature
+   0.9/full-support/64-token/EOS protocol; no prompt/outcome tuning. Base/adapter
+   differences are a diagnostic, not an accuracy signal or old-parity PASS.
+3. vLLM exits and actual GPU release is checked **before** native worker40
+   loads actor/critic. Fresh native FSDP2 engines restore complete model/Adam/
+   scheduler/RNG checkpoints; exact state and original20 readouts must match
+   the reviewed same-engine audit. This supplies the missing cold-process
+   qualification. No optimizer update. On the20 new sampled responses, score
+   actual actor LPs/critic values twice, retain EOS, and score KL reference via
+   native `engine.disable_adapter()` on the **same frozen SFT backbone**. On20
+   original controls that reference must equal the hash-locked initial native
+   base values exactly; verify actor state unchanged after reference context.
+4. Native worker exits/release audit → original keeper1 restored, **then** CPU31
+   reviews full count/provenance/masks/EOS, native sequence IS threshold2/no RS/
+   no normalization, corrected loss and critic repeat. All20 generated actions
+   must parse and be complete before promotion to multi-turn. Old strict
+   HF-vLLM parity FAILs remain unchanged; do not select a favorable repeat.
+
+This sequential arrangement deliberately does not claim simultaneous vLLM/
+actor/critic fit. It keeps only one phase's models on physical GPU1; shared-base
+reference avoids an unnecessary weight copy without changing the reference
+policy. Native cold-restore staging uses the measured checkpoint profile and
+unchanged64GiB host/80GB GPU admission bounds; no cohost OOM probe, cgroup change,
+framework patch, rank/LR/precision change or GPU0 fallback. GPU tasks always
+release/restore keeper before CPU review/wait. CPU39 cap600s; GPU controller25m,
+native scorer600s; provisional total **8–15min**, with actual hash/I/O/startup
+timing recorded rather than treated as measured throughput. After PASS,20 full
+N−1 episodes with native GAE/MPSS remain next, and primary memory-cache building
+is still mandatory before Books PPO. No quality result is claimed here.
+Local suite **595 PASS10.77s**, including complete CPU adapter-byte corruption,
+immutable contract/resource guards and preservation of the original sequential
+release/keeper controller; compilation/shell syntax/whitespace checks pass.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.

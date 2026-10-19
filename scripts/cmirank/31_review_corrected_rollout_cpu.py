@@ -20,24 +20,31 @@ from src.cmirank.provenance import artifact_json_dumps, file_sha256
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", type=Path, required=True)
+    parser.add_argument("--parameterization", choices=("full", "lora"), default="full")
     args = parser.parse_args()
     private = require_project_root(Path(os.environ["MEMREC_ROOT"]))
     require_allocation()
     c, path = load_corrected_config(ROOT)
+    if args.parameterization == "lora":
+        from src.cmirank.lora_rollout import load_lora_rollout_config, verify_lora_rollout_preparation
+        c, path = load_lora_rollout_config(ROOT)
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     run = args.run_dir.resolve()
     if (run != private / "runs" / c["review_run_id"] or run.exists()
             or os.environ.get("CUDA_VISIBLE_DEVICES") != "" or commit != os.environ["MEMREC_EXPECTED_COMMIT"]
             or subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=no"], cwd=ROOT, text=True)):
         raise ValueError("Fresh exact-source CPU review required")
-    rows, prepared = verify_corrected_preparation(private, ROOT, c, path, commit)
+    rows, prepared = (verify_lora_rollout_preparation(private, ROOT, c, path, commit)
+        if args.parameterization == "lora" else verify_corrected_preparation(private, ROOT, c, path, commit))
     parent = private / "runs" / c["run_id"]
     report = json.loads((parent / "report.json").read_text())
     cleanup = json.loads((parent / "cleanup.json").read_text())
     handback = json.loads((parent / "keeper-handback.json").read_text())
-    if (report["status"] != "GENERATED_ROLLOUT_NATIVE_ENGINE_PASS_CPU_CORRECTION_REVIEW_REQUIRED"
+    expected_status = ("LORA_ROLLOUT_NATIVE_ENGINE_PASS_CPU_CORRECTION_REVIEW_REQUIRED"
+        if args.parameterization == "lora" else "GENERATED_ROLLOUT_NATIVE_ENGINE_PASS_CPU_CORRECTION_REVIEW_REQUIRED")
+    if (report["status"] != expected_status
             or report["source_commit"] != commit or report["config_sha256"] != file_sha256(path)
-            or report["physical_requests"] != 20 or cleanup["process_exit_code"]
+            or report["physical_requests"] != c["physical_request_cap"] or cleanup["process_exit_code"]
             or not cleanup["child_exited"] or not cleanup["gpu_released"] or not cleanup["allocation_still_running"]
             or handback["status"] != "KEEPER_GPU1_HANDBACK_VERIFIED"
             or handback["reserved_job_cancelled"] or handback["gpu0_signalled"]):
@@ -71,6 +78,9 @@ def main():
         repeat = compare_logprobs(score["old_logprobs"], score["recomputed_logprobs"], c)
         if not repeat["passed"]:
             raise ValueError("Same-engine pre-update repeat failed")
+        if args.parameterization == "lora" and (score["critic_values"] != score["recomputed_critic_values"]
+                or len(score["critic_values"]) != n or any(not math.isfinite(v) for v in score["critic_values"])):
+            raise ValueError("Native critic must cover all response/EOS tokens and repeat exactly")
         old = torch.tensor([score["old_logprobs"]], dtype=torch.float64)
         behavior = torch.tensor([obs["behavior_logprobs"]], dtype=torch.float64)
         mask = torch.ones_like(old)
@@ -112,6 +122,17 @@ def main():
         "books_outcomes_accessed": False, "ranking_metrics_computed": False,
         "old_strict_cross_engine_gate_status": "FAIL_UNCHANGED",
         "reference_scope": "shared_initial_weights_no_separate_reference_worker_proof"}
+    if args.parameterization == "lora":
+        worker = json.loads((parent/"native-worker-report.json").read_text())
+        if (worker["status"] != c["worker_status"] or not worker["cold_process_restart_proven"]
+                or worker["reference_control_max_delta"] != 0 or worker["optimizer_updates"]
+                or file_sha256(parent/"native-worker-report.json") != report["worker_report_sha256"]):
+            raise ValueError("Cold native checkpoint/reference role qualification incomplete")
+        if report["format_valid_samples"] != 20 or report["truncated_samples"]:
+            raise ValueError("LoRA integration needs20 valid complete actions before multi-turn promotion")
+        result.update(status="LORA_ROLLOUT_REFERENCE_NATIVE_CORRECTION_REVIEW_PASS_MULTITURN_REMAINS",
+            reference_scope="native_disable_adapter_same_frozen_base_control20_exact",
+            cold_process_restart_proven=True, physical_requests=c["physical_request_cap"])
     (run / "report.json").write_text(artifact_json_dumps(result))
     print(json.dumps(result), flush=True)
 

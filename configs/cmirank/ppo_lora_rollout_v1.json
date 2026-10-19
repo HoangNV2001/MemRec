@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "prepare_run_id": "cmirank-lora-rollout-data-v1-20261019-hnv",
+  "run_id": "cmirank-lora-rollout-smoke-v1-20261019-hnv",
+  "review_run_id": "cmirank-lora-rollout-review-v1-20261019-hnv",
+  "checkpoint_parent_source_commit": "9e7f8ee3c5b6bdd294ca7c2372b54d51390bba35",
+  "checkpoint_parent_report_sha256": "95daed7a66c1d748ba8e0e960526c98a3232fd2fb0fc998841ae27e31183822d",
+  "checkpoint_parent_prepare_report_sha256": "4b67fe8fd2f0204af3bdc8537d2559f5301df55a363a29aaecb4f27ea4f4d1f0",
+  "reference_control_vectors_sha256": "dea51b33b7f219133accb0a053b8bca28c50531ea2f55d9777f7927e670473b1",
+  "native_checkpoint_sha256": {
+    "actor/model_world_size_1_rank_0.pt": "1da301b27baf3851fe47b190fe6aa8974638a8b55ba3b07fc3741b032566afcd",
+    "actor/optim_world_size_1_rank_0.pt": "aff26e1c3a844c2311a3418753b89aabb7397d8c21af55aebd959622974425a2",
+    "actor/extra_state_world_size_1_rank_0.pt": "31de6d2f67a8b0369660992e41d40d0ef062ffc8a3bd3bb6dba3639db42623bc",
+    "critic/model_world_size_1_rank_0.pt": "6fcb30736af4f5b542315cb02a3afbb2b182fccbcea3cd7ecd260594328048f2",
+    "critic/optim_world_size_1_rank_0.pt": "e47f487ebfdfa2c9cf61593b5c3df2a2e3cd6ca6128be93bd4888afdc139f8b7",
+    "critic/extra_state_world_size_1_rank_0.pt": "c35ec1d4cee228172d6f74dea48b73b59d3980261c369a2f526a9279fa0dc5ad"
+  },
+  "parameterization": "lora_rollout",
+  "optimizer_updates": 0,
+  "updates_per_role": 0,
+  "physical_request_cap": 60,
+  "served_adapter_name": "cmirank-lora-update1-hnv",
+  "port": 18126,
+  "worker_status": "NATIVE_LORA_COLD_RESTORE_REFERENCE_SCORE_PASS_CPU_REVIEW_REMAINS"
+}

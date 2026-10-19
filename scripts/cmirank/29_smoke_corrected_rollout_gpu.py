@@ -21,7 +21,7 @@ from src.cluster_runtime import require_allocation, require_project_root
 from src.cmirank.corrected_rollout import (corrected_server_options, generated_observation,
     generated_request, load_corrected_config, verify_corrected_preparation)
 from src.cmirank.ppo_compat import load_compat_config
-from src.cmirank.ppo_parity import verify_fla_overlay, wait_owned_hf_release
+from src.cmirank.ppo_parity import verify_fla_overlay, wait_owned_hf_release, completion_request, response_prompt_logprobs
 from src.cmirank.ppo_runtime import load_runtime_config
 from src.cmirank.cuda_toolchain import verify_cuda_toolchain
 from src.cmirank.causal_conv import verify_causal_overlay
@@ -39,10 +39,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--owner-confirmed-generator-step", required=True)
+    parser.add_argument("--parameterization", choices=("full", "lora"), default="full")
     args = parser.parse_args()
     private = require_project_root(Path(os.environ["MEMREC_ROOT"]))
     job = require_allocation()
     c, path = load_corrected_config(ROOT)
+    if args.parameterization == "lora":
+        from src.cmirank.lora_rollout import (load_lora_rollout_config, verify_lora_rollout_preparation, lora_server_options)
+        from src.cmirank.host_memory import cpu_memory_budget
+        from src.cmirank.lora_checkpoint import checkpoint_budget
+        c, path = load_lora_rollout_config(ROOT)
     compat, _ = load_compat_config(ROOT)
     runtime, _ = load_runtime_config(ROOT)
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
@@ -57,7 +63,8 @@ def main():
     for n, v in runtime["versions"].items():
         if importlib.metadata.version(n) != v:
             raise ValueError("Pinned runtime changed")
-    rows, prepared = verify_corrected_preparation(private, ROOT, c, path, commit)
+    rows, prepared = (verify_lora_rollout_preparation(private, ROOT, c, path, commit)
+        if args.parameterization == "lora" else verify_corrected_preparation(private, ROOT, c, path, commit))
     verify_fla_overlay(private, c)
     toolchain = verify_cuda_toolchain(private, ROOT, c)[0]
     causal = verify_causal_overlay(private, ROOT, c)[0]
@@ -72,6 +79,20 @@ def main():
     for n, sha in prepared["overlay_sha256"].items():
         if file_sha256(private / "overlays" / compat["overlay_name"] / n) != sha:
             raise ValueError("FA2 changed after CPU qualification")
+    if args.parameterization == "lora":
+        import shutil
+        host = cpu_memory_budget(job, c["host_load_reserve_bytes"])
+        previous_budget = prepared["checkpoint_budget"]
+        # Reuse the conservatively measured checkpoint-role RSS allowance from
+        # CPU admission, with the live anonymous allocation footprint.
+        fixed_rss = (previous_budget["host_required_bytes"]
+            -prepared["host_budget"]["stats_bytes"]["anon"]
+            -previous_budget["largest_role_staging_bytes"]-c["checkpoint_host_workspace_bytes"])
+        estimate = checkpoint_budget(prepared["roles"], previous_budget["gpu_bytes"],
+            host["allocation_memory"]["maximum_bytes"], host["stats_bytes"]["anon"], fixed_rss,
+            shutil.disk_usage(private/"runs").free, c)
+        if not host["assessment"]["within_estimated_budget"] or not estimate["within_estimated_budget"]:
+            raise ValueError("Sequential sampler/native restore budget disappeared; no handoff")
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", c["port"]))
     run.mkdir()
@@ -79,6 +100,8 @@ def main():
     exit_code, physical = 1, 0
     began = time.monotonic()
     worker_marker = "scripts/cmirank/30_native_logprob_worker_gpu.py"
+    if args.parameterization == "lora":
+        worker_marker = "scripts/cmirank/40_native_lora_rollout_gpu.py"
     def interrupted(signum, frame):
         raise InterruptedError(f"Owned corrected-rollout task interrupted by signal {signum}")
     signal.signal(signal.SIGTERM, interrupted)
@@ -118,7 +141,8 @@ def main():
         server_log = (run / "vllm-server.log").open("x")
         environment = {**os.environ, **c["server_environment"]}
         server = subprocess.Popen([str(private / "envs" / runtime["environment_name"] / "bin/vllm"),
-            "serve", str(checkpoint), *corrected_server_options(c)], env=environment,
+            "serve", str(checkpoint), *(lora_server_options(c, private/"runs"/c["prepare_run_id"]/"actor-adapter")
+                if args.parameterization == "lora" else corrected_server_options(c))], env=environment,
             stdout=server_log, stderr=subprocess.STDOUT, start_new_session=True)
         (run / "server.pid").write_text(str(server.pid) + "\n")
         base = f"http://127.0.0.1:{c['port']}"
@@ -134,13 +158,35 @@ def main():
                 pass
             time.sleep(5)
         with urllib.request.urlopen(base + "/v1/models", timeout=5) as response:
-            if [m["id"] for m in json.load(response)["data"]] != [c["served_model_name"]]:
+            expected_models = {c["served_model_name"]}
+            if args.parameterization == "lora":
+                expected_models.add(c["served_adapter_name"])
+            if {m["id"] for m in json.load(response)["data"]} != expected_models:
                 raise ValueError("Local server identity differs")
+        if args.parameterization == "lora":
+            for model in (c["served_model_name"], c["served_adapter_name"]):
+                for row in rows:
+                    if physical >= c["physical_request_cap"]:
+                        raise ValueError("Fixed60 request budget exhausted; no retries")
+                    payload = {**completion_request(row, c), "model": model}
+                    physical += 1
+                    append(run, "physical-requests", {"event": "request", "attempt": physical,
+                        "user_id": row["user_id"], "phase": "forced-control", "payload": payload})
+                    request = urllib.request.Request(base+"/v1/completions", data=json.dumps(payload).encode(),
+                        headers={"Content-Type": "application/json"})
+                    with urllib.request.urlopen(request, timeout=c["request_timeout_seconds"]) as response:
+                        raw = json.load(response)
+                    append(run, "physical-requests", {"event": "response", "attempt": physical,
+                        "user_id": row["user_id"], "phase": "forced-control", "response": raw})
+                    append(run, "sampler-controls", {"model": model, "user_id": row["user_id"],
+                        "logprobs": response_prompt_logprobs(raw, row)})
         observations = []
         for row in rows:
-            if physical >= 20:
+            if physical >= c["physical_request_cap"]:
                 raise ValueError("Fixed20 request cap exhausted; no retry")
             payload = generated_request(row, c)
+            if args.parameterization == "lora":
+                payload["model"] = c["served_adapter_name"]
             physical += 1
             append(run, "physical-requests", {"event": "request", "attempt": physical, "user_id": row["user_id"], "payload": payload})
             request = urllib.request.Request(base + "/v1/completions", data=json.dumps(payload).encode(),
@@ -172,13 +218,21 @@ def main():
             raise RuntimeError("Owned native FSDP2 scorer failed; no optimizer promotion")
         save(run / "native-release.json", wait_owned_hf_release(gpu_snapshot, c, card.uuid,
             child_exited=worker.poll() == 0, child_kind="native_fsdp2", emit=lambda x: append(run, "native-release-snapshots", x)))
-        save(run / "report.json", {"status": "GENERATED_ROLLOUT_NATIVE_ENGINE_PASS_CPU_CORRECTION_REVIEW_REQUIRED",
+        worker_report = json.loads((run/"native-worker-report.json").read_text())
+        if args.parameterization == "lora" and (worker_report["status"] != c["worker_status"]
+                or worker_report["source_commit"] != commit or not worker_report["cold_process_restart_proven"]
+                or worker_report["optimizer_updates"] or physical != 60):
+            raise ValueError("Native cold-restore/reference or physical-request scope differs")
+        save(run / "report.json", {"status": ("LORA_ROLLOUT_NATIVE_ENGINE_PASS_CPU_CORRECTION_REVIEW_REQUIRED"
+            if args.parameterization == "lora" else "GENERATED_ROLLOUT_NATIVE_ENGINE_PASS_CPU_CORRECTION_REVIEW_REQUIRED"),
             "source_commit": commit, "config_sha256": file_sha256(path), "samples": 20,
             "physical_requests": physical, "generated_response_tokens": sum(len(x["response_token_ids"]) for x in observations),
             "format_valid_samples": sum(x["format_valid"] for x in observations),
             "truncated_samples": sum(x["finish_reason"] == "length" for x in observations),
             "optimizer_updates": 0, "training_ready": False, "ranking_metrics_computed": False,
             "books_outcomes_accessed": False, "old_strict_cross_engine_gate_status": "FAIL_UNCHANGED",
+            "parameterization": args.parameterization,
+            "worker_report_sha256": file_sha256(run/"native-worker-report.json"),
             "elapsed_seconds": time.monotonic()-began})
         exit_code = 0
     except BaseException as error:

@@ -35,6 +35,12 @@ Tiếp theo checkpoint native đầy đủ adapter/head/Adam/scheduler/RNG trên
 mẫu, rồi rollout/ref sync và multi-turn. Không tăng cap RAM/GPU, không đổi
 LoRA rank/LR hay dùng GPU0.
 [Kết quả và gate kế tiếp §0.58](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#058-joint-lora-gpu-reviewed-pass-native-checkpoint-gate--2026-10-19).
+**Checkpoint cũng đã PASS và review:** actor496 /critic498 tensor trainable,
+Adam/scheduler/RNG và20 readouts/role khôi phục đúng; cold-process restart
+chưa nằm trong gate đó. Native265,18s/coordinator283,34s, VRAM peak53,04GiB;
+GPU nhả1MiB rồi keeper1 phục hồi. Tiếp theo CPU export adapter → vLLM20 mẫu
+mới → native cold-restore/reference, chạy tuần tự trên GPU1, không co-host.
+[Checkpoint và rollout gate §0.59](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#059-native-checkpoint-reviewed-pass-sequential-lora-rolloutreference-gate--2026-10-19).
 
 **Mới nhất:** corrected-rollout v2 **PASS**: 20/20 responses sinh thật đúng
 format, 0 truncation; native FSDP2 chấm 40 lượt, repeat delta0. CPU review
