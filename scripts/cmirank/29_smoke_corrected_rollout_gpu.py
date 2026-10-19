@@ -45,8 +45,8 @@ def main():
     job = require_allocation()
     c, path = load_corrected_config(ROOT)
     if args.parameterization == "lora":
-        from src.cmirank.lora_rollout import (load_lora_rollout_config, verify_lora_rollout_preparation, lora_server_options)
-        from src.cmirank.host_memory import cpu_memory_budget
+        from src.cmirank.lora_rollout import (load_lora_rollout_config, verify_lora_rollout_preparation,
+            lora_server_options, rollout_host_budget)
         from src.cmirank.lora_checkpoint import checkpoint_budget
         c, path = load_lora_rollout_config(ROOT)
     compat, _ = load_compat_config(ROOT)
@@ -81,7 +81,7 @@ def main():
             raise ValueError("FA2 changed after CPU qualification")
     if args.parameterization == "lora":
         import shutil
-        host = cpu_memory_budget(job, c["host_load_reserve_bytes"])
+        host = rollout_host_budget(job, c)
         previous_budget = prepared["checkpoint_budget"]
         # Reuse the conservatively measured checkpoint-role RSS allowance from
         # CPU admission, with the live anonymous allocation footprint.

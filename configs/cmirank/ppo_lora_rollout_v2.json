@@ -1,0 +1,9 @@
+{
+  "schema_version": 2,
+  "inherits": "configs/cmirank/ppo_lora_rollout_v1.json",
+  "prepare_run_id": "cmirank-lora-rollout-data-v2-20261019-hnv",
+  "run_id": "cmirank-lora-rollout-smoke-v2-20261019-hnv",
+  "review_run_id": "cmirank-lora-rollout-review-v2-20261019-hnv",
+  "host_admission": "clean_file_lru_estimate_plus_measured_checkpoint_bound",
+  "reason": "Correct an inactive-only false rejection after checkpoint I/O populated clean active file cache. Preserve actual64GiB cap,20GiB margin and the independently measured native-role/checkpoint working-set bound. Cap clean file LRU credit at one margin after excluding mapped/dirty/writeback/shared/unevictable pages; never force reclaim or change cgroup limits. Scientific and GPU scope unchanged; preserve original preflight/wait failures."
+}

@@ -20,7 +20,7 @@ from src.cluster_runtime import require_allocation, require_project_root
 from src.cmirank.lora_joint import reviewed_lora_parent, native_model_config, native_engine_config
 from src.cmirank.lora_checkpoint import checkpoint_budget
 from src.cmirank.lora_rollout import (load_lora_rollout_config, reviewed_checkpoint_parent,
-    checkpoint_directory, lora_server_options, rollout_code_hashes, export_adapter_cpu)
+    checkpoint_directory, lora_server_options, rollout_code_hashes, export_adapter_cpu, rollout_host_budget)
 from src.cmirank.optimizer_smoke import load_optimizer_config, verified_parents
 from src.cmirank.corrected_rollout import generated_request, native_microbatch, native_cpu_rehearsal
 from src.cmirank.host_memory import cpu_memory_budget
@@ -50,7 +50,7 @@ def main():
     for name, version in {**runtime["versions"], "peft": "0.21.2"}.items():
         if importlib.metadata.version(name) != version:
             raise ValueError("Pinned native runtime changed")
-    host = cpu_memory_budget(job, c["host_load_reserve_bytes"])
+    host = rollout_host_budget(job, c)
     if not host["assessment"]["within_estimated_budget"]:
         raise ValueError("Original CPU host admission margin missing")
     parent, previous = reviewed_checkpoint_parent(private, ROOT, c)
@@ -145,7 +145,7 @@ def main():
             "physical_requests": 0, "books_outcomes_accessed": False, "full_model_instantiated": False,
             "native_checkpoint_cpu_mmap_used": True, "cpu_rehearsal": rehearsal,
             "roles": scope["roles"], "targets": scope["targets"], "eos_token_id": tokenizer.eos_token_id,
-            "host_budget": host, "host_budget_after": cpu_memory_budget(job, c["host_load_reserve_bytes"]),
+            "host_budget": host, "host_budget_after": rollout_host_budget(job, c),
             "checkpoint_budget": budget,
             "native_source_sha256": native_sources, "overlay_sha256": source["overlay_sha256"],
             "checkpoint_stat": previous["checkpoint_stat"],

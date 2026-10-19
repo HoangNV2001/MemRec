@@ -41,6 +41,9 @@ chưa nằm trong gate đó. Native265,18s/coordinator283,34s, VRAM peak53,04GiB
 GPU nhả1MiB rồi keeper1 phục hồi. Tiếp theo CPU export adapter → vLLM20 mẫu
 mới → native cold-restore/reference, chạy tuần tự trên GPU1, không co-host.
 [Checkpoint và rollout gate §0.59](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#059-native-checkpoint-reviewed-pass-sequential-lora-rolloutreference-gate--2026-10-19).
+Source`ad157b2` đã deploy,595 tests pass. Preflight rollout đang chờ RAM:
+headroom ước lượng7,08GiB <ngưỡng20GiB. Lượt chờ server tối đa10 phút, nếu đủ
+sẽ tự chạy chuỗi smoke; chưa dừng keeper hay nạp model cho gate mới này.
 
 **Mới nhất:** corrected-rollout v2 **PASS**: 20/20 responses sinh thật đúng
 format, 0 truncation; native FSDP2 chấm 40 lượt, repeat delta0. CPU review

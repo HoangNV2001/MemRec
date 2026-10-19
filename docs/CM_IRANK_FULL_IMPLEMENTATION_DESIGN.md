@@ -2135,6 +2135,56 @@ Local suite **595 PASS10.77s**, including complete CPU adapter-byte corruption,
 immutable contract/resource guards and preservation of the original sequential
 release/keeper controller; compilation/shell syntax/whitespace checks pass.
 
+**Execution19/10:** source**ad157b2671d4cce6e54e5c5d57c56a20e3c76d89**,
+latest595tests PASS10.49s, pushed/clean-deployed. First foreground chain exited
+at the original20GiB CPU host-admission guard **before run-directory creation,
+model loading, exported adapter or keeper handoff**. This is not a LoRA/model
+failure and not a CPU preparation PASS. Original launch log preserved.
+One same-source bounded server-side wait now checks the unchanged admission
+once/minute, up to600s; on success it execs the original CPU39 (600s cap), then
+the original guarded GPU controller and, only after keeper handback, CPU31
+review. At its first observation estimated headroom**7.08GiB versus20GiB**:
+own-job anon3.91GiB, file58.74GiB (active_file51.08GiB/inactive_file7.60GiB),
+dirty/writeback0 and oom/oom_kill0. Active file cache is **not** credited or
+forcibly evicted; no margin, cap or scientific settings were relaxed. Keeper1
+continues throughout CPU waiting. If this wait expires it exits without a GPU
+handoff; no indefinite polling or background model reservation. The8–15min
+pipeline ETA only applies after admission, plus at most10min waiting.
+
+### 0.60 Clean-file LRU admission correction — 2026-10-19
+
+The researcher requests autonomous continuation toward training on GPU1. The
+inactive-only wait remained at~7.08GiB versus20GiB despite anon~3.91GiB, clean
+file~58.74GiB, active_file~51.08GiB and dirty/writeback/oom/oom_kill0. The cache
+age classification was being treated as an anonymous-memory requirement. A
+second identical wait is not an implementation fix.
+
+New isolated `ppo_lora_rollout_v2.json` changes **resource accounting only**,
+with fresh v2 run IDs; v1 failed preflight/logs/wait remain unchanged. Linux
+documents active/inactive counters as reclaim-LRU state, distinct from memory
+type; `memory.current` includes page cache. This supports a revised **estimate**,
+not a guarantee of immediate reclamation or GPU fit. [Linux cgroup-v2 memory
+documentation](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html#memory).
+
+The opt-in reader considers `min(file,active_file+inactive_file)` and subtracts
+all mapped, dirty, writeback, shared and unevictable pages, conservatively even
+where those counters overlap. Credit remains capped at **one20GiB margin**;
+estimated headroom is bounded by actual cgroup cap and node MemAvailable.
+Never credit anonymous memory/slab, write memory.reclaim/drop caches, change
+cgroup limits, signal other workloads or stop a keeper just for CPU preparation.
+Old `host_memory.py` and old full-tuning guards/receipts remain untouched. The
+new reader is CUDA-hidden and applies **only** to this sequential LoRA profile.
+
+Admission additionally retains the independent measured native-role/checkpoint
+bound (current anon + measured27.10GiB process RSS +17.64GiB possible staging
+copy +8GiB workspace ≤actual64GiB), and the corresponding card/disk checks.
+Thus neither physical cap,20GiB margin, precision, rank/LR, corpus, sampler,
+reward, parser nor request cap changes. CPU20 export/schema smoke and a fresh
+exact-source receipt remain mandatory before any handoff; measured GPU1 fit
+and actual release/keeper restoration remain mandatory. This is an explicit
+agent implementation/accounting amendment, **not a researcher-approved change
+to the scientific protocol**, and does not promote PPO/quality readiness.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.

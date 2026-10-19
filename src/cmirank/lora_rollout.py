@@ -14,7 +14,9 @@ from .lora_checkpoint import load_checkpoint_config, checkpoint_code_hashes, ten
 from .provenance import file_sha256
 
 
-def load_lora_rollout_config(root):
+def load_lora_rollout_config(root, version=2):
+    if type(version) is not int or version not in (1, 2):
+        raise ValueError("Unknown LoRA rollout/resource profile")
     native, _ = load_corrected_config(root)
     base, _ = load_checkpoint_config(root)
     c = {**native, **base}
@@ -43,15 +45,37 @@ def load_lora_rollout_config(root):
     c.update(r)
     c["checkpoint_parent_run_id"] = base["run_id"]
     c["checkpoint_parent_prepare_run_id"] = base["prepare_run_id"]
+    if version == 2:
+        path = root/"configs/cmirank/ppo_lora_rollout_v2.json"
+        retry = json.loads(path.read_text())
+        fixed_retry = {"schema_version": 2, "inherits": "configs/cmirank/ppo_lora_rollout_v1.json",
+            "prepare_run_id": "cmirank-lora-rollout-data-v2-20261019-hnv",
+            "run_id": "cmirank-lora-rollout-smoke-v2-20261019-hnv",
+            "review_run_id": "cmirank-lora-rollout-review-v2-20261019-hnv",
+            "host_admission": "clean_file_lru_estimate_plus_measured_checkpoint_bound"}
+        if (set(retry) != set(fixed_retry) | {"reason"}
+                or any(type(retry[k]) is not type(v) or retry[k] != v for k, v in fixed_retry.items())
+                or not isinstance(retry["reason"], str) or not retry["reason"]):
+            raise ValueError("Resource accounting retry cannot alter scientific/resource limits")
+        c.update(retry)
     return c, path
 
 
 def rollout_code_hashes(root):
-    names = ("configs/cmirank/ppo_lora_rollout_v1.json", "src/cmirank/lora_rollout.py",
+    names = ("configs/cmirank/ppo_lora_rollout_v1.json", "configs/cmirank/ppo_lora_rollout_v2.json",
+        "src/cmirank/lora_rollout.py", "src/cmirank/host_admission.py",
         "scripts/cmirank/39_prepare_lora_rollout_cpu.py", "scripts/cmirank/40_native_lora_rollout_gpu.py",
         "scripts/cmirank/29_smoke_corrected_rollout_gpu.py", "scripts/cmirank/31_review_corrected_rollout_cpu.py",
         "src/cmirank/corrected_rollout.py")
     return {**checkpoint_code_hashes(root), **{n: file_sha256(root/n) for n in names}}
+
+
+def rollout_host_budget(job, c):
+    if c.get("host_admission") == "clean_file_lru_estimate_plus_measured_checkpoint_bound":
+        from .host_admission import clean_file_memory_budget
+        return clean_file_memory_budget(job, c["host_load_reserve_bytes"])
+    from .host_memory import cpu_memory_budget
+    return cpu_memory_budget(job, c["host_load_reserve_bytes"])
 
 
 def checkpoint_directory(private, c):
