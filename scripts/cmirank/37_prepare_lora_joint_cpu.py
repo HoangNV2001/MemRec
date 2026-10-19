@@ -7,6 +7,7 @@ import inspect
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import time
@@ -27,10 +28,16 @@ from src.cmirank.provenance import artifact_json_dumps, file_sha256
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", type=Path, required=True)
+    parser.add_argument("--phase", choices=("optimizer", "checkpoint"), default="optimizer")
     args = parser.parse_args()
     private = require_project_root(Path(os.environ["MEMREC_ROOT"]))
     job = require_allocation()
-    c, path = load_joint_config(ROOT)
+    if args.phase == "checkpoint":
+        from src.cmirank.lora_checkpoint import (load_checkpoint_config, checkpoint_code_hashes,
+            reviewed_joint_parent, checkpoint_budget, native_checkpoint_config)
+        c, path = load_checkpoint_config(ROOT)
+    else:
+        c, path = load_joint_config(ROOT)
     runtime, _ = load_runtime_config(ROOT)
     compat, _ = load_compat_config(ROOT)
     run = args.run_dir.resolve()
@@ -45,6 +52,7 @@ def main():
         if importlib.metadata.version(name) != version:
             raise ValueError("Pinned native runtime changed")
     parent = reviewed_lora_parent(private, ROOT, c)
+    joint_parent = reviewed_joint_parent(private, ROOT, c) if args.phase == "checkpoint" else None
     observations, old, source = verified_parents(private, load_optimizer_config(ROOT)[0])
     budget = cpu_memory_budget(job, c["host_load_reserve_bytes"])
     if not budget["assessment"]["within_estimated_budget"]:
@@ -61,6 +69,9 @@ def main():
     from verl.workers.config.optimizer import FSDPOptimizerConfig, build_optimizer
     from verl.workers.engine.fsdp.transformer_impl import FSDPEngineWithLMHead, FSDPEngineWithValueHead, prepare_micro_batches
     from verl.workers.utils.losses import ppo_loss, value_loss
+    from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
+    from verl.utils.checkpoint.checkpoint_manager import BaseCheckpointManager
+    from verl.utils.fsdp_utils import get_fsdp_state_ctx
     from verl.utils import tensordict_utils as tu
     from verl.workers.utils.padding import no_padding_2_padding
     torch.set_num_threads(4)
@@ -115,8 +126,22 @@ def main():
     gpu_budget = joint_gpu_budget(parent["roles"], total, c["workspace_reserve_bytes"])
     if not gpu_budget["within_estimated_budget"]:
         raise ValueError("Both LoRA roles plus fixed workspace estimate exceed actual GPU1")
+    checkpoint_assessment = None
+    if args.phase == "checkpoint":
+        schema = native_checkpoint_config(c)
+        if (schema.save_lora_only or schema.async_save or not schema.strict
+                or schema.save_contents != ["model", "optimizer", "extra"]
+                or schema.load_contents != schema.save_contents):
+            raise ValueError("Native complete checkpoint must retain the scalar head and optimizer/RNG")
+        checkpoint_assessment = checkpoint_budget(parent["roles"], total,
+            budget["allocation_memory"]["maximum_bytes"], budget["stats_bytes"]["anon"],
+            joint_parent["peak_worker_rss_kib"]*1024, shutil.disk_usage(private/"runs").free, c)
+        if not checkpoint_assessment["within_estimated_budget"]:
+            raise ValueError("Complete native checkpoint staging exceeds unchanged card/host/disk budget")
     classes = (FSDPEngineWithLMHead, FSDPEngineWithValueHead, ppo_loss, value_loss, ActorConfig, CriticConfig,
         HFModelConfig, FSDPEngineConfig, FSDPOptimizerConfig, build_optimizer)
+    if args.phase == "checkpoint":
+        classes += (FSDPCheckpointManager, BaseCheckpointManager, get_fsdp_state_ctx, type(schema))
     native_sources = {**source["native_source_sha256"], **parent["native_source_sha256"],
         **{str(Path(inspect.getfile(x)).relative_to(Path(sys.prefix))): file_sha256(Path(inspect.getfile(x))) for x in classes}}
     for n, sha in native_sources.items():
@@ -124,8 +149,10 @@ def main():
             raise ValueError("Reviewed native source changed")
     run.mkdir()
     (run / "probes.jsonl").write_text("".join(json.dumps(x, sort_keys=True)+"\n" for x in probes))
-    result = {"status": "LORA_JOINT_CPU20_PASS_GPU_GATE_REMAINS", "source_commit": commit,
-        "config_sha256": file_sha256(path), "code_sha256": joint_code_hashes(ROOT),
+    result = {"status": ("LORA_CHECKPOINT_CPU20_PASS_GPU_GATE_REMAINS" if args.phase == "checkpoint"
+                        else "LORA_JOINT_CPU20_PASS_GPU_GATE_REMAINS"), "source_commit": commit,
+        "config_sha256": file_sha256(path), "code_sha256": (checkpoint_code_hashes(ROOT)
+            if args.phase == "checkpoint" else joint_code_hashes(ROOT)),
         "samples_per_role": 20, "gpu_requested": False, "full_weights_loaded": False,
         "optimizer_updates": 0, "training_ready": False, "physical_requests": 0,
         "roles": parent["roles"], "targets": parent["targets"], "gpu_budget": gpu_budget,
@@ -134,6 +161,9 @@ def main():
         "checkpoint_stat": {n: {"size": (checkpoint/n).stat().st_size, "mtime_ns": (checkpoint/n).stat().st_mtime_ns,
             "inode": (checkpoint/n).stat().st_ino} for n in compat["checkpoint_files_sha256"]},
         "artifact_sha256": {"probes.jsonl": file_sha256(run/"probes.jsonl")}, "elapsed_seconds": time.monotonic()-began}
+    if checkpoint_assessment:
+        result["checkpoint_budget"] = checkpoint_assessment
+        result["joint_parent_peak_rss_bytes"] = joint_parent["peak_worker_rss_kib"]*1024
     (run/"report.json").write_text(artifact_json_dumps(result))
     print(json.dumps({k: result[k] for k in ("status", "samples_per_role", "elapsed_seconds")}), flush=True)
 

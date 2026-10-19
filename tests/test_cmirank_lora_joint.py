@@ -44,7 +44,7 @@ def test_reuses_original_coordinator_and_keeper_with_native_only_updates():
     coordinator = importlib.import_module("scripts.cmirank.33_smoke_actor_optimizer_gpu")
     assert callable(coordinator.main)
     source = (ROOT/"scripts/cmirank/33_smoke_actor_optimizer_gpu.py").read_text()
-    assert 'choices=("full", "lora_joint"), default="full"' in source
+    assert 'choices=("full", "lora_joint", "lora_checkpoint"), default="full"' in source
     assert 'prepared = verify_optimizer_preparation(private, ROOT, c, path, commit)' in source
     assert 'prepared = verify_joint_preparation(private, ROOT, c, path, commit)' in source
     assert 'child_exited=worker.poll() == 0, child_kind="native_fsdp2"' in source

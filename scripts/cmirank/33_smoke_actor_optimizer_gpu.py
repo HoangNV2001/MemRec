@@ -6,6 +6,7 @@ from importlib.util import module_from_spec, spec_from_file_location
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import sys
@@ -35,16 +36,19 @@ def main():
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--owner-confirmed-generator-step", required=True)
     parser.add_argument("--role", choices=("actor", "critic"), default="actor")
-    parser.add_argument("--parameterization", choices=("full", "lora_joint"), default="full")
+    parser.add_argument("--parameterization", choices=("full", "lora_joint", "lora_checkpoint"), default="full")
     args = parser.parse_args()
     private = require_project_root(Path(os.environ["MEMREC_ROOT"]))
     job = require_allocation()
-    if args.parameterization == "lora_joint":
+    if args.parameterization in ("lora_joint", "lora_checkpoint"):
         if args.role != "actor":
             raise ValueError("Joint LoRA mode does not select a separate critic-only worker")
         from src.cmirank.lora_joint import load_joint_config, verify_joint_preparation
         from src.cmirank.host_memory import cpu_memory_budget
         c, path = load_joint_config(ROOT)
+        if args.parameterization == "lora_checkpoint":
+            from src.cmirank.lora_checkpoint import (load_checkpoint_config, verify_checkpoint_preparation, checkpoint_budget)
+            c, path = load_checkpoint_config(ROOT)
         args.role = "joint"
     else:
         c, path = load_optimizer_profile(ROOT, args.role)
@@ -60,7 +64,9 @@ def main():
             or Path(sys.prefix).resolve() != private / "envs" / runtime["environment_name"]
             or not os.environ.get("MEMREC_KEEPER_AUTHORITY_PATH")):
         raise ValueError("Fresh clean-source GPU1 standing-authority coordinator required")
-    if args.parameterization == "lora_joint":
+    if args.parameterization == "lora_checkpoint":
+        prepared = verify_checkpoint_preparation(private, ROOT, c, path, commit)
+    elif args.parameterization == "lora_joint":
         prepared = verify_joint_preparation(private, ROOT, c, path, commit)
     else:
         prepared = verify_optimizer_preparation(private, ROOT, c, path, commit)
@@ -79,17 +85,23 @@ def main():
         if file_sha256(private / "overlays" / compat["overlay_name"] / n) != sha:
             raise ValueError("FA2 changed since CPU preparation")
     host = allocation_memory(job)
-    host_budget = cpu_memory_budget(job, c["host_load_reserve_bytes"]) if args.parameterization == "lora_joint" else None
+    host_budget = cpu_memory_budget(job, c["host_load_reserve_bytes"]) if args.parameterization != "full" else None
     host_fits = (host_budget["assessment"]["within_estimated_budget"] if host_budget else
                  host["maximum_bytes"]-host["current_bytes"] >= c["host_load_reserve_bytes"])
     if not host_fits:
         raise ValueError("Own allocation host-load margin disappeared; no handoff")
+    if args.parameterization == "lora_checkpoint":
+        estimate = checkpoint_budget(prepared["roles"], prepared["checkpoint_budget"]["gpu_bytes"],
+            host["maximum_bytes"], host_budget["stats_bytes"]["anon"],
+            prepared["joint_parent_peak_rss_bytes"], shutil.disk_usage(private/"runs").free, c)
+        if not estimate["within_estimated_budget"]:
+            raise ValueError("Native checkpoint staging budget no longer available; no handoff")
     run.mkdir()
     worker = card = log = None
     exit_code = 1
     began = time.monotonic()
     marker = "scripts/cmirank/34_native_actor_optimizer_gpu.py"
-    if args.parameterization == "lora_joint":
+    if args.parameterization in ("lora_joint", "lora_checkpoint"):
         marker = "scripts/cmirank/38_native_lora_joint_gpu.py"
     def interrupted(signum, frame):
         raise InterruptedError(f"Owned actor task interrupted by signal {signum}")
@@ -132,7 +144,8 @@ def main():
             "TILELANG_CACHE_DIR": str(private / "cache/runtime-hnv" / c["run_id"] / "tilelang"),
             "TILELANG_TMP_DIR": str(private / "cache/runtime-hnv" / c["run_id"] / "tilelang-tmp")}
         log = (run / "native-worker.log").open("x")
-        worker = subprocess.Popen([sys.executable, "-u", marker, "--run-dir", str(run), "--role", args.role], env=environment,
+        phase = ["--phase", "checkpoint"] if args.parameterization == "lora_checkpoint" else []
+        worker = subprocess.Popen([sys.executable, "-u", marker, "--run-dir", str(run), "--role", args.role, *phase], env=environment,
             stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         if worker.wait(timeout=c["worker_timeout_seconds"]) != 0:
             raise RuntimeError("Owned native actor optimizer failed; no automatic profile search")

@@ -1953,6 +1953,101 @@ and actual release/handback before rollout/ref sync, native checkpoint/resume,
 training, sealed access, two-GPU fallback or full-method result is authorized
 by this compatibility gate.
 
+**Launch:** exact source**9e3e9f32ca0bdfa5dd197e9ea0e5cdd92f7c3d5c**
+clean-deployed, latest local569tests PASS6.30s. Fresh CPU37 **PASS14.170s /20
+per role**, report6d51b8bff84e939141c78314fd0d2f3a0b5a22f171e1ee3f56bb2072a6112ae9.
+The same foreground chain automatically invoked the original guarded GPU1
+controller with the current keeper; at the single inspection no terminal native
+GPU/release/handback result was yet available. This records CPU preparation and
+controller launch, **not actual model loading, GPU PASS or full PPO readiness**.
+Wait for the same task; provisional5–10min,25min controller/20min worker caps.
+No source redeploy/repeated status polling while active; original keeper
+restoration remains mandatory before artifact download/CPU review.
+
+### 0.58 Joint LoRA GPU reviewed PASS; native checkpoint gate — 2026-10-19
+
+Recovered the terminal15/10 run, not a rerun. Source
+**9e3e9f32ca0bdfa5dd197e9ea0e5cdd92f7c3d5c**, CPU37 report
+**6d51b8bff84e939141c78314fd0d2f3a0b5a22f171e1ee3f56bb2072a6112ae9**,
+joint GPU report
+**896445dcaffd50c539b33e900d684964807025571a2f5e35e703463a10b4aa39**,
+native worker report
+**cce83e24dbe577eb0d5d3a1432ad1b32a499bbc76e943196bf6eee1a95b9e0da**.
+Downloaded all18 non-rendezvous GPU artifacts +2 CPU artifacts, checked every
+remote/local SHA and every CPU source hash against its producing git commit.
+Independently checked40 vector/probe IDs, finite readouts, actual repeat
+delta0, complete role parameter/gradient/moment byte totals, memory records,
+worker exit, actual release and keeper restoration. This is an end-to-end
+compatibility PASS, not only a child-worker PASS.
+
+| Measurement | Joint native LoRA smoke |
+|---|---|
+| Samples / physical updates |20 per role /1 discarded AdamW update per role |
+| Runtime |137.406s native worker;155.982s coordinator |
+| Peak CUDA allocated / reserved |37.6655 /39.3926GiB |
+| Peak process RSS / sampled own-job memory.current |27.0595 /49.1340GiB; job cap remained64GiB |
+| Trainable actor / critic |64,929,792 /64,932,353; critic includes2561 scalar-head parameters |
+| Complete FP32 Adam moment bytes |519,438,336 /519,458,824 |
+| Changed adapter tensor probes / head probes |496 each role /critic head changed, nonzero head gradient |
+| Post-exit physical GPU memory |1MiB; no model actor, original keeper1 restored |
+| Requests / Books outcomes / ranking metrics |0 /none /none |
+
+Both4B backbones/vision stayed frozen in FP32 storage; BF16 forward, native
+FSDP2/AdamW foreach=false, no offload/quantization or custom critic/optimizer.
+Frozen parameters had no gradients/optimizer state and unchanged bounded probes;
+this is **not a full frozen4B bitwise comparison**. Actor native sequence-IS
+weights0.83620–1.15159; critic gradient norm2.98682. Both roles and their Adam
+states were resident together. This settles that component-fit question on
+one H100, **not full PPO fit**: no rollout engine, reference worker, checkpoint
+staging, multi-turn GAE/MPSS or primary Books training was included.
+
+**Next preregistered gate:** `ppo_lora_checkpoint_v1.json`, source-bound CPU37
+`--phase checkpoint` before original coordinator33/native38 and keeper wrapper,
+GPU1 only, same64GiB host/80GB card caps and20 frozen synthetic responses/role.
+One native step1/role is saved with native model+optimizer+extra; a second
+native update perturbs state, reload restores step1 exactly, then a native
+continuation must finish at logical step2. Thus **3 physical updates/role,6
+total, all discarded**, not six independent learning steps/research training.
+Check the complete adapter/head tensors and every Adam moment/step, scheduler,
+Python/NumPy/CPU/CUDA RNG probes, and all20 response+EOS role readouts. Save
+per-tensor state hashes and original/restored readouts for independent review.
+Do not claim uninterrupted-vs-resumed next-gradient bitwise parity, cold-process
+restart or merged-HF checkpoint compatibility from this same-engine restore gate.
+
+Pinned native checkpoint source inspection found `save_lora_only=true` filters
+only `lora_`/`.adapter_` names, **dropping the critic's
+`score.modules_to_save.default`**. Use the existing **complete native default
+checkpoint**, `save_lora_only=false`, save/load `[model, optimizer, extra]`,
+synchronous/strict, no `hf_model` export, no rotation/deletion. This is a
+serialization setting only; backbone training scope and LoRA hyperparameters
+remain unchanged. Do not patch VeRL's filter or save the scalar head in an
+unvalidated custom sidecar. Native LoRA metadata's fallback CAUSAL_LM task type
+does not authorize fresh critic construction; reuse the reviewed generic
+critic adapter and actual native checkpoint restore.
+
+Before handoff, CPU20 repeats native packing/loss-gradient/schema/source checks,
+revalidates parent reports/artifacts against their producing source, and audits
+the actual GPU/host/disk budget. FSDP2 uses a null state-dict context here;
+**do not assume CPU staging** from the FSDP1 configuration. Conservatively allow
+both persistent roles plus a full extra role model+Adam copy and8GiB workspace
+on GPU: **61.391GiB**, below actual79.647GiB. Host estimate is current own-job
+anonymous memory + measured27.060GiB parent RSS +17.636GiB extra role copy +8GiB,
+about56.695GiB if anonymous memory is4GiB; it must fit actual64GiB **at launch**.
+Require about43.271GiB free disk including8GiB reserve. These are admission
+estimates, not measured checkpoint peaks; no allocation/cgroup changes or forced
+reclaim if a guard fails. Record actual model/optimizer reload peaks and runtime.
+
+GPU task ETA **5–12min** (new full checkpoint I/O unmeasured), existing worker
+20min/controller25min hard caps. Exit/release audit → original keeper1 restored
+on every terminal path **before downloading/hashing/reviewing checkpoint files**.
+Do not hold GPU weights during CPU review, touch GPU0/unknown actors, cancel
+reservation or request a second card. After PASS: qualify adapter rollout/ref
+sync/residency and20 full N−1/GAE/MPSS episodes; primary memory cache remains a
+separate prerequisite to even tiny Books PPO. Sealed5,377 users remain unopened.
+Local **582 tests PASS5.28s**; source compilation, shell syntax and whitespace
+checks passed. CPU37 checkpoint phase → conditional GPU38 checkpoint phase is
+the next execution chain, not a completed checkpoint result.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.
@@ -3426,6 +3521,7 @@ results/
 Actual repository conventions may differ. Preserve logical separation even if paths are adapted.
 
 ---
+
 
 # 27. Suggested configuration schema
 

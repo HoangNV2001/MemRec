@@ -13,7 +13,7 @@ chỉ GPU1; không triển khai đề xuất2 GPU. Full-tuning smoke cũ đượ
 chưa có kết quả train/ranking LoRA. CPU20 scope/roundtrip phải pass trước GPU.
 [Protocol hiện hành §0.54](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#054-approved-lora-amendment-one-designated-gpu-only--2026-10-15).
 
-## Trạng thái hiện hành — 2026-10-15
+## Trạng thái hiện hành — 2026-10-19
 
 | Phần việc | Bằng chứng / giới hạn |
 |---|---|
@@ -24,14 +24,17 @@ chưa có kết quả train/ranking LoRA. CPU20 scope/roundtrip phải pass trư
 | Format / PPO runtime | Format-only SFT 256 synthetic examples /64 updates đã xong; full actor/reference/critic compatibility pass. **Chưa PPO**: v8 HF–vLLM parity fail12/20; v9 chẩn đoán đủ80 requests xác nhận drift cả trong cùng server, không chọn lượt tốt nhất để promote |
 | Method result | **Chưa có checkpoint/score CM-IRank**; held-out 5.377 users vẫn niêm phong |
 
-**LoRA mới nhất: CPU v4 PASS đã review**,20/20 mẫu/role trong17,05s,
-14 artifacts/source/hash khớp, reload logit delta0; peak RSS1,07GiB.
-Actor train64,93M adapter parameters, critic thêm2561 value-head parameters.
-Lỗi dtype/autocast và hạch toán page cache đã sửa, giữ nguyên các FAIL cũ;
-không tăng cap RAM/GPU, không xóa cache hay tác động keeper.
-569 tests local pass. Tiếp theo CPU37→smoke full4B actor/critic cùng nằm trên
-GPU1 với hai native updates bỏ đi; **chưa có LoRA GPU-fit/PPO/ranking result**.
-[Kết quả và joint gate §0.57](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#057-lora-cpu-v4-reviewed-pass-native-joint-gpu-gate--2026-10-15).
+**LoRA joint GPU PASS đã review19/10:** hai native4B actor/critic cùng nằm
+trên **một H100**,20 mẫu/role, một update bỏ đi/role; worker137,41s,
+toàn gate155,98s. Peak allocated**37,67GiB**, reserved**39,39GiB**;
+actor train64,93M adapter parameters, critic thêm2561 value-head parameters.
+20 artifacts CPU/GPU đã đối chiếu SHA/source,40 vector repeat delta0;
+model nhả về1MiB rồi keeper1 được phục hồi. **Chưa có PPO/ranking result**:
+rollout/reference chưa co-host, checkpoint/GAE chưa được gate này chứng minh.
+Tiếp theo checkpoint native đầy đủ adapter/head/Adam/scheduler/RNG trên20
+mẫu, rồi rollout/ref sync và multi-turn. Không tăng cap RAM/GPU, không đổi
+LoRA rank/LR hay dùng GPU0.
+[Kết quả và gate kế tiếp §0.58](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#058-joint-lora-gpu-reviewed-pass-native-checkpoint-gate--2026-10-19).
 
 **Mới nhất:** corrected-rollout v2 **PASS**: 20/20 responses sinh thật đúng
 format, 0 truncation; native FSDP2 chấm 40 lượt, repeat delta0. CPU review
@@ -41,7 +44,7 @@ GPU task3,94 phút; model đã nhả về1MiB và keeper1 phục hồi. Artifact
 có kết quả ranking**, không đổi các strict parity FAIL cũ.
 [Kết quả và giới hạn §0.48](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#048-generated-rollout-v2-and-native-correction-review-pass--2026-10-14).
 
-**Gate tiếp theo:** CPU20 packing/loss/memory → actor native FSDP2/AdamW riêng,
+**Các gate full-tuning đã hoàn thành trước quyết định LoRA (lịch sử):** CPU20 packing/loss/memory → actor native FSDP2/AdamW riêng,
 FP32 master/BF16 forward, một update synthetic bỏ đi; sau đó critic, checkpoint
 và multi-turn PPO/GAE trước research training. Không suy từ smoke BF16 inference
 rằng full PPO vừa một H100.

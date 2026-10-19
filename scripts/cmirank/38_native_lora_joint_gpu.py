@@ -42,10 +42,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--role", choices=("joint",), default="joint")
+    parser.add_argument("--phase", choices=("optimizer", "checkpoint"), default="optimizer")
     args = parser.parse_args()
     private = require_project_root(Path(os.environ["MEMREC_ROOT"]))
     job = require_allocation()
     c, path = load_joint_config(ROOT)
+    if args.phase == "checkpoint":
+        from src.cmirank.lora_checkpoint import (load_checkpoint_config, verify_checkpoint_preparation,
+            native_checkpoint_config, run_checkpoint_roundtrip)
+        c, path = load_checkpoint_config(ROOT)
     native, _ = load_corrected_config(ROOT)
     compat, _ = load_compat_config(ROOT)
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
@@ -53,7 +58,8 @@ def main():
     if (run != private/"runs"/c["run_id"] or commit != os.environ["MEMREC_EXPECTED_COMMIT"]
             or subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=no"], cwd=ROOT, text=True)):
         raise ValueError("Exact clean deployed joint LoRA source required")
-    prepared = verify_joint_preparation(private, ROOT, c, path, commit)
+    prepared = (verify_checkpoint_preparation(private, ROOT, c, path, commit) if args.phase == "checkpoint"
+                else verify_joint_preparation(private, ROOT, c, path, commit))
     observations, _, _ = verified_parents(private, load_optimizer_config(ROOT)[0])
     def interrupted(signum, frame):
         raise InterruptedError(f"Owned joint LoRA task interrupted by signal {signum}")
@@ -96,7 +102,8 @@ def main():
             config = native_engine_config()
             optim = native_optimizer_config(c, role)
             cls = FSDPEngineWithLMHead if role == "actor" else FSDPEngineWithValueHead
-            engine = cls(model, config, optim, CheckpointConfig())
+            engine = cls(model, config, optim,
+                native_checkpoint_config(c) if args.phase == "checkpoint" else CheckpointConfig())
             engine.initialize()
             engines[role] = engine
             observed = audit_scope(engine.module, prepared["targets"][role], c, role)
@@ -114,6 +121,20 @@ def main():
                 raise ValueError("Native audited kernel/empty AdamW initialization differs")
             memory(f"native_lora_{role}_initialized_fp32")
         memory("both_lora_roles_resident_before_scoring")
+        def score_once(engine, role):
+            collected = []
+            with engine.eval_mode(), torch.no_grad():
+                for obs in observations:
+                    ids = torch.tensor(obs["input_ids"], device="cuda:0")
+                    data = native_microbatch(ids, native, torch)
+                    _, result = engine.forward_step(data, loss_function=None, forward_only=True)
+                    key = "log_probs" if role == "actor" else "values"
+                    values = result["model_output"][key].values()[obs["prompt_tokens"]-1:len(obs["input_ids"])-1]
+                    if values.numel() != len(obs["response_token_ids"]) or not torch.isfinite(values).all():
+                        raise ValueError("Native checkpoint response/EOS scoring invalid")
+                    collected.append(values.float().cpu().tolist())
+            return collected
+
         for role, engine in engines.items():
             collected = []
             with engine.eval_mode(), torch.no_grad():
@@ -197,9 +218,15 @@ def main():
                 "frozen_parameters_have_no_grad_or_optimizer_state": True,
                 "frozen_parameter_samples_unchanged": True, "full_frozen_checkpoint_equality_proven": False}
             memory(f"native_lora_{role}_updated_both_roles_still_resident")
+            if args.phase == "checkpoint":
+                results[role]["checkpoint"] = run_checkpoint_roundtrip(engine, data,
+                    partial(loss_fn, config=loss_config), c, role, run, memory,
+                    lambda active_engine: score_once(active_engine, role))
+                results[role]["optimizer_updates"] = c["updates_per_role"]
         final = memory("both_lora_roles_and_adam_states_resident_complete")
         report = {"status": c["worker_status"], "role": "joint", "source_commit": commit,
-            "parameterization": "lora", "samples": 20, "optimizer_updates": 2, "updates_per_role": 1,
+            "parameterization": "lora", "samples": 20, "optimizer_updates": c["optimizer_updates"],
+            "updates_per_role": c["updates_per_role"],
             "roles": results, "model_dtype": "fp32", "forward_dtype": "bfloat16", "rank": c["rank"],
             "native_engine_strategy": "fsdp2", "optimizer": "torch.optim.AdamW",
             "actor_critic_joint_fit_proven": True, "rollout_loaded": False, "reference_loaded": False,
@@ -208,6 +235,10 @@ def main():
             "update_discarded": True, "training_ready": False, "elapsed_seconds": time.monotonic()-began,
             "peak_vram_allocated_mib": final["peak_allocated_mib"], "peak_vram_reserved_mib": final["peak_reserved_mib"],
             "peak_worker_rss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}
+        if args.phase == "checkpoint":
+            report.update(native_checkpoint_roundtrip_proven=True,
+                restored_logical_updates_per_role=c["restored_logical_updates_per_role"],
+                checkpoint_scope="full_native_role_model_optimizer_scheduler_rng_no_hf_merge", research_checkpoint=False)
         engines.clear()
         engine = model = base = layer = data = result = before = p = state = after = grad = value = None
         gc.collect()

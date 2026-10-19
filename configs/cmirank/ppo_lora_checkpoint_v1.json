@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "prepare_run_id": "cmirank-lora-checkpoint-data-v1-20261019-hnv",
+  "run_id": "cmirank-lora-checkpoint-smoke-v1-20261019-hnv",
+  "joint_parent_source_commit": "9e3e9f32ca0bdfa5dd197e9ea0e5cdd92f7c3d5c",
+  "joint_parent_report_sha256": "896445dcaffd50c539b33e900d684964807025571a2f5e35e703463a10b4aa39",
+  "joint_parent_prepare_report_sha256": "6d51b8bff84e939141c78314fd0d2f3a0b5a22f171e1ee3f56bb2072a6112ae9",
+  "parameterization": "lora_checkpoint",
+  "optimizer_updates": 6,
+  "updates_per_role": 3,
+  "restored_logical_updates_per_role": 2,
+  "checkpoint_save_lora_only": false,
+  "checkpoint_contents": ["model", "optimizer", "extra"],
+  "checkpoint_host_workspace_bytes": 8589934592,
+  "checkpoint_disk_reserve_bytes": 8589934592,
+  "worker_status": "NATIVE_LORA_CHECKPOINT_PASS_ROLLOUT_MULTITURN_GATES_REMAIN"
+}
