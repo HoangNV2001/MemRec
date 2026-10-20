@@ -23,6 +23,9 @@ Model đã nhả1MiB và keeper1 phục hồi. **0 updates, chưa train PPO Book
 Gate kế tiếp đã code/test:20 synthetic episodes ×9 lượt, native MPSS/GAE
 xuyên episode rồi5 PPO updates/role (bỏ đi), không dùng Books outcomes.
 CPU smoke phải pass trước GPU1; không đổi LoRA rank/LR, budget hoặc primary.
+CPU v1 đã bắt lỗi padding biến độ dài (10 vs9), dừng **trước GPU/updates**.
+Đã sửa adapter theo native dynamic microbatch padding; giữ nguyên method,
+seed/LR/budget và log FAIL. V2 phải rerun CPU trước khi nối GPU1.
 [Kết quả và protocol gate mới §0.61](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#061-lora-rolloutreference-reviewed-pass-complete-episode-ppo-smoke--2026-10-20).
 
 | Phần việc | Bằng chứng / giới hạn |

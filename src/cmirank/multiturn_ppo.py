@@ -23,7 +23,9 @@ from .request import RankRequest
 from .rewards import mpss_rewards, ndcg_at_k
 
 
-def load_multiturn_config(root):
+def load_multiturn_config(root, version=2):
+    if type(version) is not int or version not in (1, 2):
+        raise ValueError("Unknown multi-turn integration profile")
     c, _ = load_lora_rollout_config(root)
     path = root / "configs/cmirank/ppo_lora_multiturn_v1.json"
     r = json.loads(path.read_text())
@@ -45,13 +47,25 @@ def load_multiturn_config(root):
     c["rollout_parent_run_id"] = c["run_id"]
     c["rollout_parent_review_run_id"] = c["review_run_id"]
     c.update(r)
+    if version == 2:
+        path = root/"configs/cmirank/ppo_lora_multiturn_v2.json"
+        retry = json.loads(path.read_text())
+        fixed_retry = {"schema_version": 2, "inherits": "configs/cmirank/ppo_lora_multiturn_v1.json",
+            "prepare_run_id": "cmirank-lora-multiturn-data-v2-20261020-hnv",
+            "run_id": "cmirank-lora-multiturn-smoke-v2-20261020-hnv"}
+        if (set(retry) != set(fixed_retry) | {"reason"}
+                or any(type(retry[k]) is not type(v) or retry[k] != v for k, v in fixed_retry.items())
+                or not isinstance(retry["reason"], str) or not retry["reason"]):
+            raise ValueError("Padding integration retry cannot change scientific/resource settings")
+        c.update(retry)
     c["parameterization"] = "lora_multiturn"
     c["worker_status"] = "NATIVE_LORA_MULTITURN_MPSS_GAE_PPO_SMOKE_PASS_REVIEW_REQUIRED"
     return c, path
 
 
 def multiturn_code_hashes(root):
-    names = ("configs/cmirank/ppo_lora_multiturn_v1.json", "src/cmirank/multiturn_ppo.py",
+    names = ("configs/cmirank/ppo_lora_multiturn_v1.json", "configs/cmirank/ppo_lora_multiturn_v2.json",
+        "src/cmirank/multiturn_ppo.py",
         "scripts/cmirank/41_prepare_multiturn_ppo_cpu.py", "scripts/cmirank/42_native_multiturn_ppo_gpu.py",
         "scripts/cmirank/29_smoke_corrected_rollout_gpu.py", "scripts/cmirank/run_real_policy_smoke.sh",
         "scripts/cmirank/run_real_policy_with_keeper.sh", "src/cmirank/rewards.py",
@@ -250,7 +264,10 @@ def native_training_batch(observations, scores, advantages, returns, c, role, to
     tu.assign_non_tensor(data, use_remove_padding=False, use_fused_kernels=False,
         calculate_entropy=False, calculate_sum_pi_squared=False, use_dynamic_bsz=False,
         micro_batch_size_per_gpu=1, global_batch_size=size,
-        max_response_len=max(len(x["response_token_ids"]) for x in observations), return_model_output=False)
+        # VeRL no_padding_2_padding(-1) uses the actual current microbatch
+        # width, matching TensorDict.to_padded_tensor() inside native losses.
+        # A fixed global maximum mismatches shorter microbatches (10 vs9).
+        max_response_len=-1, return_model_output=False)
     return data
 
 

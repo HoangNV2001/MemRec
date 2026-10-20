@@ -1,0 +1,7 @@
+{
+  "schema_version": 2,
+  "inherits": "configs/cmirank/ppo_lora_multiturn_v1.json",
+  "prepare_run_id": "cmirank-lora-multiturn-data-v2-20261020-hnv",
+  "run_id": "cmirank-lora-multiturn-smoke-v2-20261020-hnv",
+  "reason": "Use native dynamic per-microbatch response padding (-1), not a fixed global response width; preserve the failed v1 CPU launch log and all scientific/resource settings."
+}

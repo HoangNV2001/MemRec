@@ -2273,6 +2273,52 @@ secondary cohort may contain validation users and is NOT a training substitute.
 Full-run budget/held-out opening/primary replacement remain separate decisions.
 No new scientific result is inferred from completing infrastructure gates.
 
+**Execution launched20/10:** source **d160c81c4e04b656bd56a276ec25813526e54da4**,
+620 local tests PASS6.71s/compile/shell/diff checks PASS, pushed and clean-deployed.
+Existing shared SSH master7509 reused, foreground session**40952**. CPU41 is
+running in the existing allocation with CUDA hidden; no terminal CPU result
+yet at the single inspection. The same foreground chain proceeds to the
+original GPU1 wrapper **only if CPU exits successfully**, dynamically resolves
+the then-current keeper1 under standing authority, and restores it on terminal
+GPU paths. Observed keeper1.595/keeper0.574/independent bash.597; only the exact
+verified keeper1 is eligible for handoff. No research train/GPU PASS claimed
+from launch. Indicative CPU1–3min plus GPU10–20min; caps remain600s/25min.
+Resume this same session once on continuation; no source redeploy or local
+SSH polling while active. Terminal GPU cleanup and keeper receipts must be
+reviewed before any promotion or Books run.
+
+### 0.62 Multi-turn CPU v1 integration failure; dynamic-padding v2 retry — 2026-10-20
+
+Foreground40952 exited1 in CPU41, before run-directory creation or any GPU
+handoff/generation/update. The retained launch log shows the native policy
+loss rejecting response widths **10 versus9**. This is a TensorDict packing
+bug in our adapter, not a model/reward/learning-quality result. GPU1 keeper595
+remained active; the GPU run directory does not exist, reservation untouched.
+
+The pinned native `no_padding_2_padding` accepts **max_response_len=-1** to
+derive the current microbatch's response width. Our adapter instead supplied
+the global mini-batch maximum, while native `ppo_loss`/`value_loss` independently
+pad jagged old-policy/value fields at the current microbatch width. With
+micro1 and variable-length responses this produces10-wide model outputs but
+9-wide loss fields. Prior equal-length smoke did not exercise this mismatch;
+the20-full-episode CPU gate correctly caught it before GPU work.
+
+New isolated profile `ppo_lora_multiturn_v2.json` changes run namespaces and
+the adapter's native padding sentinel only. Native framework, prompts, fixed
+seed/20 requests, sampler/caps, reward/GAE/KL, LoRA scope/LRs,5 updates per role
+and resource constraints stay unchanged. No response truncation/padding tokens
+are added to the observed trajectory. CPU41 now explicitly compares native
+output and native loss-field widths for all360 probes and records each length;
+local tests cover actor/critic jagged fields and unchanged v1→v2 contracts.
+The original failed v1 launch log remains immutable, not relabelled PASS.
+Retrieved launch-log SHA **d6c1bcd93f1816141a99e44396d6d861cbddb3625135796a918c0c214ee51014**;
+local suite **623 tests PASS5.63s**, compile/bash syntax/diff checks pass.
+
+After exact-source tests/deploy, rerun CPU20/180-state/nativeGAE/360-loss smoke
+in a fresh v2 directory. Only on successful CPU exit may the same protected
+GPU1 chain sample all20 trajectories and execute native PPO. No research arm,
+primary-memory or held-out promotion follows from this engineering fix.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.

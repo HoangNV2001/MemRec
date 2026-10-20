@@ -7,7 +7,7 @@ from types import ModuleType
 import pytest
 
 from src.cmirank.multiturn_ppo import (load_multiturn_config, sample_trajectories,
-    validate_episodes, episode_gae)
+    validate_episodes, episode_gae, native_training_batch)
 from src.cmirank.format_sft import synthetic_request
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -119,3 +119,46 @@ def test_shared_wrappers_keep_original_guarded_handoff_and_restore():
     source = (ROOT/"scripts/cmirank/29_smoke_corrected_rollout_gpu.py").read_text()
     assert source.index('stop_owned(server, str(checkpoint))') < source.index('validate_episodes(observations, episodes, rows)')
     assert 'worker_report["optimizer_updates"] != 10' in source
+
+
+def test_padding_retry_preserves_method_and_resource_contract():
+    old, _ = load_multiturn_config(ROOT, version=1)
+    new, _ = load_multiturn_config(ROOT)
+    changes = {k for k in old.keys() | new.keys() if old.get(k) != new.get(k)}
+    assert changes == {"schema_version", "prepare_run_id", "run_id", "reason", "inherits"}
+    assert old["data_seed"] == new["data_seed"]
+
+
+@pytest.mark.parametrize("role", ["actor", "critic"])
+def test_jagged_response_padding_is_dynamic_per_microbatch(monkeypatch, role):
+    torch = pytest.importorskip("torch")
+    from types import SimpleNamespace
+    c, _, obs, _, _ = fixtures()
+    # Minimal TensorDict metadata double only; real Torch jagged tensors.
+    # CPU41 independently tests the installed VeRL loss/padding implementation.
+    class TensorDict(dict):
+        def __init__(self, fields, batch_size):
+            super().__init__(fields)
+            self.batch_size = batch_size
+            self.metadata = {}
+    monkeypatch.setitem(sys.modules, "tensordict", SimpleNamespace(TensorDict=TensorDict))
+    tu = SimpleNamespace(assign_non_tensor=lambda data, **kwargs: data.metadata.update(kwargs))
+    monkeypatch.setitem(sys.modules, "verl.utils", SimpleNamespace(tensordict_utils=tu))
+    def correction(delta, mask, **kwargs):
+        return torch.exp(delta.sum(-1)).clamp(max=2)[:, None].expand_as(delta), {}
+    monkeypatch.setitem(sys.modules, "verl.trainer.ppo.rollout_corr_helper",
+        SimpleNamespace(compute_rollout_correction_weights=correction))
+    rows = obs[:3]
+    ns = [len(r["response_token_ids"]) for r in rows]
+    assert len(set(ns)) > 1
+    scores = [{"old_logprobs": [-2.0]*n, "reference_logprobs": [-2.1]*n,
+        "critic_values": [0.1]*n} for n in ns]
+    advantages = [torch.ones(n) for n in ns]
+    returns = [torch.ones(n)*0.5 for n in ns]
+    batch = native_training_batch(rows, scores, advantages, returns, c, role, torch)
+    assert batch.metadata["max_response_len"] == -1
+    for i, n in enumerate(ns):
+        assert batch["responses"][i].numel() == batch["response_mask"][i].numel() == n
+        for field in (("old_log_probs", "ref_log_prob", "advantages", "rollout_is_weights")
+                if role == "actor" else ("values", "returns")):
+            assert batch[field][i].numel() == n

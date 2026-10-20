@@ -72,6 +72,7 @@ def main():
     from verl.workers.config.critic import CriticConfig
     from verl.workers.engine.fsdp.transformer_impl import FSDPEngineWithLMHead, prepare_micro_batches
     from verl.workers.utils.losses import ppo_loss, value_loss
+    from verl.workers.utils.padding import no_padding_2_padding
     from verl.trainer.ppo.core_algos import compute_gae_advantage_return
     from verl.utils import tensordict_utils as tu
     from vllm.entrypoints.openai.completion.protocol import CompletionRequest
@@ -126,20 +127,26 @@ def main():
                 current = torch.cat((torch.zeros(p-1), micro[field].values().detach(), torch.zeros(1))).requires_grad_()
                 output = {"log_probs" if role == "actor" else "values":
                     torch.nested.as_nested_tensor([current], layout=torch.jagged)}
+                aligned = no_padding_2_padding(next(iter(output.values())), micro)
+                padded_field = micro.select(field).to_padded_tensor()[field]
+                if aligned.shape != padded_field.shape:
+                    raise ValueError("Native output and loss-field response padding disagree")
                 loss, _ = fn(config, output, micro)
                 loss.backward()
                 if (not torch.isfinite(loss) or not torch.isfinite(current.grad).all()
                         or current.grad[:p-1].count_nonzero() or current.grad[-1] != 0):
                     raise ValueError("Native CPU loss/response-only gradients invalid")
                 probes.append({"role": role, "user_id": obs["user_id"], "turn": obs["turn"],
-                    "loss": float(loss.detach()), "prompt_gradient_zero": True})
+                    "loss": float(loss.detach()), "prompt_gradient_zero": True,
+                    "response_tokens_including_eos": len(obs["response_token_ids"]),
+                    "native_output_width": aligned.shape[-1], "native_loss_field_width": padded_field.shape[-1]})
     if torch.cuda.is_initialized():
         raise ValueError("CPU rehearsal initialized CUDA")
     run.mkdir()
     for name, rows in (("requests", requests), ("probes", probes), ("gae-probes", audits)):
         (run/f"{name}.jsonl").write_text("".join(json.dumps(x, sort_keys=True)+"\n" for x in rows))
     sources = dict(parent["native_source_sha256"])
-    for obj in (compute_gae_advantage_return, ppo_loss, value_loss, prepare_micro_batches):
+    for obj in (compute_gae_advantage_return, ppo_loss, value_loss, prepare_micro_batches, no_padding_2_padding):
         file = Path(inspect.getfile(obj))
         sources[str(file.relative_to(Path(sys.prefix)))] = file_sha256(file)
     report = {**{k: parent[k] for k in ("roles", "targets", "overlay_sha256", "checkpoint_stat",
@@ -147,6 +154,8 @@ def main():
         "status": "MULTITURN_PPO_CPU20_PASS_GPU_GATE_REMAINS", "source_commit": commit,
         "config_sha256": file_sha256(path), "code_sha256": multiturn_code_hashes(ROOT),
         "episodes": 20, "turns": 180, "native_loss_probes": 360, "gpu_requested": False,
+        "response_length_variants": sorted({len(o["response_token_ids"]) for o in observations}),
+        "native_dynamic_microbatch_padding": True,
         "optimizer_updates": 0, "training_ready": False, "books_outcomes_accessed": False,
         "host_budget": host, "checkpoint_budget": budget, "native_source_sha256": sources,
         "artifact_sha256": {p.name: file_sha256(p) for p in run.glob("*.jsonl")},
