@@ -316,7 +316,7 @@ def test_v2_binding_delta_preserves_entire_memory_experiment():
     assert effective == base
     assert sha != base_sha
     with pytest.raises(ValueError):
-        load_memory_contract(ROOT, 8)
+        load_memory_contract(ROOT, 9)
 
 
 def test_numeric_binding_requires_inventory_uuid_and_pci_order_agreement():

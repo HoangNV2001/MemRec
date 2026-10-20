@@ -1,0 +1,17 @@
+{
+  "schema_version": 8,
+  "inherits": "configs/cmirank/real_memory_smoke_v6.json",
+  "run_id": "cmirank-primary-train-memory-smoke-v8-20261020-hnv",
+  "prepare_run_id": "cmirank-primary-train-memory-data-v8-20261020-hnv",
+  "cohort": "locked_policy_train_only",
+  "selection_seed": "cmirank-primary-train20-v1-20261020",
+  "selection": "first20_sha256_seed_colon_user_id_then_execute_sorted_user_id",
+  "comparison_role": "primary_upstream_aligned_train20_only_not_full_cache",
+  "gpu_index": 1,
+  "decoding_changes": false,
+  "output_repair": false,
+  "ppo_smoke_run_id": "cmirank-lora-multiturn-smoke-v4-20261020-hnv",
+  "ppo_smoke_report_sha256": "6a871dd9e42d4777d9d66d5ea1e935f8e1c8d4ba5855001b5025acbe541d4848",
+  "ppo_smoke_worker_sha256": "89089ff63e7d5e6f117eb35b0569294dde4a506087ebd93e4bd3f2ebb2b7b36c",
+  "training_ready": false
+}

@@ -28,7 +28,7 @@ def load_memory_contract(root: Path, version: int) -> tuple[dict, str]:
     base_sha = file_sha256(base_path)
     if version == 1:
         return config, base_sha
-    if version not in (2, 3, 4, 5, 6, 7):
+    if version not in (2, 3, 4, 5, 6, 7, 8):
         raise ValueError("Unsupported memory smoke version")
     delta_path = root / "configs/cmirank/real_memory_smoke_v2.json"
     delta = json.loads(delta_path.read_text())
@@ -123,6 +123,24 @@ def load_memory_contract(root: Path, version: int) -> tuple[dict, str]:
         config["run_id"] = control_delta["run_id"]
         config["constrained_decoding_delta"] = control_delta
         hashes["constrained_decoding_delta_sha256"] = file_sha256(control_path)
+    if version == 8:
+        primary_path = root / "configs/cmirank/real_memory_smoke_v8.json"
+        delta = json.loads(primary_path.read_text())
+        fixed = {"schema_version": 8, "inherits": "configs/cmirank/real_memory_smoke_v6.json",
+            "run_id": "cmirank-primary-train-memory-smoke-v8-20261020-hnv",
+            "prepare_run_id": "cmirank-primary-train-memory-data-v8-20261020-hnv",
+            "cohort": "locked_policy_train_only", "selection_seed": "cmirank-primary-train20-v1-20261020",
+            "selection": "first20_sha256_seed_colon_user_id_then_execute_sorted_user_id",
+            "comparison_role": "primary_upstream_aligned_train20_only_not_full_cache",
+            "gpu_index": 1, "decoding_changes": False, "output_repair": False,
+            "ppo_smoke_run_id": "cmirank-lora-multiturn-smoke-v4-20261020-hnv",
+            "ppo_smoke_report_sha256": "6a871dd9e42d4777d9d66d5ea1e935f8e1c8d4ba5855001b5025acbe541d4848",
+            "ppo_smoke_worker_sha256": "89089ff63e7d5e6f117eb35b0569294dde4a506087ebd93e4bd3f2ebb2b7b36c",
+            "training_ready": False}
+        if delta != fixed or any(type(delta[k]) is not type(v) for k, v in fixed.items()):
+            raise ValueError("Primary train20 cohort must not alter provider, sampler, decoding or hard gates")
+        config.update(delta)
+        hashes["primary_train20_delta_sha256"] = file_sha256(primary_path)
     return config, object_sha256(hashes)
 
 

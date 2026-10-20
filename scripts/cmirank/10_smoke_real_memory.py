@@ -152,7 +152,7 @@ def main() -> None:
     parser.add_argument("--index-dir", type=Path, required=True)
     parser.add_argument("--candidate-run-dir", type=Path, required=True)
     parser.add_argument("--audit-dir", type=Path, required=True)
-    parser.add_argument("--contract-version", choices=(1, 2, 3, 4, 5, 6, 7), type=int, default=4)
+    parser.add_argument("--contract-version", choices=(1, 2, 3, 4, 5, 6, 7, 8), type=int, default=4)
     parser.add_argument("--owner-confirmed-generator-step")
     args = parser.parse_args()
     config, contract_sha = load_memory_contract(ROOT, args.contract_version)
@@ -168,7 +168,7 @@ def main() -> None:
             or subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=no"], cwd=ROOT, text=True)):
         raise ValueError("Exact clean deployed source required")
     job = require_allocation()
-    if args.owner_confirmed_generator_step and args.contract_version not in (4, 5, 7):
+    if args.owner_confirmed_generator_step and args.contract_version not in (4, 5, 7, 8):
         raise ValueError("Owner-confirmed handoff is limited to v4/v5 or the approved v7 control")
     os.environ["CUDA_VISIBLE_DEVICES"] = ""  # CPU preparation never selects CUDA.
     run.mkdir()
@@ -201,7 +201,12 @@ def main() -> None:
                     or cpu_report["new_llm_requests"] != 0 or cpu_report["gpu_requested"]
                     or file_sha256(cpu_dir / "compiled-input-domains.jsonl") != cpu_report["schema_domains_sha256"]):
                 raise ValueError("V7 requires exact-source completed CPU input-domain/grammar smoke")
-        user_ids = smoke_user_ids(sorted(inputs["warmups"]), recipes["episode_config"])
+        if args.contract_version == 8:
+            from src.cmirank.primary_memory import primary_user_ids, verify_primary_preparation
+            user_ids = primary_user_ids(inputs, config)
+            cpu = verify_primary_preparation(private_root, ROOT, config, contract_sha, inputs, user_ids, commit, job)
+        else:
+            user_ids = smoke_user_ids(sorted(inputs["warmups"]), recipes["episode_config"])
         metadata_path = ROOT / "data/processed/instructrec-books/instructrec-books.meta"
         if file_sha256(metadata_path) != recipes["config"]["metadata_sha256"]:
             raise ValueError("Static metadata changed")
@@ -237,12 +242,20 @@ def main() -> None:
         if args.contract_version == 7:
             manifest["cpu_decoding_smoke_report_sha256"] = file_sha256(cpu_dir / "report.json")
             manifest["decoder_code_sha256"] = file_sha256(ROOT / "src/cmirank/constrained_decoding.py")
+        if args.contract_version == 8:
+            if file_sha256(model_path/"download-complete-hnv.json") != cpu["teacher_marker_sha256"]:
+                raise ValueError("Primary teacher changed since CPU preparation")
+            manifest["comparison_role"] = config["comparison_role"]
+            manifest["policy_train_only"] = True
+            manifest["cpu_prepare_report_sha256"] = file_sha256(private_root/"runs"/config["prepare_run_id"]/"report.json")
         (run / "manifest.json").write_text(artifact_json_dumps(manifest))
         if args.owner_confirmed_generator_step:
             # All data/checkpoint/metadata preparation is complete: only now
             # stop the exact current generator confirmed by the researcher.
             from src.cmirank.reserved_handoff import handoff
-            manifest["gpu1_handoff"] = handoff(run, args.owner_confirmed_generator_step)
+            manifest["gpu1_handoff"] = handoff(run, args.owner_confirmed_generator_step,
+                protect_other_workloads=True, task_timeout_seconds=config["timeout_minutes"]*60) if args.contract_version == 8 else handoff(
+                    run, args.owner_confirmed_generator_step)
             (run / "manifest.json").write_text(artifact_json_dumps(manifest))
         cards, before_apps = capture_gpu(run, "before")
         card = select_reserved_gpu1(cards, set(before_apps))
@@ -344,6 +357,9 @@ def main() -> None:
                 "comparison_role": "secondary_control_not_primary_replacement", "primary_provider_replaced": False,
                 "controlled_decoding_logical_requests": len(decoding_rows),
                 "candidate_role_warnings_present": bool(result["candidate_context_citation_occurrences"])})
+        if args.contract_version == 8:
+            result.update({"comparison_role": config["comparison_role"], "policy_train_only": True,
+                "selected_validation_users": 0, "constrained_decoding": False})
         (run / "report.json").write_text(artifact_json_dumps(result))
         exit_code = 0
     except BaseException as error:

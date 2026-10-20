@@ -2469,6 +2469,94 @@ v3's7.47min GPU chain plus an as-yet-unmeasured actor update/audit phase; retain
 syntax/diff checks pass. CPU20 native lifecycle and GPU rerun remain required;
 no local-test result is relabelled as a successful full-model actor update.
 
+**V4 launched:** source **fd6f741909e3cf440768c074d0605d2d561bf372**,732 tests
+PASS5.98s/pushed/clean-deployed. Foreground session**39876**, same shared SSH
+master7509, CPU41/4 CPUs/CUDA hidden/600s cap then only on CPU success the
+original GPU1 keeper-protected29/42 chain. Before launch observed keeper1.618,
+GPU0 keeper.605/independent bash.597, same21820/authority/UUID; preserved v3
+failure SHA rechecked. No terminal CPU/GPU PASS or actor update is inferred
+from launch. Resume39876 once; no source redeploy or local SSH polling while
+active. ETA~10–15min total, unchanged caps and mandatory actual model release
+→original keeper1 restoration on success/error/timeout before CPU review/wait.
+
+### 0.65 Both-role PPO smoke reviewed PASS; primary train-only memory next — 2026-10-20
+
+V4 completed under source **fd6f741909e3cf440768c074d0605d2d561bf372**. CPU
+report **7f2e3217e7ad88a7aeb4eff88de2d969a1cee8eec3c3c232f9edfc687b49fbca**,
+57.856s/546 native losses/40 GAE probes/20 actual native-context lifecycle
+probes. GPU report **6a871dd9e42d4777d9d66d5ea1e935f8e1c8d4ba5855001b5025acbe541d4848**;
+worker **89089ff63e7d5e6f117eb35b0569294dde4a506087ebd93e4bd3f2ebb2b7b36c**.
+
+All20 sampled synthetic episodes/124 actual responses were kept:10 valid,
+10 malformed,0 truncated. MPSS valid returns/invalid−1 terminals and native
+gamma=lambda1 GAE preserve response-only episode continuity. **Actor4 +critic4
+native PPO updates**, mini-batches36/36/36/16, fixed LoRA LRs/clip/KL/IS. Every
+update's complete FP32 gradients/Adam states and step counters passed *inside*
+the native context, then gradient cleanup passed outside. Complete before/
+after496 actor and498 critic trainable-tensor fingerprints changed; native
+critic scalar head changed. No new SFT/repair/grammar mask/seed selection.
+
+Native276.292s/controller479.824s (~8min), peak allocated53,772.08MiB
+(52.51GiB), reserved54,478MiB (53.20GiB), processRSS~27.11GiB. Both owned model
+processes exited, actualGPU release1MiB and original keeper1 restored/verified
+before CPU review. Source, CPU artifacts,20 episodes/124 score vectors/8 updates,
+20 reward journals, full tensor-state fingerprints and cleanup/handback were
+independently checked locally. Native cross-engine strict parity FAIL stays
+unchanged; passing IS-corrected integration does not erase it.
+
+**What is now demonstrated:** one-card native LoRA PPO mechanics, including
+sampling, reference scoring, valid/invalid MPSS/GAE, both-role updates and
+cleanup. **Not demonstrated:** format reliability (still50% malformed before
+training), improved ranking, Books PPO learning, a research checkpoint or a
+full warmed memory cache. All8 updates are discarded T0 work. Do not initialize
+the research arm from any deliberately perturbed T0 checkpoint.
+
+**Resource transition:** researcher changed the reservation and reaffirmed
+GPU1-only use and mandatory original keeper restoration. Current allocation
+was rechecked read-only; issue a new job/UUID-bound internal authority receipt,
+preserve the old receipt and old run provenance. Do not relabel historical
+cleanup as belonging to the new allocation. Same physical H100/64GiB host cap;
+GPU0 and reservation remain protected. Concrete infrastructure details stay
+in the ignored internal runbook.
+
+**Next bounded primary-memory step:** new `real_memory_smoke_v8.json` inherits
+the unconstrained upstream-aligned v6 model/prompt/temperature/context/schema/
+fanout/candidate/grounding contract. Choose20 users **only from locked1497
+policy_train**, by SHA256(`cmirank-primary-train20-v1-20261020:<user_id>`), then
+execute sorted IDs. This is frozen before inspecting their model outputs;
+no replacement based on validity, no validation/exposed/held-out queries.
+The common1797-prefix graph/sampler and locked split remain unchanged.
+
+CPU43 must replay20 warmups +20 pseudo queries with the real frozen candidate
+sets/static metadata and FakeJSON client, validate100 native API schemas/token
+caps, capture20 target-blind RankRequests, verify20 Stage-W writes use only
+train[-2], and verify0 pseudo writes. No suffix-aware dataset initialization,
+original instruction/test candidates/outcomes or GPU/model weights. Bind a
+fresh exact-source/current-allocation receipt before handoff.
+
+Only after CPU PASS run original10 via the existing protected keeper wrappers,
+new opt-in `primary_memory`: same Qwen30B FP8 baseline/vLLM0.10.2, TP1,
+100 nominal/110 physical cap, no retry/repair/input-ID enum. Retain candidate
+context citations as approved role warnings; **unknown IDs and schema/write/
+provenance violations remain hard failures**. No silent promotion of the v7
+secondary control. Unload and restore keeper1 before independent semantic/
+provenance review. Expected~15–25min if all100 calls complete (secondary v7
+proxy16.55min, not a new measured primary ETA); baseline90min cap retained.
+
+This20-user warmed state is only a tiny-train pilot, not the canonical1797-user
+cache/full MemRec replication. After a successful independent review, prepare
+matched real RankRequests and restart tiny Books PPO from the untouched
+format-SFT initializer (fresh LoRA/head/Adam), including malformed episodes.
+Full-cache/full-training budget and held-out opening still need separate
+decisions; do not launch them automatically from this smoke's PASS.
+
+**Local qualification for the new phase:**744 tests PASS7.31s, compile/bash
+syntax/diff checks pass. New-allocation authorization tests reject the old
+job-bound receipt and accept a distinct new receipt without rewriting history.
+Primary contract tests preserve baseline decoding/budgets and reject validation
+cohorts, seed search, output repair and hidden GPU changes. Native CPU/GPU
+primary-memory execution and semantic review are still required.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.

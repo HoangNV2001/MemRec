@@ -9,7 +9,7 @@ MEMREC_TASK_KIND=${MEMREC_TASK_KIND:-real_policy}
 export MEMREC_PARITY_CONTRACT_VERSION=${MEMREC_PARITY_CONTRACT_VERSION:-8}
 [[ "$MEMREC_PARITY_CONTRACT_VERSION" == 8 || "$MEMREC_PARITY_CONTRACT_VERSION" == 9 ]] || exit 2
 MEMREC_SFT_PHASE=${MEMREC_SFT_PHASE:-smoke}
-[[ "$MEMREC_TASK_KIND" == real_policy || "$MEMREC_TASK_KIND" == format_sft || "$MEMREC_TASK_KIND" == ppo_compat || "$MEMREC_TASK_KIND" == ppo_parity || "$MEMREC_TASK_KIND" == corrected_rollout || "$MEMREC_TASK_KIND" == actor_optimizer || "$MEMREC_TASK_KIND" == critic_optimizer || "$MEMREC_TASK_KIND" == lora_optimizer || "$MEMREC_TASK_KIND" == lora_checkpoint || "$MEMREC_TASK_KIND" == lora_rollout || "$MEMREC_TASK_KIND" == lora_multiturn ]] || exit 2
+[[ "$MEMREC_TASK_KIND" == real_policy || "$MEMREC_TASK_KIND" == format_sft || "$MEMREC_TASK_KIND" == ppo_compat || "$MEMREC_TASK_KIND" == ppo_parity || "$MEMREC_TASK_KIND" == corrected_rollout || "$MEMREC_TASK_KIND" == actor_optimizer || "$MEMREC_TASK_KIND" == critic_optimizer || "$MEMREC_TASK_KIND" == lora_optimizer || "$MEMREC_TASK_KIND" == lora_checkpoint || "$MEMREC_TASK_KIND" == lora_rollout || "$MEMREC_TASK_KIND" == lora_multiturn || "$MEMREC_TASK_KIND" == primary_memory ]] || exit 2
 [[ "$MEMREC_SFT_PHASE" == smoke || "$MEMREC_SFT_PHASE" == full ]] || exit 2
 MEMREC_ROOT=/mnt/data/users/hoangnv242/memrec-hnv
 cd "$MEMREC_ROOT/repo/MemRec-hnv"
@@ -17,7 +17,9 @@ cd "$MEMREC_ROOT/repo/MemRec-hnv"
 MEMREC_ALLOC_JOB=$(squeue -u hoangnv242 -h -n senvoice-pro-opt -t RUNNING -o %i)
 [[ "$MEMREC_ALLOC_JOB" =~ ^[0-9]+$ && "$(squeue -j "$MEMREC_ALLOC_JOB" -h -o '%u %T %j')" == 'hoangnv242 RUNNING senvoice-pro-opt' ]] || exit 2
 [[ "$MEMREC_OWNER_CONFIRMED_GENERATOR_STEP" =~ ^${MEMREC_ALLOC_JOB}\.[1-9][0-9]*$ ]] || exit 2
-if [[ "$MEMREC_TASK_KIND" == format_sft ]]; then
+if [[ "$MEMREC_TASK_KIND" == primary_memory ]]; then
+  read -r MEMREC_RUN_ID MEMREC_GPU_INDEX < <("$MEMREC_ROOT/envs/llm-hnv/bin/python" -c 'from pathlib import Path;from src.cmirank.memory_smoke import load_memory_contract;c,_=load_memory_contract(Path.cwd(),8);print(c["run_id"],c["gpu_index"])')
+elif [[ "$MEMREC_TASK_KIND" == format_sft ]]; then
   read -r MEMREC_RUN_ID MEMREC_GPU_INDEX < <("$MEMREC_ROOT/envs/llm-hnv/bin/python" -c 'import sys;from pathlib import Path;from src.cmirank.format_sft import load_format_config;c,_=load_format_config(Path.cwd());print(c[sys.argv[1]+"_run_id"],c["gpu_index"])' "$MEMREC_SFT_PHASE")
 elif [[ "$MEMREC_TASK_KIND" == ppo_compat ]]; then
   read -r MEMREC_RUN_ID MEMREC_GPU_INDEX < <("$MEMREC_ROOT/envs/llm-hnv/bin/python" -c 'from pathlib import Path;from src.cmirank.ppo_compat import load_compat_config;c,_=load_compat_config(Path.cwd());print(c["run_id"],c["gpu_index"])')
@@ -41,7 +43,7 @@ else
   read -r MEMREC_RUN_ID MEMREC_GPU_INDEX < <("$MEMREC_ROOT/envs/llm-hnv/bin/python" -c 'import sys;from pathlib import Path;from src.cmirank.policy_smoke import load_policy_smoke_contract;c,_=load_policy_smoke_contract(Path.cwd(),int(sys.argv[1]));print(c["run_id"],c.get("gpu_index",1))' "$MEMREC_POLICY_CONTRACT_VERSION")
 fi
 MEMREC_PROTECTION_ARGS=()
-if [[ "$MEMREC_TASK_KIND" == format_sft || "$MEMREC_TASK_KIND" == ppo_compat || "$MEMREC_TASK_KIND" == ppo_parity || "$MEMREC_TASK_KIND" == corrected_rollout || "$MEMREC_TASK_KIND" == actor_optimizer || "$MEMREC_TASK_KIND" == critic_optimizer || "$MEMREC_TASK_KIND" == lora_optimizer || "$MEMREC_TASK_KIND" == lora_checkpoint || "$MEMREC_TASK_KIND" == lora_rollout || "$MEMREC_TASK_KIND" == lora_multiturn ]]; then
+if [[ "$MEMREC_TASK_KIND" == format_sft || "$MEMREC_TASK_KIND" == ppo_compat || "$MEMREC_TASK_KIND" == ppo_parity || "$MEMREC_TASK_KIND" == corrected_rollout || "$MEMREC_TASK_KIND" == actor_optimizer || "$MEMREC_TASK_KIND" == critic_optimizer || "$MEMREC_TASK_KIND" == lora_optimizer || "$MEMREC_TASK_KIND" == lora_checkpoint || "$MEMREC_TASK_KIND" == lora_rollout || "$MEMREC_TASK_KIND" == lora_multiturn || "$MEMREC_TASK_KIND" == primary_memory ]]; then
   MEMREC_PROTECTION_ARGS=(--protect-other-workloads)
 fi
 MEMREC_RUN_DIR="$MEMREC_ROOT/runs/$MEMREC_RUN_ID"

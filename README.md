@@ -15,6 +15,16 @@ chưa có kết quả train/ranking LoRA. CPU20 scope/roundtrip phải pass trư
 
 ## Trạng thái hiện hành — 2026-10-20
 
+**Mới nhất: smoke PPO hai role đã PASS và review.** Actor4 +critic4 native
+updates, giữ cả20 episode/124 actions (10 valid/10 malformed), MPSS/GAE và
+FP32 gradient/Adam/cleanup audits đạt. Khoảng8 phút GPU, peak52,51GiB; model
+đã nhả và keeper phục hồi. Đây là **8 updates synthetic bỏ đi, chưa train
+Books/chưa có gain ranking**. Bước kế là primary-memory smoke trên20 train
+users, không dùng validation hay lấy cache secondary làm primary.
+Allocation đã được researcher đổi; tiếp tục chỉGPU1, luôn bật lại keeper sau
+task. Các đoạn launch/gate phía dưới là lịch sử.
+[Kết quả và bước tiếp §0.65](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#065-both-role-ppo-smoke-reviewed-pass-primary-train-only-memory-next--2026-10-20).
+
 **Mới nhất20/10:** LoRA rollout/reference v2 đã PASS và được đối chiếu độc lập:
 20/20 responses hợp lệ/60 calls, native cold-restore actor+critic/Adam/RNG
 khớp; reference bằng `disable_adapter()` khớp20 frozen controls (delta0).
@@ -38,14 +48,16 @@ updates (synthetic/bỏ đi), actor0; harness kiểm tra gradient sau lúc nativ
 context đã xóa nó nên gate vẫn FAIL. GPU đã nhả, keeper1 phục hồi.
 Đang sửa đúng lifecycle kiểm tra, không tắt cleanup/nới guard hay đổi recipe
 ([§0.64](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#064-native-gae-and-four-critic-updates-reached-train-context-audit-fix--2026-10-20)).
+V4 source`fd6f741`/732 tests pass đã deploy và khởi chạy chuỗi CPU→GPU1;
+chưa có terminal result/actor update được xác nhận từ lượt mới.
 
 | Phần việc | Bằng chứng / giới hạn |
 |---|---|
 | Benchmark đối chứng | Full MemRec NDCG@5 **0,747918**, SASRec **0,343320**, cùng 200 dev users/candidates; MemRec warm-up 700 users, không phải full-data/paper replication |
 | Data/protocol CM-IRank | Khóa 1.497 train / 300 validation; snapshot target-blind và 3.594 candidate sets v2 đã audit CPU, không có cờ trong 7 probe cố định; chưa chứng minh không còn shortcut |
-| Policy infrastructure | RankRequest/replay, N−1, parser, MPSS có CPU tests; Qwen3.5 synthetic smoke 20/20 và một optimizer update bỏ đi đã pass; **chưa train PPO** |
+| Policy infrastructure | Native MPSS/GAE/PPO smoke đã pass4 actor+4 critic updates, all20 episodes kể cả lỗi; chỉ synthetic/bỏ đi, **chưa train PPO Books** |
 | Real memory | V6 fail đã review; **v7 secondary control + independent review pass**, 20/20 user, 100 calls, 20 warm-up writes / 0 pseudo writes; không chứng minh semantic grounding hay thay primary |
-| Format / PPO runtime | Format-only SFT 256 synthetic examples /64 updates đã xong; full actor/reference/critic compatibility pass. **Chưa PPO**: v8 HF–vLLM parity fail12/20; v9 chẩn đoán đủ80 requests xác nhận drift cả trong cùng server, không chọn lượt tốt nhất để promote |
+| Format / PPO runtime | Format-only SFT 256 examples /64 updates và IS-corrected native PPO smoke đã pass; **chưa PPO Books**. Các strict HF–vLLM parity FAIL lịch sử vẫn giữ, không chọn lượt tốt nhất để promote |
 | Method result | **Chưa có checkpoint/score CM-IRank**; held-out 5.377 users vẫn niêm phong |
 
 **LoRA joint GPU PASS đã review19/10:** hai native4B actor/critic cùng nằm

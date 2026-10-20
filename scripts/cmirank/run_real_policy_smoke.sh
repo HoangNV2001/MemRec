@@ -9,7 +9,7 @@ MEMREC_TASK_KIND=${MEMREC_TASK_KIND:-real_policy}
 export MEMREC_PARITY_CONTRACT_VERSION=${MEMREC_PARITY_CONTRACT_VERSION:-8}
 [[ "$MEMREC_PARITY_CONTRACT_VERSION" == 8 || "$MEMREC_PARITY_CONTRACT_VERSION" == 9 ]] || exit 2
 MEMREC_SFT_PHASE=${MEMREC_SFT_PHASE:-smoke}
-[[ "$MEMREC_TASK_KIND" == real_policy || "$MEMREC_TASK_KIND" == format_sft || "$MEMREC_TASK_KIND" == ppo_compat || "$MEMREC_TASK_KIND" == ppo_parity || "$MEMREC_TASK_KIND" == corrected_rollout || "$MEMREC_TASK_KIND" == actor_optimizer || "$MEMREC_TASK_KIND" == critic_optimizer || "$MEMREC_TASK_KIND" == lora_optimizer || "$MEMREC_TASK_KIND" == lora_checkpoint || "$MEMREC_TASK_KIND" == lora_rollout || "$MEMREC_TASK_KIND" == lora_multiturn ]] || exit 2
+[[ "$MEMREC_TASK_KIND" == real_policy || "$MEMREC_TASK_KIND" == format_sft || "$MEMREC_TASK_KIND" == ppo_compat || "$MEMREC_TASK_KIND" == ppo_parity || "$MEMREC_TASK_KIND" == corrected_rollout || "$MEMREC_TASK_KIND" == actor_optimizer || "$MEMREC_TASK_KIND" == critic_optimizer || "$MEMREC_TASK_KIND" == lora_optimizer || "$MEMREC_TASK_KIND" == lora_checkpoint || "$MEMREC_TASK_KIND" == lora_rollout || "$MEMREC_TASK_KIND" == lora_multiturn || "$MEMREC_TASK_KIND" == primary_memory ]] || exit 2
 [[ "$MEMREC_SFT_PHASE" == smoke || "$MEMREC_SFT_PHASE" == full ]] || exit 2
 MEMREC_ROOT=/mnt/data/users/hoangnv242/memrec-hnv
 cd "$MEMREC_ROOT/repo/MemRec-hnv"
@@ -21,7 +21,13 @@ export XDG_CACHE_HOME="$MEMREC_ROOT/cache" HF_HOME="$MEMREC_ROOT/cache/huggingfa
 export HF_HUB_CACHE="$HF_HOME/hub" TORCH_HOME="$MEMREC_ROOT/cache/torch" TMPDIR="$MEMREC_ROOT/cache/tmp"
 export OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 TOKENIZERS_PARALLELISM=false HF_HUB_OFFLINE=1 PYTHONUNBUFFERED=1
 MEMREC_PYTHON="$MEMREC_ROOT/envs/cmirank-qwen35-t513-hnv/bin/python"
-if [[ "$MEMREC_TASK_KIND" == format_sft ]]; then
+if [[ "$MEMREC_TASK_KIND" == primary_memory ]]; then
+  MEMREC_PYTHON="$MEMREC_ROOT/envs/llm-hnv/bin/python"
+  unset PYTHONPATH
+  read -r RUN_ID MEMREC_GPU_INDEX MEMREC_TIMEOUT < <("$MEMREC_PYTHON" -c 'from pathlib import Path;from src.cmirank.memory_smoke import load_memory_contract;c,_=load_memory_contract(Path.cwd(),8);print(c["run_id"],c["gpu_index"],c["timeout_minutes"])')
+  MEMREC_TASK_SCRIPT=scripts/cmirank/10_smoke_real_memory.py
+  MEMREC_TASK_ARGS=(--contract-version 8 --index-dir "$MEMREC_ROOT/runs/cmirank-minilm-candidate-index-v2-20261001-hnv" --candidate-run-dir "$MEMREC_ROOT/runs/cmirank-policy-candidates-v2-20261005-hnv" --audit-dir "$MEMREC_ROOT/runs/cmirank-shortcut-audit-v2-20261005-hnv")
+elif [[ "$MEMREC_TASK_KIND" == format_sft ]]; then
   read -r RUN_ID MEMREC_GPU_INDEX MEMREC_TIMEOUT < <("$MEMREC_PYTHON" -c 'import sys;from pathlib import Path;from src.cmirank.format_sft import load_format_config;c,_=load_format_config(Path.cwd());print(c[sys.argv[1]+"_run_id"],c["gpu_index"],c["timeout_minutes"])' "$MEMREC_SFT_PHASE")
   MEMREC_TASK_SCRIPT=scripts/cmirank/16_train_format_sft_gpu.py
   MEMREC_TASK_ARGS=(--phase "$MEMREC_SFT_PHASE")
