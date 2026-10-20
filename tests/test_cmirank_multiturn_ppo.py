@@ -7,8 +7,9 @@ from types import ModuleType
 import pytest
 
 from src.cmirank.multiturn_ppo import (load_multiturn_config, sample_trajectories,
-    validate_episodes, episode_gae, native_training_batch)
+    validate_episodes, episode_gae, native_training_batch, episode_groups, minibatch_slices)
 from src.cmirank.format_sft import synthetic_request
+from src.cmirank.rewards import malformed_mpss_rewards
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -117,13 +118,13 @@ def test_shared_wrappers_keep_original_guarded_handoff_and_restore():
         assert '"$MEMREC_TASK_KIND" == lora_multiturn' in source
         assert "scancel" not in source and "trap" in source
     source = (ROOT/"scripts/cmirank/29_smoke_corrected_rollout_gpu.py").read_text()
-    assert source.index('stop_owned(server, str(checkpoint))') < source.index('validate_episodes(observations, episodes, rows)')
-    assert 'worker_report["optimizer_updates"] != 10' in source
+    assert source.index('stop_owned(server, str(checkpoint))') < source.index('validate_episodes(observations, episodes, rows,')
+    assert 'worker_report["optimizer_updates"] != expected_updates' in source
 
 
 def test_padding_retry_preserves_method_and_resource_contract():
     old, _ = load_multiturn_config(ROOT, version=1)
-    new, _ = load_multiturn_config(ROOT)
+    new, _ = load_multiturn_config(ROOT, version=2)
     changes = {k for k in old.keys() | new.keys() if old.get(k) != new.get(k)}
     assert changes == {"schema_version", "prepare_run_id", "run_id", "reason", "inherits"}
     assert old["data_seed"] == new["data_seed"]
@@ -162,3 +163,93 @@ def test_jagged_response_padding_is_dynamic_per_microbatch(monkeypatch, role):
         for field in (("old_log_probs", "ref_log_prob", "advantages", "rollout_is_weights")
                 if role == "actor" else ("values", "returns")):
             assert batch[field][i].numel() == n
+
+
+@pytest.mark.parametrize("prefix_length", range(9))
+@pytest.mark.parametrize("target_index", range(10))
+def test_every_malformed_prefix_has_exact_minus_one_without_target_credit(prefix_length, target_index):
+    labels = [f"C{i:02d}" for i in range(10)]
+    prefix = labels[:prefix_length]
+    rewards = malformed_mpss_rewards(labels, prefix, labels[target_index])
+    assert len(rewards) == prefix_length+1
+    assert sum(rewards) == pytest.approx(-1, abs=1e-12)
+    assert rewards[-1] <= -1
+
+
+def mixed_fixtures():
+    c, requests, obs, episodes, _ = fixtures()
+    observed, terminal = [], []
+    for i, episode in enumerate(episodes):
+        if i % 2:
+            observed.extend(deepcopy(obs[i*9:(i+1)*9])); terminal.append(deepcopy(episode))
+        else:
+            bad = i % 9
+            group = deepcopy(obs[i*9:i*9+bad+1])
+            group[-1].update(raw_text="<answer>C99</answer>", format_valid=False)
+            observed.extend(group)
+            terminal.append({**episode, "exclusions": episode["exclusions"][:bad],
+                "valid": False, "survivor": None})
+    return c, requests, observed, terminal
+
+
+def test_malformed_branch_retains_all20_no_retry_fill_filter_or_quality_rescue():
+    c, requests, obs, episodes = mixed_fixtures()
+    validate_episodes(obs, episodes, requests, allow_malformed=True)
+    assert len(episodes) == 20 and sum(e["valid"] for e in episodes) == 10
+    groups = episode_groups(obs, episodes)
+    assert sum(map(len, groups)) == len(obs) < 180
+    assert all(g[-1]["format_valid"] == e["valid"] for g, e in zip(groups, episodes))
+    with pytest.raises(ValueError):
+        validate_episodes(obs, episodes, requests)
+    slices = minibatch_slices(len(obs), c)
+    assert [i for sl in slices for i in range(sl.start, sl.stop)] == list(range(len(obs)))
+    assert all(sl.stop-sl.start <= 36 for sl in slices)
+
+
+@pytest.mark.parametrize("mutation", ["lost_invalid_response", "invented_survivor", "resume_after_invalid", "hide_invalid_flag"])
+def test_malformed_branch_still_fails_closed_on_corrupted_trajectories(mutation):
+    _, requests, obs, episodes = mixed_fixtures()
+    if mutation == "lost_invalid_response":
+        obs.pop(0)
+    elif mutation == "invented_survivor":
+        episodes[0]["survivor"] = "C00"
+    elif mutation == "resume_after_invalid":
+        obs.insert(1, deepcopy(obs[0]))
+    else:
+        obs[0]["format_valid"] = True
+    with pytest.raises(ValueError):
+        validate_episodes(obs, episodes, requests, allow_malformed=True)
+
+
+def test_mixed_native_gae_adapter_keeps_invalid_response_and_minus_one_terminal(monkeypatch):
+    torch = pytest.importorskip("torch")
+    c, requests, obs, episodes = mixed_fixtures()
+    validate_episodes(obs, episodes, requests, allow_malformed=True)
+    module = ModuleType("verl.trainer.ppo.core_algos")
+    def gae(reward, value, mask, gamma, lam):
+        returns = torch.flip(torch.cumsum(torch.flip(reward, [-1]), -1), [-1])
+        return (returns-value)*mask, returns*mask
+    module.compute_gae_advantage_return = gae
+    monkeypatch.setitem(sys.modules, "verl.trainer.ppo.core_algos", module)
+    adv, ret, audits = episode_gae(obs, episodes, [[0.2]*len(o["response_token_ids"]) for o in obs], c, torch)
+    assert len(adv) == len(ret) == len(obs)
+    offset = 0
+    for group, audit in zip(episode_groups(obs, episodes), audits):
+        expected = audit["expected_ndcg5"] if audit["valid"] else -1.0
+        assert audit["episode_return"] == pytest.approx(expected)
+        assert float(ret[offset][0]) == pytest.approx(expected, abs=1e-6)
+        if not audit["valid"]:
+            assert audit["expected_ndcg5"] == 0 and audit["target_rank"] is None
+        offset += len(group)
+
+
+@pytest.mark.parametrize("key,value", [("invalid_format_penalty", -0.1), ("train_invalid_trajectories", False),
+    ("invalid_terminal_metric", 1.0), ("max_optimizer_updates", 12)])
+def test_invalid_branch_does_not_tune_penalty_or_hide_failure(tmp_path, key, value):
+    folder = tmp_path/"configs/cmirank"; folder.mkdir(parents=True)
+    for src in (ROOT/"configs/cmirank").glob("*.json"):
+        (folder/src.name).write_bytes(src.read_bytes())
+    path = folder/"ppo_lora_multiturn_v3.json"
+    c = json.loads(path.read_text()); c[key] = value; path.write_text(json.dumps(c))
+    with pytest.raises(ValueError):
+        load_multiturn_config(tmp_path)

@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from src.cluster_runtime import require_allocation, require_project_root
 from src.cmirank.multiturn_ppo import (load_multiturn_config, verify_multiturn_preparation,
-    validate_episodes, episode_gae, native_training_batch)
+    validate_episodes, episode_gae, native_training_batch, minibatch_slices)
 from src.cmirank.lora import audit_scope
 from src.cmirank.lora_joint import native_model_config, native_engine_config, native_optimizer_config
 from src.cmirank.lora_checkpoint import native_checkpoint_config, train_state_fingerprint
@@ -54,7 +54,9 @@ def main():
         raise ValueError("Physical sampled trajectory artifacts changed")
     observations = list(map(json.loads, (run/"generated.jsonl").read_text().splitlines()))
     episodes = list(map(json.loads, (run/"episodes.jsonl").read_text().splitlines()))
-    validate_episodes(observations, episodes, rows)
+    validate_episodes(observations, episodes, rows,
+        allow_malformed=c.get("train_invalid_trajectories", False))
+    batches = minibatch_slices(len(observations), c)
     def interrupted(signum, frame):
         raise InterruptedError(f"Owned native PPO worker interrupted by signal {signum}")
     signal.signal(signal.SIGTERM, interrupted)
@@ -110,7 +112,7 @@ def main():
             if before[role] != audit["train_state_before"]:
                 raise ValueError("Cold restore differs from known discarded T0 checkpoint")
             scores[role] = readouts(engine, role)
-            print(json.dumps({"event": "native_scored", "role": role, "actions": 180,
+            print(json.dumps({"event": "native_scored", "role": role, "actions": len(observations),
                 "elapsed_seconds": time.monotonic()-began}), flush=True)
         reference = readouts(engines["actor"], "actor", reference=True)
         if train_state_fingerprint(engines["actor"]) != before["actor"]:
@@ -123,16 +125,16 @@ def main():
         advantages, returns, audits = episode_gae(observations, episodes, scores["critic"], c, torch, "cuda:0")
         for audit in audits:
             append("gae", audit)
-        # Fixed180 action rows =>5 optimizer updates/role. The9-turn return
-        # continuity has already been computed before splitting mini-batches.
+        # All actual responses, including terminal malformed outputs, contribute
+        # to PPO. Keep the last partial mini-batch with its true normalization.
         for role in ("critic", "actor"):
             engine = engines[role]
             cls, loss_fn = (ActorConfig, ppo_loss) if role == "actor" else (CriticConfig, value_loss)
             extra = {"use_kl_loss": True, "kl_loss_coef": c["kl_coef"], "kl_loss_type": c["kl_loss_type"]} if role == "actor" else {}
-            config = cls(strategy="fsdp", rollout_n=1, ppo_mini_batch_size=36,
-                ppo_micro_batch_size_per_gpu=1, use_dynamic_bsz=False, **extra)
-            for step, start in enumerate(range(0, 180, 36), 1):
-                sl = slice(start, start+36)
+            for step, sl in enumerate(batches, 1):
+                size = sl.stop-sl.start
+                config = cls(strategy="fsdp", rollout_n=1, ppo_mini_batch_size=size,
+                    ppo_micro_batch_size_per_gpu=1, use_dynamic_bsz=False, **extra)
                 data = native_training_batch(observations[sl], scored[sl], advantages[sl], returns[sl],
                     c, role, torch, "cuda:0")
                 if any(g["lr"] != c[f"{role}_lr"] for g in engine.optimizer.param_groups):
@@ -143,7 +145,7 @@ def main():
                 norm = float(output["metrics"]["grad_norm"])
                 if not math.isfinite(norm) or norm <= 0:
                     raise ValueError("Native PPO gradient zero/nonfinite")
-                append("updates", {"role": role, "optimizer_update": step, "actions": 36,
+                append("updates", {"role": role, "optimizer_update": step, "actions": size,
                     "grad_norm": norm, "lr": c[f"{role}_lr"], "discarded": True,
                     "elapsed_seconds": time.monotonic()-began})
                 print(json.dumps({"event": "native_ppo_update", "role": role, "step": step,
@@ -160,8 +162,9 @@ def main():
                         raise ValueError("Frozen backbone/vision received PPO gradient/state")
                     continue
                 grad = p.grad.to_local() if hasattr(p.grad, "to_local") else p.grad
-                if grad is None or grad.dtype != torch.float32 or not torch.isfinite(grad).all() or float(state["step"]) != 6:
-                    raise ValueError("Every adapter/head needs finite FP32 gradient and five actual new Adam steps")
+                if (grad is None or grad.dtype != torch.float32 or not torch.isfinite(grad).all()
+                        or float(state["step"]) != 1+len(batches)):
+                    raise ValueError("Every adapter/head needs finite FP32 gradient and all actual new Adam steps")
                 for key in ("exp_avg", "exp_avg_sq"):
                     moment = state[key].to_local() if hasattr(state[key], "to_local") else state[key]
                     if moment.dtype != torch.float32 or not torch.isfinite(moment).all():
@@ -170,11 +173,13 @@ def main():
                     head_changed |= before[role][name]["parameter"] != after[name]["parameter"]
             if not head_changed:
                 raise ValueError("Native critic scalar head was not updated")
-            results[role] = {"optimizer_updates": 5, "trainable_tensors": len(after),
+            results[role] = {"optimizer_updates": len(batches), "trainable_tensors": len(after),
                 "state_changed": True, "scalar_head_changed": head_changed if role == "critic" else None}
             (run/f"{role}-state-audit.json").write_text(artifact_json_dumps({"before": before[role], "after": after}))
-        report = {"status": c["worker_status"], "source_commit": commit, "episodes": 20, "actions": 180,
-            "optimizer_updates": 10, "roles": results, "native_episode_continuous_gae": True,
+        report = {"status": c["worker_status"], "source_commit": commit, "episodes": 20, "actions": len(observations),
+            "valid_episodes": sum(e["valid"] for e in episodes),
+            "malformed_episodes": sum(not e["valid"] for e in episodes),
+            "optimizer_updates": 2*len(batches), "roles": results, "native_episode_continuous_gae": True,
             "gamma": 1.0, "gae_lambda": 1.0, "mpss_exact_return": True, "discard_update": True,
             "training_ready": False, "books_outcomes_accessed": False, "ranking_metrics_computed": False,
             "research_checkpoint_produced": False, "sampler_and_train_sequential": True,

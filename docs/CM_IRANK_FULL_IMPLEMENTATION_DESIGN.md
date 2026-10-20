@@ -2319,6 +2319,83 @@ in a fresh v2 directory. Only on successful CPU exit may the same protected
 GPU1 chain sample all20 trajectories and execute native PPO. No research arm,
 primary-memory or held-out promotion follows from this engineering fix.
 
+**V2 launched:** source **fe762de8a6223ca9ecb30940105bf1092b92e40f**,623 local
+tests PASS5.63s/pushed/clean-deployed. Existing SSH master7509 reused; foreground
+session**4479** runs CPU41 with CUDA hidden/4 CPUs/600s cap, then only on success
+the original protected GPU1 keeper wrapper. The immutable v1 log SHA was checked
+again before execution. Current observed keeper1.595/independent keeper0.605/
+bash.597, same21820 reservation/authority/UUID. No CPU/GPU PASS or optimizer
+update is inferred from launch. Resume4479 once later; no source redeployment
+or local SSH polling while active. ETA CPU1–3min+GPU10–20min, mandatory model
+release and original keeper1 restoration before CPU review/user wait.
+
+### 0.63 CPU v2 reviewed PASS; GPU malformed-action failure; implement §7.4 — 2026-10-20
+
+Source **fe762de8a6223ca9ecb30940105bf1092b92e40f**, foreground4479 terminal1.
+CPU41 **PASS43.147s**,20 complete episodes/180 states/**360 native loss probes**,
+response lengths9/10 and every native output/field width agrees. Report SHA
+**5ae122eda8f6c5680843bb5834eb3c7b81caccd47321f8b7ce176379e85062d3**;
+source/three artifact SHA/probes/MPSS returns independently checked locally.
+The padding integration fix is supported, not inferred from local unit tests.
+
+GPU sampled **125 actual actions**,115 valid/10 invalid, across all20 users.
+**Only10/20 episodes complete.** Every invalid action selected **C04 after C04
+had already been removed**, at turn2 or3 (zero-based). All125 end normally
+with EOS; no truncation, unknown physical token or parser repair. The strict
+all20-complete gate correctly remained **FAIL**, before native worker/updates;
+controller191.870s. Failure SHA
+**b2eb4f2a613b8874f22ca4448f864895c51a318ffab5a38caf40fe1347797a06**;
+generated SHA **94e5a21e01d4e89945f86814ca63403cef717a108e2c3e4dd181448abad83451**.
+Model exited → actualGPU1 release1MiB → original keeper1 restored/verified
+**21820.612**. GPU0/independent steps/reservation unaffected. All20 traces and
+125 physical request/response pairs, failure/cleanup/handback hashes were
+checked locally. **0 PPO updates, no quality result.** Preserve this failure.
+
+**Integration omission found:** the T0 adapter demanded100% valid trajectories
+before allowing *any* learning, but primary method **§7.4 already specifies
+training on malformed trajectories with fixed format penalty−1 and termination**.
+The gate implemented only the valid MPSS branch, not this required training
+branch. Do not silently repair/grammar-mask actions, lower temperature, search
+seeds, drop the10 failures, or tune extra SFT against these observed prompts.
+
+**Explicit T0 v3 amendment:** implement that existing invalid-action path,
+retain all20 users and every actually observed response. On invalid output,
+terminate without a fabricated survivor/rank/future action; its evaluation
+metric is a miss (0). Preserve shaping on prior valid actions and apply the
+same terminal metric correction to0, then the already-fixed **R_format=−1.0**
+on the final **observed invalid response**. Thus valid return remains exact
+NDCG@5, malformed return is exactly−1. This specifies previously incomplete
+terminal accounting; no penalty search or Books outcome was used to choose it.
+The only newly observed model signal is the synthetic validity failure above.
+
+Native GAE runs across each actual response-only episode, with genuine early
+terminals, gamma=lambda1. All observed responses—including invalid ones—enter
+native actor/critic losses. Fixed mini-batch36/micro1, **keep the final partial
+mini-batch at its actual size**; count derives as ceil(actual actions/36),
+never pad/drop/duplicate transitions to manufacture180 samples or5 updates.
+For the125-action example this is4 updates/role; upper bound remains5/role,
+10 total. Same r32/FP32 states/BF16 forward/LRs/KL/IS/caps/oneGPU1. Updates remain
+discarded T0 integration work; no initializer/research checkpoint promotion.
+
+New immutable `ppo_lora_multiturn_v3.json`/fresh CPU+GPU run IDs preserve v1/v2
+receipts. CPU41 now rehearses20 valid **and20 malformed** synthetic episodes,
+all failure depths0–8, native response masks/GAE/actor+critic losses including
+partial batches. Unit tests cover every target/prefix depth and exact−1 return,
+lost/extra actions, fabricated validity/survivor, no dropped rows and frozen
+penalty. Only a fresh CPU PASS permits GPU1. No method-quality gate is loosened:
+the50% malformed result stays FAIL, evaluation keeps failures as misses and
+§34.7/validation stability gates still apply before research claims. V3 PASS,
+if achieved, means the PPO implementation can learn from *both* valid and
+invalid trajectories—not that its pre-training format/ranking quality passed.
+
+After the bounded GPU integration/review, proceed to primary train-only memory
+and tiny Books PPO with the untouched format-SFT initializer, not this discarded
+checkpoint. Full-data budget and held-out opening remain separate decisions.
+
+**Local qualification:**723 tests PASS6.33s, including118 multi-turn tests;
+compile/bash syntax/diff checks pass. CPU/GPU v3 execution remains required;
+local ABI doubles are not evidence of a native GPU PPO update.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.

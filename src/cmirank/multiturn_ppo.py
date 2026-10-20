@@ -20,11 +20,11 @@ from .ppo_runtime import response_reward_layout
 from .prompts import render_step_prompt
 from .provenance import file_sha256
 from .request import RankRequest
-from .rewards import mpss_rewards, ndcg_at_k
+from .rewards import mpss_rewards, malformed_mpss_rewards, ndcg_at_k
 
 
-def load_multiturn_config(root, version=2):
-    if type(version) is not int or version not in (1, 2):
+def load_multiturn_config(root, version=3):
+    if type(version) is not int or version not in (1, 2, 3):
         raise ValueError("Unknown multi-turn integration profile")
     c, _ = load_lora_rollout_config(root)
     path = root / "configs/cmirank/ppo_lora_multiturn_v1.json"
@@ -47,7 +47,7 @@ def load_multiturn_config(root, version=2):
     c["rollout_parent_run_id"] = c["run_id"]
     c["rollout_parent_review_run_id"] = c["review_run_id"]
     c.update(r)
-    if version == 2:
+    if version >= 2:
         path = root/"configs/cmirank/ppo_lora_multiturn_v2.json"
         retry = json.loads(path.read_text())
         fixed_retry = {"schema_version": 2, "inherits": "configs/cmirank/ppo_lora_multiturn_v1.json",
@@ -58,13 +58,29 @@ def load_multiturn_config(root, version=2):
                 or not isinstance(retry["reason"], str) or not retry["reason"]):
             raise ValueError("Padding integration retry cannot change scientific/resource settings")
         c.update(retry)
+    if version >= 3:
+        path = root/"configs/cmirank/ppo_lora_multiturn_v3.json"
+        retry = json.loads(path.read_text())
+        fixed_retry = {"schema_version": 3, "inherits": "configs/cmirank/ppo_lora_multiturn_v2.json",
+            "prepare_run_id": "cmirank-lora-multiturn-data-v3-20261020-hnv",
+            "run_id": "cmirank-lora-multiturn-smoke-v3-20261020-hnv",
+            "train_invalid_trajectories": True, "invalid_format_penalty": -1.0,
+            "invalid_terminal_metric": 0.0, "optimizer_updates": None, "updates_per_role": None,
+            "max_optimizer_updates": 10}
+        if (set(retry) != set(fixed_retry) | {"reason"}
+                or any(type(retry[k]) is not type(v) or retry[k] != v for k, v in fixed_retry.items())
+                or not isinstance(retry["reason"], str) or not retry["reason"]):
+            raise ValueError("Malformed training branch cannot change the fixed penalty or discard episodes")
+        c.update(retry)
     c["parameterization"] = "lora_multiturn"
-    c["worker_status"] = "NATIVE_LORA_MULTITURN_MPSS_GAE_PPO_SMOKE_PASS_REVIEW_REQUIRED"
+    c["worker_status"] = ("NATIVE_LORA_MULTITURN_VALID_AND_INVALID_PPO_SMOKE_PASS_REVIEW_REQUIRED" if version >= 3
+        else "NATIVE_LORA_MULTITURN_MPSS_GAE_PPO_SMOKE_PASS_REVIEW_REQUIRED")
     return c, path
 
 
 def multiturn_code_hashes(root):
     names = ("configs/cmirank/ppo_lora_multiturn_v1.json", "configs/cmirank/ppo_lora_multiturn_v2.json",
+        "configs/cmirank/ppo_lora_multiturn_v3.json",
         "src/cmirank/multiturn_ppo.py",
         "scripts/cmirank/41_prepare_multiturn_ppo_cpu.py", "scripts/cmirank/42_native_multiturn_ppo_gpu.py",
         "scripts/cmirank/29_smoke_corrected_rollout_gpu.py", "scripts/cmirank/run_real_policy_smoke.sh",
@@ -146,56 +162,101 @@ def sample_trajectories(rows, tokenizer, c, call, emit):
     return observations, episodes
 
 
-def validate_episodes(observations, episodes, requests):
-    if len(requests) != 20 or len(episodes) != 20 or len(observations) != 180:
+def episode_groups(observations, episodes):
+    """Group in original order, with the invalid response retained exactly once."""
+    groups, offset = [], 0
+    for episode in episodes:
+        size = len(episode["exclusions"]) + (0 if episode["valid"] else 1)
+        if not 1 <= size <= 9:
+            raise ValueError("An episode must contain1–9 actual observed responses")
+        group = observations[offset:offset+size]
+        if len(group) != size or any(o["user_id"] != episode["user_id"] for o in group):
+            raise ValueError("Episode observations were lost, shuffled, padded or filtered")
+        groups.append(group)
+        offset += size
+    if offset != len(observations):
+        raise ValueError("Unassigned trailing observations")
+    return groups
+
+
+def validate_episodes(observations, episodes, requests, *, allow_malformed=False):
+    if len(requests) != 20 or len(episodes) != 20 or (not allow_malformed and len(observations) != 180):
         raise ValueError("All20 complete9-turn episodes required; no filtering")
     if len({r["user_id"] for r in requests}) != 20:
         raise ValueError("Unique synthetic episodes required")
     labels = list(make_labels(range(10)))
-    for index, (episode, raw) in enumerate(zip(episodes, requests)):
+    groups = episode_groups(observations, episodes)
+    for episode, raw, group in zip(episodes, requests, groups):
         request = RankRequest.from_dict(raw)
         if (request.user_id >= 0 or episode["user_id"] != request.user_id
-                or episode["rank_request_sha256"] != request.sha256() or not episode["valid"]):
+                or episode["rank_request_sha256"] != request.sha256()
+                or (not allow_malformed and not episode["valid"])):
             raise ValueError("Synthetic identity/provenance/episode invalid")
         active, exclusions = labels.copy(), []
-        for turn, obs in enumerate(observations[index*9:index*9+9]):
+        failed = False
+        for turn, obs in enumerate(group):
+            response = obs["response_token_ids"]
             if (obs["user_id"] != request.user_id or obs["turn"] != turn or obs["active_labels"] != active
-                    or obs["rank_request_sha256"] != request.sha256() or not obs["format_valid"]
-                    or obs["finish_reason"] != "stop" or not obs["eos_observed"]
-                    or obs["response_token_ids"][-1] != 248046
-                    or obs["input_ids"][obs["prompt_tokens"]:] != obs["response_token_ids"]):
+                    or obs["rank_request_sha256"] != request.sha256() or not response
+                    or obs["finish_reason"] not in ("stop", "length")
+                    or obs["eos_observed"] != (response[-1] == 248046)
+                    or (obs["finish_reason"] == "stop" and not obs["eos_observed"])
+                    or obs["input_ids"][obs["prompt_tokens"]:] != response):
                 raise ValueError("Turn continuity/EOS/response bytes changed")
             parsed = parse_action(obs["raw_text"], active)
-            if not parsed.valid:
-                raise ValueError("Malformed action retained, never repaired")
+            actual_valid = parsed.valid and obs["finish_reason"] == "stop" and obs["eos_observed"]
+            if obs["format_valid"] != actual_valid:
+                raise ValueError("Validity must equal the frozen parser/termination result")
+            if not actual_valid:
+                if not allow_malformed or turn != len(group)-1:
+                    raise ValueError("Only a retained terminal malformed response is allowed")
+                failed = True
+                break
             exclusions.append(parsed.label)
             active.remove(parsed.label)
-        if episode["exclusions"] != exclusions or active != [episode["survivor"]]:
+        expected_valid = not failed and len(exclusions) == 9 and len(active) == 1
+        if (episode["exclusions"] != exclusions or episode["valid"] != expected_valid
+                or (expected_valid and active != [episode["survivor"]])
+                or (not expected_valid and (not failed or episode["survivor"] is not None))):
             raise ValueError("Episode replay differs")
 
 
 def episode_gae(observations, episodes, old_values, c, torch, device="cpu"):
-    """Native GAE over20 response-only episode rows; then split back into180 turns."""
+    """Native GAE over20 response-only episodes; preserve early invalid terminals."""
     from verl.trainer.ppo.core_algos import compute_gae_advantage_return
-    if len(observations) != 180 or len(episodes) != 20 or len(old_values) != 180:
-        raise ValueError("Need all20 nine-turn trajectories")
+    if len(episodes) != 20 or len(old_values) != len(observations):
+        raise ValueError("Need all20 observed trajectories and their critic values")
     labels = list(make_labels(range(10)))
     packed, lengths, audits = [], [], []
-    for i, episode in enumerate(episodes):
-        group = observations[i*9:i*9+9]
+    offset = 0
+    for i, (episode, group) in enumerate(zip(episodes, episode_groups(observations, episodes))):
         ns = [len(r["response_token_ids"]) for r in group]
         # Predeclared exchangeable synthetic target, fixed by episode index;
         # never inferred from actions, visible context, or a Books outcome.
         target = labels[i % 10]
-        rewards, rank = mpss_rewards(labels, episode["exclusions"], episode["survivor"], target)
-        token_rewards, endpoints = response_reward_layout(ns, list(rewards))
-        values = [x for n, vs in zip(ns, old_values[i*9:i*9+9]) for x in vs if len(vs) == n]
+        if episode["valid"]:
+            rewards, rank = mpss_rewards(labels, episode["exclusions"], episode["survivor"], target)
+            token_rewards, endpoints = response_reward_layout(ns, list(rewards))
+        else:
+            if not c.get("train_invalid_trajectories"):
+                raise ValueError("Legacy all-valid qualification must remain failed")
+            rewards = malformed_mpss_rewards(labels, episode["exclusions"], target)
+            rank = None
+            token_rewards, endpoints = [], []
+            if len(ns) != len(rewards):
+                raise ValueError("Malformed reward needs the retained invalid response")
+            for n, reward in zip(ns, rewards):
+                token_rewards.extend([0.0]*(n-1)+[reward]); endpoints.append(len(token_rewards)-1)
+        values = [x for n, vs in zip(ns, old_values[offset:offset+len(group)]) for x in vs if len(vs) == n]
+        offset += len(group)
         if len(values) != sum(ns) or not all(math.isfinite(x) for x in values):
             raise ValueError("Every action token needs a finite native critic value")
         packed.append((token_rewards, values)); lengths.append(ns)
         audits.append({"user_id": episode["user_id"], "synthetic_target_label": target,
             "target_rank": rank, "mpss_rewards": list(rewards), "episode_return": sum(rewards),
-            "expected_ndcg5": ndcg_at_k(rank), "response_final_indices": endpoints})
+            "valid": episode["valid"], "expected_ndcg5": ndcg_at_k(rank) if rank is not None else 0.0,
+            "format_penalty": 0.0 if episode["valid"] else -1.0,
+            "response_final_indices": endpoints})
     width = max(len(reward) for reward, _ in packed)
     reward = torch.zeros((20, width), dtype=torch.float32, device=device)
     values = torch.zeros_like(reward); mask = torch.zeros_like(reward)
@@ -269,6 +330,14 @@ def native_training_batch(observations, scores, advantages, returns, c, role, to
         # A fixed global maximum mismatches shorter microbatches (10 vs9).
         max_response_len=-1, return_model_output=False)
     return data
+
+
+def minibatch_slices(action_count, c):
+    """Never drop/duplicate rows to make an early-terminated batch divisible."""
+    if type(action_count) is not int or not 20 <= action_count <= c["physical_request_cap"]:
+        raise ValueError("All20 episodes need1–9 observed actions each")
+    return [slice(start, min(start+c["global_minibatch"], action_count))
+        for start in range(0, action_count, c["global_minibatch"])]
 
 
 def verify_multiturn_preparation(private, root, c, path, commit):

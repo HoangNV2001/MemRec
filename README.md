@@ -26,6 +26,11 @@ CPU smoke phải pass trước GPU1; không đổi LoRA rank/LR, budget hoặc p
 CPU v1 đã bắt lỗi padding biến độ dài (10 vs9), dừng **trước GPU/updates**.
 Đã sửa adapter theo native dynamic microbatch padding; giữ nguyên method,
 seed/LR/budget và log FAIL. V2 phải rerun CPU trước khi nối GPU1.
+V2 CPU đã **PASS360 probes**, nhưng GPU chỉ10/20 episode hợp lệ (125 calls,
+chọn lại nhãn đã loại), nên0 updates; model đã nhả/keeper1 phục hồi.
+Đang bổ sung đúng §7.4: giữ mọi episode lỗi, terminate/phạt−1 và học từ toàn bộ
+batch, không repair/filter/tune prompt. Đây là gate cơ chế, không đổi FAIL
+chất lượng cũ thành PASS ([§0.63](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#063-cpu-v2-reviewed-pass-gpu-malformed-action-failure-implement-74--2026-10-20)).
 [Kết quả và protocol gate mới §0.61](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#061-lora-rolloutreference-reviewed-pass-complete-episode-ppo-smoke--2026-10-20).
 
 | Phần việc | Bằng chứng / giới hạn |

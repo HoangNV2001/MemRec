@@ -92,6 +92,37 @@ def r1_binary_rewards(
     return tuple(0.0 if label == target_label else 1.0 for label in exclusions)
 
 
+def malformed_mpss_rewards(
+    candidate_labels: Sequence[str], valid_exclusions: Sequence[str], target_label: str,
+) -> tuple[float, ...]:
+    """Valid prefix shaping, then miss(0) correction and fixed format penalty(-1).
+
+    The final reward belongs to the *observed invalid response*, not an invented
+    exclusion. Cancel accumulated shaping on termination so failure cannot earn
+    positive metric credit. No reward/candidate repair or penalty tuning.
+    """
+    labels = tuple(candidate_labels)
+    if (len(labels) < 2 or len(set(labels)) != len(labels) or target_label not in labels
+            or len(valid_exclusions) >= len(labels)-1):
+        raise ValueError("A malformed episode needs a valid prefix shorter than N-1")
+    active = set(labels)
+    phi, target_removed = _gain(len(active)), False
+    rewards = []
+    for excluded in valid_exclusions:
+        if excluded not in active:
+            raise ValueError("The prefix may contain only valid unique active exclusions")
+        next_phi = (phi if target_removed else
+            _gain(len(active)) if excluded == target_label else _gain(len(active)-1))
+        rewards.append(next_phi-phi)
+        phi = next_phi
+        target_removed |= excluded == target_label
+        active.remove(excluded)
+    rewards.append(-1.0-sum(rewards))
+    if abs(sum(rewards)+1.0) >= 1e-12:
+        raise AssertionError("Malformed episode return must equal the fixed format penalty")
+    return tuple(rewards)
+
+
 def terminal_ndcg_rewards(
     candidate_labels: Sequence[str], exclusions: Sequence[str],
     survivor: str, target_label: str, k: int = 5,

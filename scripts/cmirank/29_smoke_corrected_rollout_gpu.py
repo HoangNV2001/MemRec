@@ -51,7 +51,7 @@ def main():
         c, path = load_lora_rollout_config(ROOT)
     if args.parameterization == "lora_multiturn":
         from src.cmirank.multiturn_ppo import (load_multiturn_config, verify_multiturn_preparation,
-            sample_trajectories, validate_episodes)
+            sample_trajectories, validate_episodes, minibatch_slices)
         c, path = load_multiturn_config(ROOT)
     compat, _ = load_compat_config(ROOT)
     runtime, _ = load_runtime_config(ROOT)
@@ -234,9 +234,10 @@ def main():
             child_exited=server.poll() is not None, child_kind="vllm", emit=lambda x: append(run, "server-release-snapshots", x)))
         manifest["generated_sha256"] = file_sha256(run / "generated.jsonl")
         if args.parameterization == "lora_multiturn":
-            # Fail closed with all malformed traces retained; no9 independent
-            # terminal episodes, partial-batch training or silent filtering.
-            validate_episodes(observations, episodes, rows)
+            # Preserve all20 episodes, including their terminal invalid action.
+            # No repair/filtering; main-method section7.4 gives failures -1.
+            validate_episodes(observations, episodes, rows,
+                allow_malformed=c.get("train_invalid_trajectories", False))
             manifest["episodes_sha256"] = file_sha256(run/"episodes.jsonl")
         save(run / "manifest.json", manifest)
         worker_environment = {**os.environ,
@@ -257,20 +258,28 @@ def main():
                 or worker_report["source_commit"] != commit or not worker_report["cold_process_restart_proven"]
                 or worker_report["optimizer_updates"] or physical != 60):
             raise ValueError("Native cold-restore/reference or physical-request scope differs")
-        if args.parameterization == "lora_multiturn" and (worker_report["status"] != c["worker_status"]
-                or worker_report["source_commit"] != commit or physical != 180
-                or worker_report["optimizer_updates"] != 10 or not worker_report["native_episode_continuous_gae"]):
-            raise ValueError("Complete20 native MPSS/GAE/PPO scope differs")
+        if args.parameterization == "lora_multiturn":
+            expected_updates = 2*len(minibatch_slices(len(observations), c))
+            if (worker_report["status"] != c["worker_status"] or worker_report["source_commit"] != commit
+                    or physical != len(observations) or worker_report["actions"] != physical
+                    or worker_report["optimizer_updates"] != expected_updates
+                    or not worker_report["native_episode_continuous_gae"]
+                    or worker_report["episodes"] != 20
+                    or worker_report["valid_episodes"] != sum(e["valid"] for e in episodes)):
+                raise ValueError("All20 native MPSS/GAE/PPO episodes and actual update scope must match")
         save(run / "report.json", {"status": ("LORA_ROLLOUT_NATIVE_ENGINE_PASS_CPU_CORRECTION_REVIEW_REQUIRED"
             if args.parameterization == "lora" else c["worker_status"] if args.parameterization == "lora_multiturn"
             else "GENERATED_ROLLOUT_NATIVE_ENGINE_PASS_CPU_CORRECTION_REVIEW_REQUIRED"),
             "source_commit": commit, "config_sha256": file_sha256(path), "samples": 20,
             "physical_requests": physical, "generated_response_tokens": sum(len(x["response_token_ids"]) for x in observations),
+            "actions": len(observations), "format_valid_actions": sum(x["format_valid"] for x in observations),
             "format_valid_samples": sum(x["format_valid"] for x in observations),
             "truncated_samples": sum(x["finish_reason"] == "length" for x in observations),
             "optimizer_updates": worker_report.get("optimizer_updates", 0), "training_ready": False, "ranking_metrics_computed": False,
             "books_outcomes_accessed": False, "old_strict_cross_engine_gate_status": "FAIL_UNCHANGED",
             "parameterization": args.parameterization,
+            "valid_episodes": sum(e["valid"] for e in episodes) if args.parameterization == "lora_multiturn" else None,
+            "malformed_episodes": sum(not e["valid"] for e in episodes) if args.parameterization == "lora_multiturn" else None,
             "worker_report_sha256": file_sha256(run/"native-worker-report.json"),
             "elapsed_seconds": time.monotonic()-began})
         exit_code = 0

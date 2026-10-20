@@ -1,0 +1,13 @@
+{
+  "schema_version": 3,
+  "inherits": "configs/cmirank/ppo_lora_multiturn_v2.json",
+  "prepare_run_id": "cmirank-lora-multiturn-data-v3-20261020-hnv",
+  "run_id": "cmirank-lora-multiturn-smoke-v3-20261020-hnv",
+  "train_invalid_trajectories": true,
+  "invalid_format_penalty": -1.0,
+  "invalid_terminal_metric": 0.0,
+  "optimizer_updates": null,
+  "updates_per_role": null,
+  "max_optimizer_updates": 10,
+  "reason": "Implement design section 7.4: retain every malformed episode and its observed response, terminate with miss-metric correction plus fixed format penalty; train all20 episodes, including the final partial minibatch. Preserve v2's50% validity failure, do not relabel it or claim ranking readiness."
+}
