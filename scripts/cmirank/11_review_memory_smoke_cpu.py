@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Review failed v3/v6 or complete controlled v7 artifacts; no model/promotion.
+"""Review failed v3/v6/v8 or complete controlled v7 artifacts; no model/promotion.
 
 Recheck captured requests, raw JSON, candidate roles and durable accounting.
 Do not repair the failed run, rewrite its report, or compute ranking metrics.
@@ -8,6 +8,7 @@ Do not repair the failed run, rewrite its report, or compute ranking metrics.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import sqlite3
@@ -26,6 +27,89 @@ from src.cmirank.provenance import artifact_json_dumps, file_sha256
 from src.cmirank.request import RankRequest
 from src.models.llm_client import validate_json_shape
 from src.models.reranker_llm import LLMReranker
+
+
+def review_primary_v8(run: Path, candidate_run: Path, prepare: Path) -> dict:
+    """Read-only review of the preserved primary train20 failure, not a retry."""
+    from src.cmirank.gpu_resources import compute_gpu_processes, gpu_release_verified, parse_gpu_snapshot
+    from src.cmirank.memory_review import read_rows, review_partial_records
+    from src.cmirank.policy_inputs import load_locked_policy_inputs
+    from src.cmirank.primary_memory import primary_user_ids
+    from src.data.dataset_base import RecDataset
+    from src.memory.storage import MemoryStorage
+
+    config, config_sha = load_memory_contract(ROOT, 8)
+    source = "8c441a0764821305eb89601fe2896c25c5af3fb0"
+    manifest = json.loads((run / "manifest.json").read_text())
+    cpu = json.loads((prepare / "report.json").read_text())
+    cleanup = json.loads((run / "cleanup.json").read_text())
+    child = json.loads((run / "child-cleanup.json").read_text())
+    handback = json.loads((run / "keeper-handback.json").read_text())
+    if (run.name != config["run_id"] or prepare.name != config["prepare_run_id"]
+            or file_sha256(prepare / "report.json") != "6dcd514c4902070a392ef70d09aa8c36b7622e1f3a8eadeb399ed84cb7e54a87"
+            or file_sha256(run / "failure.json") != "d0b9497b9f2a03ca27979a1634659407a52d65d63836b5f5bc2b1efc038ef583"
+            or manifest["source_commit"] != source or cpu["source_commit"] != source
+            or manifest["config"] != config or manifest["config_sha256"] != config_sha
+            or cpu["config_sha256"] != config_sha
+            or cleanup["process_exit_code"] != 1 or child["process_exit_code"] != 1
+            or not child["owned_server_exited"] or not all(cleanup[k] for k in
+                ("child_exited", "gpu_released", "allocation_still_running"))
+            or handback["status"] != "KEEPER_GPU1_HANDBACK_VERIFIED"
+            or handback["reserved_job_cancelled"] or handback["gpu0_signalled"]
+            or handback["job"] != manifest["slurm_job_id"] or cpu["slurm_job_id"] != handback["job"]
+            or any(manifest[k] for k in ("original_instruction_accessed", "original_test_candidates_accessed",
+                "original_suffix_item_ids_parsed_or_used"))):
+        raise ValueError("Not the preserved terminal/released primary train20 failure")
+    # Bind the producer's bytes, not the later review commit or a rerun's output.
+    for name, digest in cpu["code_sha256"].items():
+        payload = subprocess.check_output(["git", "show", f"{source}:{name}"], cwd=ROOT)
+        if hashlib.sha256(payload).hexdigest() != digest:
+            raise ValueError("CPU preparation differs from its producing source")
+    for name, digest in cpu["artifact_sha256"].items():
+        if Path(name).name != name or file_sha256(prepare / name) != digest:
+            raise ValueError("CPU fake-wiring artifact changed")
+    inputs = load_locked_policy_inputs(ROOT)
+    users = primary_user_ids(inputs, config)
+    if (manifest["query_user_ids"] != users or cpu["query_user_ids"] != users
+            or manifest["graph_snapshot_sha256"] != inputs["snapshot_sha256"]
+            or cpu["split_sha256"] != inputs["manifest_sha256"]
+            or cpu["selected_validation_users"] or cpu["real_llm_requests"] or cpu["gpu_requested"]
+            or cpu["fake_logical_requests"] != 100 or cpu["training_ready"]):
+        raise ValueError("Primary cohort, target-blind snapshot or CPU scope differs")
+    uuid = cleanup["gpu_uuid"]
+    before = next(c for c in parse_gpu_snapshot((run / "gpus-load-time.csv").read_text()) if c.uuid == uuid)
+    after = next(c for c in parse_gpu_snapshot((run / "gpus-after.csv").read_text()) if c.uuid == uuid)
+    if (before.index != 1 or after.index != 1 or manifest["gpu_uuid"] != uuid or handback["gpu_uuid"] != uuid
+            or child["gpu_uuid"] != uuid or after.used_mib != cleanup["gpu_used_mib_after"]
+            or not gpu_release_verified(after, before,
+                compute_gpu_processes((run / "apps-load-time.csv").read_text()).get(uuid, set()),
+                compute_gpu_processes((run / "apps-after.csv").read_text()).get(uuid, set()))):
+        raise ValueError("Primary recorded GPU release evidence differs")
+    candidate_file = candidate_run / "full-hnv/candidate-rows.jsonl"
+    if candidate_run.name != config["candidate_run_id"] or file_sha256(candidate_file) != config["full_candidates_sha256"]:
+        raise ValueError("Unreviewed candidate data")
+    rows = read_rows(candidate_file)
+    candidates = {row["policy_input"]["episode_id"]: row for row in rows}
+    if len(candidates) != len(rows):
+        raise ValueError("Duplicate source episode")
+    metadata = ROOT / "data/processed/instructrec-books/instructrec-books.meta"
+    if file_sha256(metadata) != manifest["metadata_sha256"]:
+        raise ValueError("Static metadata changed")
+    holder = SimpleNamespace(data_path=metadata.with_suffix(".inter"), item_metadata=None)
+    RecDataset.load_item_metadata(holder)  # Static metadata only; no suffix-aware dataset initialization.
+    storage = MemoryStorage()
+    storage.initialize_item_descriptions(holder.item_metadata)
+    result = review_partial_records(run, candidates=candidates, config=config, manifest=manifest,
+        storage=storage, metadata=holder.item_metadata)
+    if (result["physical_requests"], result["completed_warmup_users"], result["stage_r_calls"],
+            result["unknown_context_occurrences"]) != (23, 7, 8, 1):
+        raise ValueError("Unexpected primary diagnostic terminal scope")
+    result.update({"source_run_id": run.name, "source_commit": source, "config_sha256": config_sha,
+        "comparison_role": config["comparison_role"], "selected_train_users": 20, "selected_validation_users": 0,
+        "cpu_prepare_report_sha256": file_sha256(prepare / "report.json"), "gpu_released": True,
+        "keeper_restored": True, "elapsed_seconds": json.loads((run / "failure.json").read_text())["elapsed_seconds"],
+        "source_artifact_sha256": {p.name: file_sha256(p) for p in sorted(run.iterdir()) if p.is_file()}})
+    return result
 
 
 def review_v6(run: Path, candidate_run: Path, *, version: int = 6) -> dict:
@@ -172,17 +256,25 @@ def main() -> None:
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--candidate-run-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--contract-version", type=int, choices=(3, 6, 7), default=3)
+    parser.add_argument("--contract-version", type=int, choices=(3, 6, 7, 8), default=3)
+    parser.add_argument("--prepare-run-dir", type=Path, help="Required only for primary train20 v8 review")
     args = parser.parse_args()
     if args.output_dir.exists():
         parser.error("Refusing to overwrite a review")
-    result = (review(args.run_dir, args.candidate_run_dir) if args.contract_version == 3
-              else review_v6(args.run_dir, args.candidate_run_dir, version=args.contract_version))
+    if args.contract_version == 8:
+        if args.prepare_run_dir is None:
+            parser.error("--prepare-run-dir is required for primary v8")
+        result = review_primary_v8(args.run_dir, args.candidate_run_dir, args.prepare_run_dir)
+    else:
+        result = (review(args.run_dir, args.candidate_run_dir) if args.contract_version == 3
+                  else review_v6(args.run_dir, args.candidate_run_dir, version=args.contract_version))
     result["review_code_sha256"] = file_sha256(Path(__file__))
     result["grounding_code_sha256"] = file_sha256(ROOT / "src/cmirank/memory_smoke.py")
-    if args.contract_version in (6, 7):
+    if args.contract_version in (6, 7, 8):
         result["partial_review_code_sha256"] = file_sha256(ROOT / "src/cmirank/memory_review.py")
     result["review_source_commit"] = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    result["review_source_tracked_clean"] = not bool(subprocess.check_output(
+        ["git", "status", "--porcelain", "--untracked-files=no"], cwd=ROOT, text=True))
     args.output_dir.mkdir(parents=True)
     (args.output_dir / "review.json").write_text(artifact_json_dumps(result))
     print(artifact_json_dumps({key: value for key, value in result.items()

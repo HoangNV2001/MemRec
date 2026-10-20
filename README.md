@@ -19,11 +19,15 @@ chưa có kết quả train/ranking LoRA. CPU20 scope/roundtrip phải pass trư
 updates, giữ cả20 episode/124 actions (10 valid/10 malformed), MPSS/GAE và
 FP32 gradient/Adam/cleanup audits đạt. Khoảng8 phút GPU, peak52,51GiB; model
 đã nhả và keeper phục hồi. Đây là **8 updates synthetic bỏ đi, chưa train
-Books/chưa có gain ranking**. Bước kế là primary-memory smoke trên20 train
-users, không dùng validation hay lấy cache secondary làm primary.
+Books/chưa có gain ranking**. Primary-memory smoke: CPU20 đã pass, nhưng GPU
+dừng ở user8 vì model trích `Item-5922` trong khi input có `User-5922`.
+Đã review23 requests/7 writes; model nhả và keeper1 phục hồi. Không có pseudo
+cache/PPO Books. Cần chốt cách xử lý citation lỗi của upstream primary;
+chưa nới guard, sửa output, bỏ user hay thay bằng secondary.
 Allocation đã được researcher đổi; tiếp tục chỉGPU1, luôn bật lại keeper sau
 task. Các đoạn launch/gate phía dưới là lịch sử.
 [Kết quả và bước tiếp §0.65](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#065-both-role-ppo-smoke-reviewed-pass-primary-train-only-memory-next--2026-10-20).
+[Primary failure và quyết định cần chốt §0.66](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#066-primary-train20-failure-reviewed-citation-policy-decision--2026-10-20).
 
 **Mới nhất20/10:** LoRA rollout/reference v2 đã PASS và được đối chiếu độc lập:
 20/20 responses hợp lệ/60 calls, native cold-restore actor+critic/Adam/RNG
@@ -48,8 +52,8 @@ updates (synthetic/bỏ đi), actor0; harness kiểm tra gradient sau lúc nativ
 context đã xóa nó nên gate vẫn FAIL. GPU đã nhả, keeper1 phục hồi.
 Đang sửa đúng lifecycle kiểm tra, không tắt cleanup/nới guard hay đổi recipe
 ([§0.64](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#064-native-gae-and-four-critic-updates-reached-train-context-audit-fix--2026-10-20)).
-V4 source`fd6f741`/732 tests pass đã deploy và khởi chạy chuỗi CPU→GPU1;
-chưa có terminal result/actor update được xác nhận từ lượt mới.
+V4 source`fd6f741`/732 tests pass đã kết thúc; kết quả actor4+critic4 updates
+đã được review và thay thế trạng thái launch cũ ở đầu trang/§0.65.
 
 | Phần việc | Bằng chứng / giới hạn |
 |---|---|

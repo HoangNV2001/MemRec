@@ -66,7 +66,7 @@ def test_twenty_user_serial_smoke_has_exact_counts_target_blind_inputs_and_repla
     assert memory_sha256(storage) == summary["final_memory_sha256"]
 
 
-def partial_review_fixture(tmp_path, *, complete=False):
+def partial_review_fixture(tmp_path, *, complete=False, failure_user=11, typed_confusion=False):
     import sqlite3
     from src.cmirank.memory_review import response_schema
     from src.cmirank.memory_smoke import object_sha256
@@ -86,8 +86,14 @@ def partial_review_fixture(tmp_path, *, complete=False):
                     "messages_sha256": object_sha256(messages), "original_properties_sha256": object_sha256(original),
                     "constrained_properties_sha256": object_sha256(properties), **audit})
             raw = super().generate_json(messages, properties, **kwargs)
-            if not complete and self.episode_id == "user-11-warmup" and "facets" in properties:
-                raw["facets"][0]["supporting_neighbors"] = ["Item-99999999"]
+            if not complete and self.episode_id == f"user-{failure_user}-warmup" and "facets" in properties:
+                if typed_confusion:
+                    import re
+                    visible_user = re.findall(r"\[User-(\d+)\]", messages[0]["content"])[0]
+                    wrong_type = f"Item-{visible_user}"
+                else:
+                    wrong_type = "Item-99999999"
+                raw["facets"][0]["supporting_neighbors"] = [wrong_type]
             physical = {"messages": messages, "response_format": response_schema(properties),
                         "model": config["model_id"], "temperature": kwargs["temperature"],
                         "max_tokens": kwargs["max_tokens"]}
@@ -146,6 +152,43 @@ def test_partial_offline_review_replays_raw_writes_without_api_repair_or_promoti
     # The complete journal includes the generated ID, but is not original-input evidence.
     assert "99999999" in json.dumps(read_rows(tmp_path / "physical-requests.jsonl"))
     assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == before
+
+
+def test_typed_entity_confusion_is_not_repaired_by_matching_numeric_id(tmp_path):
+    from src.cmirank.memory_review import read_rows, review_partial_records
+    args = partial_review_fixture(tmp_path, failure_user=7, typed_confusion=True)
+    before = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+    result = review_partial_records(tmp_path, **args)
+    assert (result["physical_requests"], result["completed_warmup_users"], result["stage_r_calls"]) == (23, 7, 8)
+    assert result["unknown_context_occurrences"] == 1 and not result["literal_grounding_gate_passed"]
+    unknown = result["failure"]["unknown_id_input_presence"][0]
+    assert unknown["identifier"].startswith("Item-")
+    assert unknown["numeric_token_in_original_stage_r_input"] is True
+    assert unknown["literal_in_original_stage_r_input"] is False
+    assert not result["training_ready"] and not result["pseudo_memory_read_only_verified"]
+    last = read_rows(tmp_path / "retrieval-trace.jsonl")[-1]
+    assert last["details"]["retrieval_bundle"]["facets"][0]["supporting_neighbors"] == [unknown["identifier"]]
+    assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == before
+
+
+def test_source_citation_ids_are_journalled_but_not_rendered_in_either_ranker_prompt(tmp_path):
+    from src.cmirank.memory_review import read_rows
+    from src.cmirank.prompts import render_direct_prompt, render_step_prompt
+    from src.cmirank.request import RankRequest
+    from src.models.reranker_llm import LLMReranker
+    partial_review_fixture(tmp_path, failure_user=7, typed_confusion=True)
+    payload = read_rows(tmp_path / "retrieval-trace.jsonl")[-1]["details"]["rank_request"]
+    original = RankRequest.from_dict(payload)
+    changed = deepcopy(payload)
+    changed.pop("rank_request_sha256")
+    changed["collaborative_facets"][0]["supporting_neighbors"] = ["Item-99999999"]
+    variant = RankRequest.from_dict(changed)
+    reranker = LLMReranker(None)
+    assert original.sha256() != variant.sha256()  # Raw citation provenance is not discarded.
+    assert reranker.build_rerank_prompt(**original.baseline_prompt_kwargs()) == reranker.build_rerank_prompt(**variant.baseline_prompt_kwargs())
+    assert render_direct_prompt(original) == render_direct_prompt(variant)
+    labels = [f"C{i:02d}" for i in range(10)]
+    assert render_step_prompt(original, labels) == render_step_prompt(variant, labels)
 
 
 def test_completed_control_offline_review_checks_twenty_writes_and_readonly_pseudo_inputs(tmp_path):

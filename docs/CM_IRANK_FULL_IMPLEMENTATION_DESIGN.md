@@ -2557,6 +2557,103 @@ Primary contract tests preserve baseline decoding/budgets and reject validation
 cohorts, seed search, output repair and hidden GPU changes. Native CPU/GPU
 primary-memory execution and semantic review are still required.
 
+**Execution launched20/10:** exact source
+`8c441a0764821305eb89601fe2896c25c5af3fb0` was pushed and clean-fast-forward
+deployed after confirming no active MemRec step. A single foreground shared-SSH
+chain (local exec session98131) runs CPU43 with CUDA hidden/four CPUs/600s cap;
+only successful exit dynamically resolves the current keeper1 and invokes the
+original protected GPU wrapper. At the one inspection CPU preparation was
+still active; no real-memory/schema/semantic PASS or ranking result is claimed.
+Provisional total20–30min, baseline GPU90min hard cap unchanged. Resume that
+same foreground session, not repeated SSH polling, and do not redeploy source
+while active. Models must exit/actual release and keeper1 must be restored on
+every GPU terminal path before CPU review or user wait.
+
+### 0.66 Primary train20 failure reviewed; citation-policy decision — 2026-10-20
+
+**Terminal result, not another pending launch:** CPU43 passed in109.422s:
+20 predeclared train users/0 validation queries,100 fake API schemas,20 warm-up
+writes/0 pseudo writes,20 captured pseudo RankRequests; maximum fake prompt
+1,506 tokens. Report SHA
+`6dcd514c4902070a392ef70d09aa8c36b7622e1f3a8eadeb399ed84cb7e54a87`.
+The following original unconstrained primary run **FAILED** after348.527s
+until the failure record. Source remains `8c441a0764821305eb89601fe2896c25c5af3fb0`.
+Failure SHA `d0b9497b9f2a03ca27979a1634659407a52d65d63836b5f5bc2b1efc038ef583`.
+
+The serial run completed7 warm-up users. On the eighth,
+`books-policy-v1-user-2372-warmup`, Stage-R cited **`Item-5922`** although the
+original prompt contains **`User-5922`**, not that item identifier. The numeric
+token exists, but typed entity identity does not; do not auto-correct or count
+it as grounded. This is a genuine raw-model source-citation error, not an ID
+parser bug. The pre-existing added literal-grounding guard correctly stopped
+under the approved strict protocol. No Stage-W call was made for that user;
+**0 pseudo queries/0 Books PPO updates**, so this is not a ranking result or a
+valid full memory cache. Do not interpret7/20 as the eventual validity rate:
+the run stopped at the first hard failure, leaving12 users unattempted.
+
+**Independent CPU review:**23 physical requests/responses,0 retries,8 Stage-R,
+8 ReRank,7 Stage-W;54,676 tokens (30,087 prompt/24,589 completion). Recomputed
+schemas/request digests, API-prompt replay, durable budget and all7 raw write/
+mutation/state transitions agree.431 source-citation occurrences include8
+visible-candidate role warnings and1 unknown typed ID. Review uses the exact
+producer's git blobs, locked1497/300 split/train20 cohort, frozen candidate hash
+and static metadata; no model/API/ranking metrics. The read-only reviewer is
+`scripts/cmirank/11_review_memory_smoke_cpu.py --contract-version 8`, with
+`--prepare-run-dir` binding the CPU43 receipt. It preserves the failed raw run;
+`FAILED_MEMORY_SMOKE_OFFLINE_REVIEW_COMPLETE_NOT_PROMOTED` is **not** a smoke
+PASS. Review code hashes and tracked-source cleanliness are recorded separately
+from the immutable producing source. A draft local review is retained; the
+final clean-source review is a separate output, never an overwritten result.
+
+**Resource outcome:** owned server exited, actual GPU1 release1MiB, reservation
+still RUNNING, original keeper1 restored/verified before CPU review. Current
+resource inspection confirms keeper1 active; GPU0 and reservation were not
+signalled. Do not leave a model resident while waiting for this decision.
+
+**Why a protocol decision is necessary:** the upstream MemRec implementation
+does not reject this Stage-R citation. Both `LLMReranker.build_rerank_prompt`
+and CM-IRank `render_static_context` render facet **text/confidence**, not
+`supporting_neighbors` or `support_edges`; raw citations remain in the captured
+RankRequest/provenance. Stage-W's available neighbor IDs come from the actual
+pruned subgraph, not invented Stage-R IDs. Citation membership affects its
+`used_in_retrieval` flag only for real listed neighbors. Thus a raw Stage-R
+source-citation error is distinct from an out-of-domain Stage-W mutation or
+target leakage; it does **not** establish that facet text is correct. The
+project's extra zero-error source-citation hard gate is stricter than running
+the unmodified upstream implementation. Regression tests retain the typed-ID
+FAIL and verify that changing only source IDs changes the raw request digest
+but not either ranker's rendered prompt.
+
+**Recommended amendment — PROPOSED, NOT APPROVED/IMPLEMENTED:** keep the
+upstream-aligned primary's raw outputs unchanged and treat **only unknown
+Stage-R source citations** as audited warnings, consistently for full MemRec
+and CM-IRank. Apply to all such citations, not a special case for5922/type
+confusion. Retain counts/raw IDs and explicitly report literal grounding
+failure; do not claim clean/semantically grounded memory. No retyping, facet
+deletion, skipped/replaced users, rerun-until-valid, prompt/model/seed search,
+input-ID enums or secondary-to-primary promotion. Candidate bijection, schema/
+numeric validity, correct support-edge target user, graph/split/label provenance,
+Stage-W allowed IDs/fanout/mutation, read-only pseudo phase and request/resource
+caps remain hard gates. This keeps the baseline implementation and measures
+robustness to its natural memory noise rather than sanitizing it. Changing the
+approved hard-gate semantics requires researcher signoff; v8 stays FAIL.
+
+**Next only if approved:** preregister a distinct v9 amendment/fresh namespace,
+same fixed train20/snapshot/candidates/teacher/budgets; CPU smoke must include
+unknown-source warnings and unchanged hard-failure probes before GPU1. Then
+one original baseline run and independent full-write/read-only-pseudo review.
+Only a reviewed usable raw-memory pilot can feed matched primary RankRequests
+and a tiny Books PPO run from the untouched format-SFT initializer. Do not
+auto-launch the1797 cache/full training/held-out evaluation. If the amendment
+is rejected, retain the strict FAIL and obtain a separately approved provider/
+decoding experiment; no repeated identical GPU runs or hidden relaxation.
+
+Local qualification: **746 tests PASS7.02s**, including the23-call/7-write
+typed-entity confusion fixture, exact raw-artifact non-mutation and unchanged
+baseline/CM-IRank prompt rendering when only citation IDs differ. Compilation
+and diff checks pass. These are review tests, not a newly passed GPU memory run;
+the warning-policy amendment above remains unimplemented pending signoff.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.
