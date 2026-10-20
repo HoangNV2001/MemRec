@@ -24,7 +24,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from src.cluster_runtime import require_allocation, require_project_root
 from src.cmirank.multiturn_ppo import (load_multiturn_config, verify_multiturn_preparation,
-    validate_episodes, episode_gae, native_training_batch, minibatch_slices)
+    validate_episodes, episode_gae, native_training_batch, minibatch_slices,
+    audit_update_gradients, audit_gradient_cleanup)
 from src.cmirank.lora import audit_scope
 from src.cmirank.lora_joint import native_model_config, native_engine_config, native_optimizer_config
 from src.cmirank.lora_checkpoint import native_checkpoint_config, train_state_fingerprint
@@ -141,12 +142,18 @@ def main():
                     raise ValueError("Approved fixed LoRA learning rate changed")
                 with engine.train_mode():
                     output = engine.train_batch(data, loss_function=partial(loss_fn, config=config))
+                    # Native zero_grad_on_exit=True clears these immediately
+                    # after this block. Audit every actual update while live.
+                    gradient_audit = audit_update_gradients(engine, prepared["roles"][role],
+                        expected_step=1+step, torch=torch)
+                audit_gradient_cleanup(engine)
                 engine.lr_scheduler_step()
                 norm = float(output["metrics"]["grad_norm"])
                 if not math.isfinite(norm) or norm <= 0:
                     raise ValueError("Native PPO gradient zero/nonfinite")
                 append("updates", {"role": role, "optimizer_update": step, "actions": size,
                     "grad_norm": norm, "lr": c[f"{role}_lr"], "discarded": True,
+                    "gradient_audit": gradient_audit, "native_exit_released_gradients": True,
                     "elapsed_seconds": time.monotonic()-began})
                 print(json.dumps({"event": "native_ppo_update", "role": role, "step": step,
                     "grad_norm": norm, "elapsed_seconds": time.monotonic()-began}), flush=True)
@@ -161,10 +168,8 @@ def main():
                     if p.grad is not None or state:
                         raise ValueError("Frozen backbone/vision received PPO gradient/state")
                     continue
-                grad = p.grad.to_local() if hasattr(p.grad, "to_local") else p.grad
-                if (grad is None or grad.dtype != torch.float32 or not torch.isfinite(grad).all()
-                        or float(state["step"]) != 1+len(batches)):
-                    raise ValueError("Every adapter/head needs finite FP32 gradient and all actual new Adam steps")
+                if p.grad is not None or float(state["step"]) != 1+len(batches):
+                    raise ValueError("Every adapter/head needs all actual Adam steps and native gradient cleanup")
                 for key in ("exp_avg", "exp_avg_sq"):
                     moment = state[key].to_local() if hasattr(state[key], "to_local") else state[key]
                     if moment.dtype != torch.float32 or not torch.isfinite(moment).all():
@@ -174,6 +179,8 @@ def main():
             if not head_changed:
                 raise ValueError("Native critic scalar head was not updated")
             results[role] = {"optimizer_updates": len(batches), "trainable_tensors": len(after),
+                "all_updates_audited_inside_native_train_context": True,
+                "native_zero_grad_on_exit_preserved": True,
                 "state_changed": True, "scalar_head_changed": head_changed if role == "critic" else None}
             (run/f"{role}-state-audit.json").write_text(artifact_json_dumps({"before": before[role], "after": after}))
         report = {"status": c["worker_status"], "source_commit": commit, "episodes": 20, "actions": len(observations),

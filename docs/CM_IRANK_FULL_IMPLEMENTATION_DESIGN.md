@@ -2396,6 +2396,79 @@ checkpoint. Full-data budget and held-out opening remain separate decisions.
 compile/bash syntax/diff checks pass. CPU/GPU v3 execution remains required;
 local ABI doubles are not evidence of a native GPU PPO update.
 
+**V3 execution launched:** exact source **eda05ebdc671700e2d6cc05c0ef3d564432a9969**,
+723 tests PASS6.33s/pushed/clean-deployed. Same shared SSH master7509, foreground
+session**8298** runs fresh CPU41/4 CPUs/CUDA hidden/600s cap then, only on success,
+the original GPU1 keeper-protected sampler/native training chain. Standing
+authority/21820/UUID unchanged; keeper1.612/GPU0 keeper.605/bash.597 observed
+before execution. No terminal CPU/GPU/update result is claimed from launch.
+Local replay of the preserved real v2 traces independently confirms all20
+users/125 actual responses survive new validation,10 malformed returns exactly
+−1, mini-batches36/36/36/17, without repair/filtering. This is validation of
+the missing branch, not a v2 PASS or learning result. Resume8298 once later;
+no source redeploy/local SSH polling while active. Provisional CPU1–3min plus
+GPU10–20min; owned models exit/actual release → original keeper1 restoration
+before CPU review/user wait on success/error/timeout.
+
+### 0.64 Native GAE and four critic updates reached; train-context audit fix — 2026-10-20
+
+V3 source **eda05ebdc671700e2d6cc05c0ef3d564432a9969**, foreground8298 terminal1.
+CPU41 **PASS44.298s**:20 valid+20 malformed episode probes,546 native loss/
+mask/width probes and40 native GAE/return audits. Report SHA
+**beb03e98e59c71ed41df9b6cfac6f75ed26c36f1a1ab81a4de95174f703997cd**;
+source/artifact hashes and recorded finite probes checked locally.
+
+The GPU chain consumed **all20 episodes/130 actual actions**,11 complete and9
+malformed, without repair/filtering. Native actor/critic/reference scoring and
+episode-continuous GAE completed. **Four critic native PPO updates** are logged
+with mini-batches36/36/36/22 and finite pre-clip gradient norms234.893/220.846/
+74.157/77.416; native clipping/LR2e−5 unchanged. **Actor updates0**: execution
+stopped in the post-critic audit. These are actual discarded synthetic critic
+updates, not proof that both-role PPO or Books learning passed.
+
+Cause is the harness lifecycle: pinned native `BaseEngineCtx` defaults
+`zero_grad_on_exit=True`; `EngineTrainModeCtx.__exit__` invokes
+`optimizer_zero_grad()` before clearing `engine.mode`. Our loop left that
+context, then required every `p.grad` to still exist. The missing gradients
+are expected cleanup, not evidence of a nonfinite-gradient/model failure.
+V3 nevertheless remains **FAIL**: complete trainable-state audit/actor updates
+were not reached. Failure SHA
+**71374987414796a451da46146e14ef51fe75755d0d8e5af4b964602e38310273**;
+native worker~243.49s to critic update4/controller448.093s total. Both owned
+processes exited, actualGPU1 release1MiB, original keeper1 restored/verified
+**21820.618** before review. Other GPU/workloads/reservation unchanged.
+
+**V4 integration-only correction:** inspect every adapter/head's finite FP32
+gradient, complete FP32 Adam moments, exact step counter and frozen-parameter
+exclusions **inside** each native training context, immediately after its
+`train_batch`. Then separately require every gradient released and mode cleared
+after exit. Do not disable `zero_grad_on_exit`, retain extra gradients, weaken
+missing/nonfinite/dtype/state checks, modify VeRL, or change any method/precision/
+resource hyperparameter. Full before/after trainable-state fingerprints and
+critic-head changes remain required after the update schedule.
+
+New immutable `ppo_lora_multiturn_v4.json` changes only namespaces and this audit
+placement; all v3 invalid-penalty semantics and old failures stay intact.
+CPU41 first repeats546 native loss/GAE probes, then20 tiny FP32 AdamW lifecycle
+probes through the **actual installed EngineTrainModeCtx**. That CPU shell has
+no model weights/GPU, disables device switching only and preserves native
+gradient cleanup. Production keeps every context default. Local regression
+tests reject missing/NaN gradients, BF16/NaN moments, bad steps/frozen states
+and enforce audit-inside-context in the GPU worker's AST.
+
+After CPU PASS, rerun the same20-user GPU1 smoke from the immutable discarded
+T0 checkpoint, not the partially updated v3 state; all observed episodes and
+partial last batches must be retained. Native backend/loss/LRs/masks/gamma/
+reward/seed/sampler/IS/card/host budgets unchanged. A successful v4 would qualify
+both-role PPO **mechanics only**. No ranking gain/format-readiness/primary-memory
+or research checkpoint is claimed. Estimate~10–15min including CPU, based on
+v3's7.47min GPU chain plus an as-yet-unmeasured actor update/audit phase; retain
+20min worker/25min controller caps and unconditional release→keeper1 handback.
+
+**Local qualification:**732 tests PASS5.98s/127 multi-turn tests, compile/bash
+syntax/diff checks pass. CPU20 native lifecycle and GPU rerun remain required;
+no local-test result is relabelled as a successful full-model actor update.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.

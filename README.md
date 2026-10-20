@@ -32,6 +32,12 @@ chọn lại nhãn đã loại), nên0 updates; model đã nhả/keeper1 phục 
 batch, không repair/filter/tune prompt. Đây là gate cơ chế, không đổi FAIL
 chất lượng cũ thành PASS ([§0.63](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#063-cpu-v2-reviewed-pass-gpu-malformed-action-failure-implement-74--2026-10-20)).
 [Kết quả và protocol gate mới §0.61](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#061-lora-rolloutreference-reviewed-pass-complete-episode-ppo-smoke--2026-10-20).
+V3 source`eda05eb`/723 tests pass đã deploy, đang chạy CPU→GPU1 có xử lý
+episode lỗi đúng protocol. **V3 terminal:** native GAE đã chạy,4 critic PPO
+updates (synthetic/bỏ đi), actor0; harness kiểm tra gradient sau lúc native
+context đã xóa nó nên gate vẫn FAIL. GPU đã nhả, keeper1 phục hồi.
+Đang sửa đúng lifecycle kiểm tra, không tắt cleanup/nới guard hay đổi recipe
+([§0.64](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#064-native-gae-and-four-critic-updates-reached-train-context-audit-fix--2026-10-20)).
 
 | Phần việc | Bằng chứng / giới hạn |
 |---|---|

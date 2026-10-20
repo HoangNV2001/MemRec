@@ -1,0 +1,7 @@
+{
+  "schema_version": 4,
+  "inherits": "configs/cmirank/ppo_lora_multiturn_v3.json",
+  "prepare_run_id": "cmirank-lora-multiturn-data-v4-20261020-hnv",
+  "run_id": "cmirank-lora-multiturn-smoke-v4-20261020-hnv",
+  "reason": "Audit finite FP32 gradients and Adam states inside native train_mode before its default zero_grad_on_exit; separately verify gradient cleanup after exit. Keep native context defaults and all scientific/resource settings, preserve the v3 partial-critic failure."
+}

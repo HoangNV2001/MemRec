@@ -23,8 +23,8 @@ from .request import RankRequest
 from .rewards import mpss_rewards, malformed_mpss_rewards, ndcg_at_k
 
 
-def load_multiturn_config(root, version=3):
-    if type(version) is not int or version not in (1, 2, 3):
+def load_multiturn_config(root, version=4):
+    if type(version) is not int or version not in (1, 2, 3, 4):
         raise ValueError("Unknown multi-turn integration profile")
     c, _ = load_lora_rollout_config(root)
     path = root / "configs/cmirank/ppo_lora_multiturn_v1.json"
@@ -72,6 +72,17 @@ def load_multiturn_config(root, version=3):
                 or not isinstance(retry["reason"], str) or not retry["reason"]):
             raise ValueError("Malformed training branch cannot change the fixed penalty or discard episodes")
         c.update(retry)
+    if version >= 4:
+        path = root/"configs/cmirank/ppo_lora_multiturn_v4.json"
+        retry = json.loads(path.read_text())
+        fixed_retry = {"schema_version": 4, "inherits": "configs/cmirank/ppo_lora_multiturn_v3.json",
+            "prepare_run_id": "cmirank-lora-multiturn-data-v4-20261020-hnv",
+            "run_id": "cmirank-lora-multiturn-smoke-v4-20261020-hnv"}
+        if (set(retry) != set(fixed_retry) | {"reason"}
+                or any(type(retry[k]) is not type(v) or retry[k] != v for k, v in fixed_retry.items())
+                or not isinstance(retry["reason"], str) or not retry["reason"]):
+            raise ValueError("Gradient-lifecycle retry cannot change scientific/resource settings")
+        c.update(retry)
     c["parameterization"] = "lora_multiturn"
     c["worker_status"] = ("NATIVE_LORA_MULTITURN_VALID_AND_INVALID_PPO_SMOKE_PASS_REVIEW_REQUIRED" if version >= 3
         else "NATIVE_LORA_MULTITURN_MPSS_GAE_PPO_SMOKE_PASS_REVIEW_REQUIRED")
@@ -81,6 +92,7 @@ def load_multiturn_config(root, version=3):
 def multiturn_code_hashes(root):
     names = ("configs/cmirank/ppo_lora_multiturn_v1.json", "configs/cmirank/ppo_lora_multiturn_v2.json",
         "configs/cmirank/ppo_lora_multiturn_v3.json",
+        "configs/cmirank/ppo_lora_multiturn_v4.json",
         "src/cmirank/multiturn_ppo.py",
         "scripts/cmirank/41_prepare_multiturn_ppo_cpu.py", "scripts/cmirank/42_native_multiturn_ppo_gpu.py",
         "scripts/cmirank/29_smoke_corrected_rollout_gpu.py", "scripts/cmirank/run_real_policy_smoke.sh",
@@ -338,6 +350,44 @@ def minibatch_slices(action_count, c):
         raise ValueError("All20 episodes need1–9 observed actions each")
     return [slice(start, min(start+c["global_minibatch"], action_count))
         for start in range(0, action_count, c["global_minibatch"])]
+
+
+def audit_update_gradients(engine, scope, expected_step, torch):
+    """Observe complete FP32 gradient/Adam state BEFORE native context cleanup."""
+    if engine.mode != "train":
+        raise ValueError("Gradient audit must execute inside the native train context")
+    parameters = gradients = moments = tensors = 0
+    for name, p in engine.module.named_parameters():
+        state = engine.optimizer.state.get(p, {})
+        if not p.requires_grad:
+            if p.grad is not None or state:
+                raise ValueError("Frozen backbone/vision received gradient or Adam state")
+            continue
+        grad = p.grad.to_local() if hasattr(p.grad, "to_local") else p.grad
+        if (grad is None or grad.dtype != torch.float32 or not torch.isfinite(grad).all()
+                or grad.numel() != p.numel() or grad.device != p.device
+                or set(state) != {"step", "exp_avg", "exp_avg_sq"}
+                or float(state["step"]) != expected_step):
+            raise ValueError(f"Missing/nonfinite FP32 gradient or incorrect native Adam step: {name}")
+        tensors += 1; parameters += p.numel(); gradients += grad.numel()*grad.element_size()
+        for key in ("exp_avg", "exp_avg_sq"):
+            moment = state[key].to_local() if hasattr(state[key], "to_local") else state[key]
+            if (moment.dtype != torch.float32 or not torch.isfinite(moment).all()
+                    or moment.numel() != p.numel() or moment.device != p.device):
+                raise ValueError(f"Native Adam moments must stay finite FP32 on the role device: {name}")
+            moments += moment.numel()*moment.element_size()
+    if (parameters != scope["trainable_parameters"] or gradients != scope["gradient_bytes"]
+            or moments != scope["adam_moment_bytes"]):
+        raise ValueError("Incomplete native adapter/head gradients or Adam states")
+    return {"trainable_tensors": tensors, "gradient_parameters": parameters,
+        "gradient_bytes": gradients, "adam_moment_bytes": moments,
+        "adam_step": expected_step, "audit_inside_native_train_context": True}
+
+
+def audit_gradient_cleanup(engine):
+    """Keep default zero_grad_on_exit, and prove no stale gradient is retained."""
+    if engine.mode is not None or any(p.grad is not None for p in engine.module.parameters()):
+        raise ValueError("Native train context must have exited and released every gradient")
 
 
 def verify_multiturn_preparation(private, root, c, path, commit):

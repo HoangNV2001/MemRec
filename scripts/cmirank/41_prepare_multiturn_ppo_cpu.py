@@ -18,7 +18,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from src.cluster_runtime import require_allocation, require_project_root
 from src.cmirank.multiturn_ppo import (load_multiturn_config, multiturn_code_hashes,
-    reviewed_rollout_parent, prompt_row, validate_episodes, episode_gae, native_training_batch, minibatch_slices)
+    reviewed_rollout_parent, prompt_row, validate_episodes, episode_gae, native_training_batch, minibatch_slices,
+    audit_update_gradients, audit_gradient_cleanup)
+from src.cmirank.lora_joint import native_optimizer_config
 from src.cmirank.format_sft import synthetic_request
 from src.cmirank.lora_rollout import rollout_host_budget, checkpoint_directory
 from src.cmirank.lora_checkpoint import checkpoint_budget
@@ -71,7 +73,9 @@ def main():
     from transformers import AutoTokenizer
     from verl.workers.config.actor import ActorConfig
     from verl.workers.config.critic import CriticConfig
-    from verl.workers.engine.fsdp.transformer_impl import FSDPEngineWithLMHead, prepare_micro_batches
+    from verl.workers.engine.fsdp.transformer_impl import FSDPEngineWithLMHead, EngineTrainModeCtx, prepare_micro_batches
+    from verl.workers.engine.base import BaseEngineCtx
+    from verl.workers.config.optimizer import build_optimizer
     from verl.workers.utils.losses import ppo_loss, value_loss
     from verl.workers.utils.padding import no_padding_2_padding
     from verl.trainer.ppo.core_algos import compute_gae_advantage_return
@@ -167,13 +171,41 @@ def main():
                         "fixture": fixture_name, "loss": float(loss.detach()), "prompt_gradient_zero": True,
                         "response_tokens_including_eos": len(obs["response_token_ids"]),
                         "native_output_width": aligned.shape[-1], "native_loss_field_width": padded_field.shape[-1]})
+    lifecycle = []
+    if c["schema_version"] >= 4:
+        for i in range(20):
+            # No native model/weights/GPU is instantiated. This CPU-only engine
+            # shell exercises the actual installed train context's default
+            # zero_grad_on_exit, with standard tiny FP32 AdamW storage.
+            engine = object.__new__(FSDPEngineWithLMHead)
+            engine.module = torch.nn.Module()
+            engine.module.register_parameter("adapter", torch.nn.Parameter(torch.ones(3, 3)))
+            engine.module.register_parameter("frozen", torch.nn.Parameter(torch.ones(3), requires_grad=False))
+            engine.optimizer = build_optimizer([engine.module.adapter], native_optimizer_config(c,
+                "actor" if i % 2 == 0 else "critic"))
+            engine.ulysses_parallel_group = None
+            scope = {"trainable_parameters": 9, "gradient_bytes": 36, "adam_moment_bytes": 72}
+            # CPU miniature disables device switching only; it does NOT disable
+            # gradient cleanup. Production retains all native context defaults.
+            context = EngineTrainModeCtx(engine, disable_auto_offload=True)
+            if not context.zero_grad_on_exit:
+                raise ValueError("Native zero_grad_on_exit default changed")
+            with context:
+                engine.module.adapter.square().sum().backward()
+                engine.optimizer.step()
+                receipt = audit_update_gradients(engine, scope, expected_step=1, torch=torch)
+            audit_gradient_cleanup(engine)
+            lifecycle.append({"probe": i, **receipt, "gradients_cleared_on_native_exit": True,
+                "cpu_only_no_native_model_instantiation": True})
     if torch.cuda.is_initialized():
         raise ValueError("CPU rehearsal initialized CUDA")
     run.mkdir()
-    for name, rows in (("requests", requests), ("probes", probes), ("gae-probes", audits)):
+    for name, rows in (("requests", requests), ("probes", probes), ("gae-probes", audits),
+            ("lifecycle-probes", lifecycle)):
         (run/f"{name}.jsonl").write_text("".join(json.dumps(x, sort_keys=True)+"\n" for x in rows))
     sources = dict(parent["native_source_sha256"])
-    for obj in (compute_gae_advantage_return, ppo_loss, value_loss, prepare_micro_batches, no_padding_2_padding):
+    for obj in (compute_gae_advantage_return, ppo_loss, value_loss, prepare_micro_batches, no_padding_2_padding,
+            EngineTrainModeCtx, BaseEngineCtx, build_optimizer):
         file = Path(inspect.getfile(obj))
         sources[str(file.relative_to(Path(sys.prefix)))] = file_sha256(file)
     report = {**{k: parent[k] for k in ("roles", "targets", "overlay_sha256", "checkpoint_stat",
@@ -184,6 +216,8 @@ def main():
         "malformed_rehearsal_episodes": 20 if c.get("train_invalid_trajectories") else 0,
         "response_length_variants": sorted({len(o["response_token_ids"]) for o in observations}),
         "native_dynamic_microbatch_padding": True,
+        "native_train_context_lifecycle_probes": len(lifecycle),
+        "tiny_cpu_lifecycle_optimizer_steps": len(lifecycle), "full_model_optimizer_updates": 0,
         "optimizer_updates": 0, "training_ready": False, "books_outcomes_accessed": False,
         "host_budget": host, "checkpoint_budget": budget, "native_source_sha256": sources,
         "artifact_sha256": {p.name: file_sha256(p) for p in run.glob("*.jsonl")},

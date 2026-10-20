@@ -7,7 +7,8 @@ from types import ModuleType
 import pytest
 
 from src.cmirank.multiturn_ppo import (load_multiturn_config, sample_trajectories,
-    validate_episodes, episode_gae, native_training_batch, episode_groups, minibatch_slices)
+    validate_episodes, episode_gae, native_training_batch, episode_groups, minibatch_slices,
+    audit_update_gradients, audit_gradient_cleanup)
 from src.cmirank.format_sft import synthetic_request
 from src.cmirank.rewards import malformed_mpss_rewards
 
@@ -253,3 +254,63 @@ def test_invalid_branch_does_not_tune_penalty_or_hide_failure(tmp_path, key, val
     c = json.loads(path.read_text()); c[key] = value; path.write_text(json.dumps(c))
     with pytest.raises(ValueError):
         load_multiturn_config(tmp_path)
+
+
+def test_lifecycle_retry_preserves_all_method_and_resource_values():
+    old, _ = load_multiturn_config(ROOT, version=3)
+    new, path = load_multiturn_config(ROOT)
+    changes = {k for k in old.keys() | new.keys() if old.get(k) != new.get(k)}
+    assert changes == {"schema_version", "prepare_run_id", "run_id", "reason", "inherits"}
+    assert path.name == "ppo_lora_multiturn_v4.json"
+
+
+def tiny_updated_engine():
+    torch = pytest.importorskip("torch")
+    from types import SimpleNamespace
+    model = torch.nn.Module()
+    model.register_parameter("adapter", torch.nn.Parameter(torch.ones(3, 3)))
+    model.register_parameter("frozen", torch.nn.Parameter(torch.ones(3), requires_grad=False))
+    optimizer = torch.optim.AdamW([model.adapter], lr=1e-5, foreach=False)
+    model.adapter.square().sum().backward(); optimizer.step()
+    return torch, SimpleNamespace(module=model, optimizer=optimizer, mode="train"), {
+        "trainable_parameters": 9, "gradient_bytes": 36, "adam_moment_bytes": 72}
+
+
+def test_gradient_audit_before_cleanup_then_release_after_exit():
+    torch, engine, scope = tiny_updated_engine()
+    receipt = audit_update_gradients(engine, scope, 1, torch)
+    assert receipt["gradient_bytes"] == 36 and receipt["adam_moment_bytes"] == 72
+    assert receipt["audit_inside_native_train_context"]
+    with pytest.raises(ValueError, match="context must have exited"):
+        audit_gradient_cleanup(engine)
+    engine.optimizer.zero_grad(); engine.mode = None
+    audit_gradient_cleanup(engine)
+    with pytest.raises(ValueError, match="inside the native train context"):
+        audit_update_gradients(engine, scope, 1, torch)
+
+
+@pytest.mark.parametrize("corrupt", ["missing_grad", "nan_grad", "wrong_step", "nan_moment", "bf16_moment", "frozen_state"])
+def test_lifecycle_fix_does_not_weaken_gradient_state_guards(corrupt):
+    torch, engine, scope = tiny_updated_engine()
+    p = engine.module.adapter
+    if corrupt == "missing_grad": p.grad = None
+    elif corrupt == "nan_grad": p.grad[0, 0] = float("nan")
+    elif corrupt == "wrong_step": engine.optimizer.state[p]["step"] += 1
+    elif corrupt == "nan_moment": engine.optimizer.state[p]["exp_avg"][0, 0] = float("nan")
+    elif corrupt == "bf16_moment": engine.optimizer.state[p]["exp_avg"] = engine.optimizer.state[p]["exp_avg"].bfloat16()
+    else: engine.optimizer.state[engine.module.frozen] = {"step": 1}
+    with pytest.raises(ValueError):
+        audit_update_gradients(engine, scope, 1, torch)
+
+
+def test_gpu_gradient_audit_is_inside_native_context_without_disabling_cleanup():
+    import ast
+    source = (ROOT/"scripts/cmirank/42_native_multiturn_ppo_gpu.py").read_text()
+    contexts = [n for n in ast.walk(ast.parse(source)) if isinstance(n, ast.With)
+        and any(isinstance(item.context_expr, ast.Call) and isinstance(item.context_expr.func, ast.Attribute)
+            and item.context_expr.func.attr == "train_mode" for item in n.items)]
+    assert len(contexts) == 1
+    assert any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "audit_update_gradients"
+        for n in ast.walk(contexts[0]))
+    assert "zero_grad_on_exit=False" not in source
+    assert "audit_gradient_cleanup(engine)" in source
