@@ -13,7 +13,17 @@ chỉ GPU1; không triển khai đề xuất2 GPU. Full-tuning smoke cũ đượ
 chưa có kết quả train/ranking LoRA. CPU20 scope/roundtrip phải pass trước GPU.
 [Protocol hiện hành §0.54](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#054-approved-lora-amendment-one-designated-gpu-only--2026-10-15).
 
-## Trạng thái hiện hành — 2026-10-19
+## Trạng thái hiện hành — 2026-10-20
+
+**Mới nhất20/10:** LoRA rollout/reference v2 đã PASS và được đối chiếu độc lập:
+20/20 responses hợp lệ/60 calls, native cold-restore actor+critic/Adam/RNG
+khớp; reference bằng `disable_adapter()` khớp20 frozen controls (delta0).
+ESS0,99687, weights0,87462–1,08242, không vượt cap2; 282,02s, peak52,51GiB.
+Model đã nhả1MiB và keeper1 phục hồi. **0 updates, chưa train PPO Books**.
+Gate kế tiếp đã code/test:20 synthetic episodes ×9 lượt, native MPSS/GAE
+xuyên episode rồi5 PPO updates/role (bỏ đi), không dùng Books outcomes.
+CPU smoke phải pass trước GPU1; không đổi LoRA rank/LR, budget hoặc primary.
+[Kết quả và protocol gate mới §0.61](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#061-lora-rolloutreference-reviewed-pass-complete-episode-ppo-smoke--2026-10-20).
 
 | Phần việc | Bằng chứng / giới hạn |
 |---|---|
@@ -41,11 +51,13 @@ chưa nằm trong gate đó. Native265,18s/coordinator283,34s, VRAM peak53,04GiB
 GPU nhả1MiB rồi keeper1 phục hồi. Tiếp theo CPU export adapter → vLLM20 mẫu
 mới → native cold-restore/reference, chạy tuần tự trên GPU1, không co-host.
 [Checkpoint và rollout gate §0.59](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#059-native-checkpoint-reviewed-pass-sequential-lora-rolloutreference-gate--2026-10-19).
-Source`ad157b2` đã deploy,595 tests pass. Preflight rollout đang chờ RAM:
-headroom ước lượng7,08GiB <ngưỡng20GiB. Lượt chờ server tối đa10 phút, nếu đủ
-sẽ tự chạy chuỗi smoke; chưa dừng keeper hay nạp model cho gate mới này.
+Source`844284d` đã deploy,605 tests pass. Profile v2 sửa hạch toán clean file
+LRU, giữ nguyên cap64GiB/margin20GiB và budget working-set đã đo. CPU20
+export đã **PASS58,16s**,496 tensor/64,93M parameters khớp byte, CUDA chưa khởi
+tạo. Launch này đã kết thúc thành công và được review20/10 ở §0.61;
+không dùng trạng thái launch19/10 làm tiến độ hiện hành.
 
-**Mới nhất:** corrected-rollout v2 **PASS**: 20/20 responses sinh thật đúng
+**Gate full-tuning lịch sử:** corrected-rollout v2 **PASS**: 20/20 responses sinh thật đúng
 format, 0 truncation; native FSDP2 chấm 40 lượt, repeat delta0. CPU review
 sequence IS native đạt ESS0,99363, weights0,86660–1,15159, không mẫu vượt cap2.
 GPU task3,94 phút; model đã nhả về1MiB và keeper1 phục hồi. Artifacts được

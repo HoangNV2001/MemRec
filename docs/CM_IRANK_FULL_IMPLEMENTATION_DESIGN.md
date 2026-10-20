@@ -2185,6 +2185,94 @@ and actual release/keeper restoration remain mandatory. This is an explicit
 agent implementation/accounting amendment, **not a researcher-approved change
 to the scientific protocol**, and does not promote PPO/quality readiness.
 
+**V2 execution:** exact source**844284d547a5075f23ffd3d754b3afc5e68e9a7f**,
+605 tests PASS10.10s/pushed/clean-deployed. Stopped only the uniquely verified
+owned CPU wait Python PID1842458/step21820.589 after two UID1052/cgroup/command/
+start-tick/CUDA-hidden/exact-source checks; original wait chain exited143 before
+any model/keeper handoff. Its original logs and v1 failed preflight remain.
+No reservation, keeper or other workload was signalled by that CPU cleanup.
+New CPU39 v2 **PASS58.158s**,20 schema/packing cases and496 actor adapter tensors
+(64,929,792parameters) byte-identical to native checkpoint; CUDA not initialized.
+Report **64cb2b9b1a702d4607563937e3a883f438a59f9d65cc99cfcf350a317e4776bc**.
+The same foreground chain invoked the original GPU1 controller with the current
+keeper after PASS. Native rollout/reference/cold-restart and terminal keeper
+restoration remain pending at this inspection; do not infer them from launch.
+
+### 0.61 LoRA rollout/reference reviewed PASS; complete-episode PPO smoke — 2026-10-20
+
+The19/10 foreground chain has finished. Source **844284d547a5075f23ffd3d754b3afc5e68e9a7f**,
+CPU39 v2 report **64cb2b9b1a702d4607563937e3a883f438a59f9d65cc99cfcf350a317e4776bc**;
+GPU report **1f732b51f436613db94a82145b2ad785043cfb5d9e5382377ca41d7e4b77f097**;
+native worker **c5acba703d60df359fe02d0628777399dcf1ac4b68b1572729604b76d0d5a07e**;
+CPU31 review **500fe246b145ce9a5e7f09204d4e2353067e3980a98ae94276e4e5dfc75c8abf**.
+
+- **20/20 actual adapter samples valid,0 truncated**,60 physical requests:
+  20 frozen-base controls +20 adapter controls +20 sampled responses.
+- Fresh native FSDP2 actor/critic restored complete trainable tensors, Adam,
+  scheduler and RNG.40 original readouts reproduce exactly;20 fresh response
+  actor/critic repeats agree exactly. Native adapter-disabled reference agrees
+  with20 frozen unadapted SFT controls, delta0, without modifying actor state.
+- Native sequence-IS CPU review: **ESS0.9968651**, weights**0.8746206–1.0824221**,
+  no weight above2. Independent local recomputation agrees; original strict
+  HF–vLLM parity FAILs stay unchanged, not converted to PASS.
+- Native125.968s/controller282.021s; peak allocated**53,772.08MiB (~52.51GiB)**,
+  reserved53,830MiB. Owned models exited, actual GPU1 release1MiB, original
+  keeper1 restored/verified **21820.595** before CPU review/download. GPU0,
+  independent steps and reservation untouched; shared SSH master reused.
+- Local reports/parent SHA/source receipts,60 request pairs,20 exact EOS/masks,
+ 40 cold-readout and20 reference controls, native repeat vectors, correction
+  weights and cleanup/handback have been independently checked. Large native
+  checkpoints stay remote; no unnecessary second model/checkpoint copy.
+
+**Boundary:**0 optimizer updates, no multi-turn GAE, no Books outcomes/ranking,
+no research training readiness. This closes the sequential sampler/reference/
+cold-restart integration gate, not the thesis hypothesis.
+
+**Next fixed T0 integration:** `ppo_lora_multiturn_v1.json`, scripts41/42,
+original29controller and original protected keeper wrappers via opt-in
+`lora_multiturn`. Fresh20 synthetic negative-ID requests (seed
+`cmirank-t0-multiturn-v1-20261020`), each10 candidates/9 complete eliminations,
+at most180 actual vLLM calls, same temperature0.9/full-support64-token cap,
+same frozen parser/prompts and static r32 adapter from the discarded T0
+checkpoint. No filtering, retries, constrained decoding or output repairs;
+collect malformed episodes and fail closed before training if any incomplete.
+
+For valid trajectories, native actor/critic score all180 responses; reference
+uses `disable_adapter()`. Synthetic target is fixed **C[index mod10]** by episode
+index, never derived from actions or exposed in prompts. MPSS rewards belong
+only to the final token of each response. Concatenate **response tokens only**
+within each episode, run unmodified native VeRL GAE **gamma=lambda=1**, verify
+every return against independent suffix reward sums, then split back into180
+fresh-prompt action rows. This catches the incorrect nine-independent-terminal
+implementation. Native advantage whitening occurs over the whole20-episode
+rollout before mini-batch splitting. KL reference affects native loss only,
+not the MPSS exact-return audit.
+
+One PPO epoch, global mini-batch36/micro1 yields **5 native AdamW updates per
+role /10 total**, all discarded. Native `ppo_loss`/`value_loss`, clip/defaults
+unchanged; actor KL `low_var_kl`, beta1e−4 from§8.1, approved LoRA LRs1e−5/2e−5.
+Native sequence correction applies per action response, cap2/noRS/no batch
+normalization; no hand-written optimizer/critic/loss. Full FP32 adapter/head
+gradients/moments, frozen backbone/vision and actual parameter changes must be
+audited. This is genuine PPO/GAE **mechanism smoke**, not meaningful synthetic
+ranking improvement or a Books-trained checkpoint; warm-starting the discarded
+T0 checkpoint is forbidden for the eventual research arm.
+
+First CPU41 rehearses20 full episodes/180 states/360 native loss+gradient
+proxies, all ranks1–10, exact token/mask packing and native GAE. Only after
+fresh source-bound PASS may GPU1 handoff occur. vLLM exits/releases before
+native actor+critic load. Same one-card/64GiB host/resource margins and measured
+restore budget; no GPU0/new allocation/cache reclaim/precision change. Native
+worker cap20min/controller25min; provisional10–20min total GPU phase. On all
+terminal paths model exit/actual release → original keeper1 restoration before
+CPU review/wait. No model residency during implementation.
+
+After terminal independent review, proceed to **primary train-only real memory**
+and tiny Books PPO. Primary1797-user cache is still missing; the old20-user
+secondary cohort may contain validation users and is NOT a training substitute.
+Full-run budget/held-out opening/primary replacement remain separate decisions.
+No new scientific result is inferred from completing infrastructure gates.
+
 # 1. Executive decision
 
 The project should pivot from graph-transition evidence as the main contribution to a learned ranking policy that consumes MemRec's collaborative semantic memory.

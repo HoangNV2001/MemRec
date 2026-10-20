@@ -39,16 +39,20 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--owner-confirmed-generator-step", required=True)
-    parser.add_argument("--parameterization", choices=("full", "lora"), default="full")
+    parser.add_argument("--parameterization", choices=("full", "lora", "lora_multiturn"), default="full")
     args = parser.parse_args()
     private = require_project_root(Path(os.environ["MEMREC_ROOT"]))
     job = require_allocation()
     c, path = load_corrected_config(ROOT)
-    if args.parameterization == "lora":
+    if args.parameterization != "full":
         from src.cmirank.lora_rollout import (load_lora_rollout_config, verify_lora_rollout_preparation,
             lora_server_options, rollout_host_budget)
         from src.cmirank.lora_checkpoint import checkpoint_budget
         c, path = load_lora_rollout_config(ROOT)
+    if args.parameterization == "lora_multiturn":
+        from src.cmirank.multiturn_ppo import (load_multiturn_config, verify_multiturn_preparation,
+            sample_trajectories, validate_episodes)
+        c, path = load_multiturn_config(ROOT)
     compat, _ = load_compat_config(ROOT)
     runtime, _ = load_runtime_config(ROOT)
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
@@ -63,8 +67,11 @@ def main():
     for n, v in runtime["versions"].items():
         if importlib.metadata.version(n) != v:
             raise ValueError("Pinned runtime changed")
-    rows, prepared = (verify_lora_rollout_preparation(private, ROOT, c, path, commit)
-        if args.parameterization == "lora" else verify_corrected_preparation(private, ROOT, c, path, commit))
+    if args.parameterization == "lora_multiturn":
+        rows, prepared = verify_multiturn_preparation(private, ROOT, c, path, commit)
+    else:
+        rows, prepared = (verify_lora_rollout_preparation(private, ROOT, c, path, commit)
+            if args.parameterization == "lora" else verify_corrected_preparation(private, ROOT, c, path, commit))
     verify_fla_overlay(private, c)
     toolchain = verify_cuda_toolchain(private, ROOT, c)[0]
     causal = verify_causal_overlay(private, ROOT, c)[0]
@@ -79,7 +86,7 @@ def main():
     for n, sha in prepared["overlay_sha256"].items():
         if file_sha256(private / "overlays" / compat["overlay_name"] / n) != sha:
             raise ValueError("FA2 changed after CPU qualification")
-    if args.parameterization == "lora":
+    if args.parameterization != "full":
         import shutil
         host = rollout_host_budget(job, c)
         previous_budget = prepared["checkpoint_budget"]
@@ -102,6 +109,8 @@ def main():
     worker_marker = "scripts/cmirank/30_native_logprob_worker_gpu.py"
     if args.parameterization == "lora":
         worker_marker = "scripts/cmirank/40_native_lora_rollout_gpu.py"
+    elif args.parameterization == "lora_multiturn":
+        worker_marker = "scripts/cmirank/42_native_multiturn_ppo_gpu.py"
     def interrupted(signum, frame):
         raise InterruptedError(f"Owned corrected-rollout task interrupted by signal {signum}")
     signal.signal(signal.SIGTERM, interrupted)
@@ -141,8 +150,9 @@ def main():
         server_log = (run / "vllm-server.log").open("x")
         environment = {**os.environ, **c["server_environment"]}
         server = subprocess.Popen([str(private / "envs" / runtime["environment_name"] / "bin/vllm"),
-            "serve", str(checkpoint), *(lora_server_options(c, private/"runs"/c["prepare_run_id"]/"actor-adapter")
-                if args.parameterization == "lora" else corrected_server_options(c))], env=environment,
+            "serve", str(checkpoint), *(lora_server_options(c, private/"runs"/
+                c.get("rollout_parent_prepare_run_id", c["prepare_run_id"])/"actor-adapter")
+                if args.parameterization != "full" else corrected_server_options(c))], env=environment,
             stdout=server_log, stderr=subprocess.STDOUT, start_new_session=True)
         (run / "server.pid").write_text(str(server.pid) + "\n")
         base = f"http://127.0.0.1:{c['port']}"
@@ -159,7 +169,7 @@ def main():
             time.sleep(5)
         with urllib.request.urlopen(base + "/v1/models", timeout=5) as response:
             expected_models = {c["served_model_name"]}
-            if args.parameterization == "lora":
+            if args.parameterization != "full":
                 expected_models.add(c["served_adapter_name"])
             if {m["id"] for m in json.load(response)["data"]} != expected_models:
                 raise ValueError("Local server identity differs")
@@ -181,7 +191,26 @@ def main():
                     append(run, "sampler-controls", {"model": model, "user_id": row["user_id"],
                         "logprobs": response_prompt_logprobs(raw, row)})
         observations = []
-        for row in rows:
+        if args.parameterization == "lora_multiturn":
+            from transformers import AutoTokenizer
+            tokenizer = AutoTokenizer.from_pretrained(checkpoint, local_files_only=True, trust_remote_code=False)
+            def call(payload, user_id, turn):
+                nonlocal physical
+                if physical >= c["physical_request_cap"]:
+                    raise ValueError("Fixed180 action budget exhausted; no retries")
+                physical += 1
+                append(run, "physical-requests", {"event": "request", "attempt": physical,
+                    "user_id": user_id, "turn": turn, "payload": payload})
+                request = urllib.request.Request(base+"/v1/completions", data=json.dumps(payload).encode(),
+                    headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(request, timeout=c["request_timeout_seconds"]) as response:
+                    raw = json.load(response)
+                append(run, "physical-requests", {"event": "response", "attempt": physical,
+                    "user_id": user_id, "turn": turn, "response": raw})
+                return raw
+            observations, episodes = sample_trajectories(rows, tokenizer, c, call,
+                lambda name, row: append(run, name, row))
+        for row in ([] if args.parameterization == "lora_multiturn" else rows):
             if physical >= c["physical_request_cap"]:
                 raise ValueError("Fixed20 request cap exhausted; no retry")
             payload = generated_request(row, c)
@@ -204,6 +233,11 @@ def main():
         save(run / "server-release.json", wait_owned_hf_release(gpu_snapshot, c, card.uuid,
             child_exited=server.poll() is not None, child_kind="vllm", emit=lambda x: append(run, "server-release-snapshots", x)))
         manifest["generated_sha256"] = file_sha256(run / "generated.jsonl")
+        if args.parameterization == "lora_multiturn":
+            # Fail closed with all malformed traces retained; no9 independent
+            # terminal episodes, partial-batch training or silent filtering.
+            validate_episodes(observations, episodes, rows)
+            manifest["episodes_sha256"] = file_sha256(run/"episodes.jsonl")
         save(run / "manifest.json", manifest)
         worker_environment = {**os.environ,
             "PYTHONPATH": os.pathsep.join((str(causal), str(private / "overlays" / c["hf_kernel_overlay"]), os.environ["PYTHONPATH"])),
@@ -214,7 +248,7 @@ def main():
         worker_log = (run / "native-worker.log").open("x")
         worker = subprocess.Popen([sys.executable, "-u", worker_marker, "--run-dir", str(run)],
             env=worker_environment, stdout=worker_log, stderr=subprocess.STDOUT, start_new_session=True)
-        if worker.wait(timeout=600) != 0:
+        if worker.wait(timeout=c.get("worker_timeout_seconds", 600) if args.parameterization == "lora_multiturn" else 600) != 0:
             raise RuntimeError("Owned native FSDP2 scorer failed; no optimizer promotion")
         save(run / "native-release.json", wait_owned_hf_release(gpu_snapshot, c, card.uuid,
             child_exited=worker.poll() == 0, child_kind="native_fsdp2", emit=lambda x: append(run, "native-release-snapshots", x)))
@@ -223,13 +257,18 @@ def main():
                 or worker_report["source_commit"] != commit or not worker_report["cold_process_restart_proven"]
                 or worker_report["optimizer_updates"] or physical != 60):
             raise ValueError("Native cold-restore/reference or physical-request scope differs")
+        if args.parameterization == "lora_multiturn" and (worker_report["status"] != c["worker_status"]
+                or worker_report["source_commit"] != commit or physical != 180
+                or worker_report["optimizer_updates"] != 10 or not worker_report["native_episode_continuous_gae"]):
+            raise ValueError("Complete20 native MPSS/GAE/PPO scope differs")
         save(run / "report.json", {"status": ("LORA_ROLLOUT_NATIVE_ENGINE_PASS_CPU_CORRECTION_REVIEW_REQUIRED"
-            if args.parameterization == "lora" else "GENERATED_ROLLOUT_NATIVE_ENGINE_PASS_CPU_CORRECTION_REVIEW_REQUIRED"),
+            if args.parameterization == "lora" else c["worker_status"] if args.parameterization == "lora_multiturn"
+            else "GENERATED_ROLLOUT_NATIVE_ENGINE_PASS_CPU_CORRECTION_REVIEW_REQUIRED"),
             "source_commit": commit, "config_sha256": file_sha256(path), "samples": 20,
             "physical_requests": physical, "generated_response_tokens": sum(len(x["response_token_ids"]) for x in observations),
             "format_valid_samples": sum(x["format_valid"] for x in observations),
             "truncated_samples": sum(x["finish_reason"] == "length" for x in observations),
-            "optimizer_updates": 0, "training_ready": False, "ranking_metrics_computed": False,
+            "optimizer_updates": worker_report.get("optimizer_updates", 0), "training_ready": False, "ranking_metrics_computed": False,
             "books_outcomes_accessed": False, "old_strict_cross_engine_gate_status": "FAIL_UNCHANGED",
             "parameterization": args.parameterization,
             "worker_report_sha256": file_sha256(run/"native-worker-report.json"),
@@ -249,7 +288,8 @@ def main():
         save(run / "child-cleanup.json", {"process_exit_code": exit_code, "gpu_uuid": card.uuid if card else None,
             "owned_server_exited": server is None or server.poll() is not None,
             "owned_hf_worker_exited": worker is None or worker.poll() is not None,
-            "optimizer_updates": 0, "training_ready": False})
+            "optimizer_updates": len((run/"updates.jsonl").read_text().splitlines()) if (run/"updates.jsonl").exists() else 0,
+            "training_ready": False})
 
 
 if __name__ == "__main__":
