@@ -66,12 +66,12 @@ def test_twenty_user_serial_smoke_has_exact_counts_target_blind_inputs_and_repla
     assert memory_sha256(storage) == summary["final_memory_sha256"]
 
 
-def partial_review_fixture(tmp_path, *, complete=False, failure_user=11, typed_confusion=False):
+def partial_review_fixture(tmp_path, *, complete=False, complete_primary=False, failure_user=11, typed_confusion=False):
     import sqlite3
     from src.cmirank.memory_review import response_schema
     from src.cmirank.memory_smoke import object_sha256
 
-    config, _ = load_memory_contract(ROOT, 7 if complete else 6)
+    config, _ = load_memory_contract(ROOT, 9 if complete_primary else 7 if complete else 6)
 
     class RecordedFake(FakeJSONClient):
         def set_episode(self, episode_id):
@@ -86,7 +86,9 @@ def partial_review_fixture(tmp_path, *, complete=False, failure_user=11, typed_c
                     "messages_sha256": object_sha256(messages), "original_properties_sha256": object_sha256(original),
                     "constrained_properties_sha256": object_sha256(properties), **audit})
             raw = super().generate_json(messages, properties, **kwargs)
-            if not complete and self.episode_id == f"user-{failure_user}-warmup" and "facets" in properties:
+            if complete_primary and "facets" in properties:
+                raw["facets"][0]["supporting_neighbors"] = ["Item-999999999999"]
+            elif not complete and self.episode_id == f"user-{failure_user}-warmup" and "facets" in properties:
                 if typed_confusion:
                     import re
                     visible_user = re.findall(r"\[User-(\d+)\]", messages[0]["content"])[0]
@@ -110,15 +112,19 @@ def partial_review_fixture(tmp_path, *, complete=False, failure_user=11, typed_c
             handle.write(json.dumps(row) + "\n")
 
     users, rows, client, agent, inputs = make_fixture(RecordedFake)
-    if complete:
+    if complete or complete_primary:
         summary = run_memory_smoke(agent, inputs=inputs, rows=rows, user_ids=users,
-                                  candidate_context_warning=True, emit=emit)
+                                  candidate_context_warning=True, unknown_source_warning=complete_primary, emit=emit)
         from src.cmirank.provenance import file_sha256
         summary.update({"controlled_decoding_logical_requests": 100, "primary_provider_replaced": False,
-            "comparison_role": "secondary_control_not_primary_replacement", "token_stats": {
+            "comparison_role": config["comparison_role"] if complete_primary else "secondary_control_not_primary_replacement", "token_stats": {
                 "total_requests": 100, "total_physical_requests": 100, "total_cache_hits": 0,
                 "total_input_tokens": 800, "total_output_tokens": 300, "total_tokens": 1100},
             "artifact_sha256": {p.name: file_sha256(p) for p in tmp_path.glob("*.jsonl")}})
+        if complete_primary:
+            summary.pop("controlled_decoding_logical_requests")
+            summary.update({"status": "RAW_PRIMARY_MEMORY_PILOT_COMPLETE_CLEANUP_AND_REVIEW_REQUIRED",
+                "policy_train_only": True, "selected_validation_users": 0, "constrained_decoding": False})
         (tmp_path / "report.json").write_text(json.dumps(summary))
     else:
         with pytest.raises(ValueError, match="out-of-context"):
@@ -189,6 +195,61 @@ def test_source_citation_ids_are_journalled_but_not_rendered_in_either_ranker_pr
     assert render_direct_prompt(original) == render_direct_prompt(variant)
     labels = [f"C{i:02d}" for i in range(10)]
     assert render_step_prompt(original, labels) == render_step_prompt(variant, labels)
+
+
+def test_complete_raw_primary_review_retains_unknowns_without_promoting_grounding(tmp_path):
+    from src.cmirank.memory_review import read_rows, review_partial_records
+    from src.cmirank.primary_memory import primary_warning_probes
+    args = partial_review_fixture(tmp_path, complete_primary=True)
+    before = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+    result = review_partial_records(tmp_path, **args, completed_primary=True)
+    assert result["status"] == "RAW_PRIMARY_MEMORY_REVIEW_COMPLETE_NOT_SEMANTIC_GROUNDING"
+    assert result["unknown_context_occurrences"] == 40
+    assert (result["physical_requests"], result["completed_warmup_users"], result["completed_pseudo_users"]) == (100, 20, 20)
+    assert not result["literal_grounding_gate_passed"] and not result["semantic_memory_grounding_proven"]
+    assert result["raw_model_outputs_preserved"] and result["pseudo_memory_read_only_verified"]
+    assert not result["constrained_decoding"] and not result["training_ready"]
+    details = read_rows(tmp_path/"retrieval-trace.jsonl")[0]["details"]
+    journal = read_rows(tmp_path/"stage-w-journal.jsonl")[0]
+    # Disk journals stringify entity keys; the actual CPU smoke probes in-memory journals.
+    journal["mutation"]["users"] = {int(k): v for k, v in journal["mutation"]["users"].items()}
+    journal["mutation"]["items"] = {int(k): v for k, v in journal["mutation"]["items"].items()}
+    probes = primary_warning_probes(details, journal, 0, journal["feedback"]["item_id"], 8)
+    assert probes["warning_acceptances"] == 1 and len(probes["hard_rejections"]) == 17
+    assert probes["raw_probe_inputs_unchanged"]
+    assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == before
+
+
+@pytest.mark.parametrize("identifier", ["Item-5922", "User-99999999", "unresolved-source"])
+def test_warning_is_general_for_raw_source_ids_not_a_one_id_exception(tmp_path, identifier):
+    from src.cmirank.memory_review import read_rows
+    partial_review_fixture(tmp_path, complete_primary=True)
+    d = read_rows(tmp_path/"retrieval-trace.jsonl")[0]["details"]
+    d["retrieval_bundle"]["facets"][0]["supporting_neighbors"] = [identifier]
+    d["retrieval_bundle"]["support_edges"] = [{"from": identifier, "to": "User-0", "w": 0.5}]
+    before = deepcopy(d)
+    audit = validate_retrieval(d, 0, candidate_context_warning=True, unknown_source_warning=True)
+    assert len(audit["unknown_context_citations"]) == 2 and d == before
+    with pytest.raises(ValueError):validate_retrieval(d, 0, candidate_context_warning=True)
+
+
+@pytest.mark.parametrize("tamper", ["raw_citation", "unknown_count", "fake_grounding_claim", "wrong_edge_target", "pseudo_state", "extra_write"])
+def test_raw_primary_review_keeps_other_hard_gates_and_detects_repair(tmp_path, tamper):
+    from src.cmirank.memory_review import read_rows, review_partial_records
+    args = partial_review_fixture(tmp_path, complete_primary=True)
+    if tamper in ("unknown_count", "fake_grounding_claim"):
+        path = tmp_path/"report.json"; report = json.loads(path.read_text())
+        report["unknown_context_citation_occurrences" if tamper == "unknown_count" else "literal_grounding_gate_passed"] = 0 if tamper == "unknown_count" else True
+        path.write_text(json.dumps(report))
+    else:
+        name = "policy-inputs" if tamper == "pseudo_state" else "stage-w-journal" if tamper == "extra_write" else "retrieval-trace"
+        path = tmp_path/f"{name}.jsonl"; rows = read_rows(path)
+        if tamper == "pseudo_state": rows[0]["memory_state_sha256"] = "0"*64
+        elif tamper == "extra_write": rows.append(deepcopy(rows[-1]))
+        elif tamper == "wrong_edge_target": rows[0]["details"]["retrieval_bundle"]["support_edges"] = [{"from": "Item-999999999999", "to": "User-999", "w": 0.5}]
+        else: rows[0]["details"]["retrieval_bundle"]["facets"][0]["supporting_neighbors"] = []
+        path.write_text("".join(json.dumps(row)+"\n" for row in rows))
+    with pytest.raises(ValueError):review_partial_records(tmp_path, **args, completed_primary=True)
 
 
 def test_completed_control_offline_review_checks_twenty_writes_and_readonly_pseudo_inputs(tmp_path):
@@ -359,7 +420,7 @@ def test_v2_binding_delta_preserves_entire_memory_experiment():
     assert effective == base
     assert sha != base_sha
     with pytest.raises(ValueError):
-        load_memory_contract(ROOT, 9)
+        load_memory_contract(ROOT, 10)
 
 
 def test_numeric_binding_requires_inventory_uuid_and_pci_order_agreement():

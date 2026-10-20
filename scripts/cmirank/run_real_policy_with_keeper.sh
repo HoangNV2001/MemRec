@@ -6,6 +6,8 @@ set -euo pipefail
 MEMREC_POLICY_CONTRACT_VERSION=${MEMREC_POLICY_CONTRACT_VERSION:-2}
 [[ "$MEMREC_POLICY_CONTRACT_VERSION" == 1 || "$MEMREC_POLICY_CONTRACT_VERSION" == 2 ]] || exit 2
 MEMREC_TASK_KIND=${MEMREC_TASK_KIND:-real_policy}
+export MEMREC_PRIMARY_MEMORY_CONTRACT_VERSION=${MEMREC_PRIMARY_MEMORY_CONTRACT_VERSION:-8}
+[[ "$MEMREC_PRIMARY_MEMORY_CONTRACT_VERSION" == 8 || "$MEMREC_PRIMARY_MEMORY_CONTRACT_VERSION" == 9 ]] || exit 2
 export MEMREC_PARITY_CONTRACT_VERSION=${MEMREC_PARITY_CONTRACT_VERSION:-8}
 [[ "$MEMREC_PARITY_CONTRACT_VERSION" == 8 || "$MEMREC_PARITY_CONTRACT_VERSION" == 9 ]] || exit 2
 MEMREC_SFT_PHASE=${MEMREC_SFT_PHASE:-smoke}
@@ -18,7 +20,7 @@ MEMREC_ALLOC_JOB=$(squeue -u hoangnv242 -h -n senvoice-pro-opt -t RUNNING -o %i)
 [[ "$MEMREC_ALLOC_JOB" =~ ^[0-9]+$ && "$(squeue -j "$MEMREC_ALLOC_JOB" -h -o '%u %T %j')" == 'hoangnv242 RUNNING senvoice-pro-opt' ]] || exit 2
 [[ "$MEMREC_OWNER_CONFIRMED_GENERATOR_STEP" =~ ^${MEMREC_ALLOC_JOB}\.[1-9][0-9]*$ ]] || exit 2
 if [[ "$MEMREC_TASK_KIND" == primary_memory ]]; then
-  read -r MEMREC_RUN_ID MEMREC_GPU_INDEX < <("$MEMREC_ROOT/envs/llm-hnv/bin/python" -c 'from pathlib import Path;from src.cmirank.memory_smoke import load_memory_contract;c,_=load_memory_contract(Path.cwd(),8);print(c["run_id"],c["gpu_index"])')
+  read -r MEMREC_RUN_ID MEMREC_GPU_INDEX < <("$MEMREC_ROOT/envs/llm-hnv/bin/python" -c 'import sys;from pathlib import Path;from src.cmirank.memory_smoke import load_memory_contract;c,_=load_memory_contract(Path.cwd(),int(sys.argv[1]));print(c["run_id"],c["gpu_index"])' "$MEMREC_PRIMARY_MEMORY_CONTRACT_VERSION")
 elif [[ "$MEMREC_TASK_KIND" == format_sft ]]; then
   read -r MEMREC_RUN_ID MEMREC_GPU_INDEX < <("$MEMREC_ROOT/envs/llm-hnv/bin/python" -c 'import sys;from pathlib import Path;from src.cmirank.format_sft import load_format_config;c,_=load_format_config(Path.cwd());print(c[sys.argv[1]+"_run_id"],c["gpu_index"])' "$MEMREC_SFT_PHASE")
 elif [[ "$MEMREC_TASK_KIND" == ppo_compat ]]; then

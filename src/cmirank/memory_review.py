@@ -58,7 +58,7 @@ class RecordedWriteClient:
 
 def review_partial_records(run: Path, *, candidates: dict, config: dict,
                            manifest: dict, storage, metadata: dict,
-                           completed_control: bool = False) -> dict:
+                           completed_control: bool = False, completed_primary: bool = False) -> dict:
     """Review a failed prefix, or the explicit complete secondary v7 control.
 
     This deliberately rejects interrupted/truncated or other failure layouts;
@@ -70,14 +70,23 @@ def review_partial_records(run: Path, *, candidates: dict, config: dict,
     writes = read_rows(run / "stage-w-journal.jsonl")
     progress = read_rows(run / "progress.jsonl")
     users = manifest["query_user_ids"]
+    if completed_control and completed_primary:
+        raise ValueError("A raw primary run is not a constrained secondary control")
+    complete = completed_control or completed_primary
     policy, rewards, domains = [], [], []
-    if completed_control:
-        if "constrained_decoding_delta" not in config or len(users) != 20 or len(set(users)) != 20:
-            raise ValueError("Only the explicit twenty-user secondary control can use complete mode")
+    if complete:
+        if len(users) != 20 or len(set(users)) != 20:
+            raise ValueError("Complete review requires exactly twenty fixed users")
+        if completed_control and "constrained_decoding_delta" not in config:
+            raise ValueError("Controlled review requires the explicit secondary decoding contract")
+        if completed_primary and ("source_citation_delta" not in config or "constrained_decoding_delta" in config
+                or (run / "decoding-contracts.jsonl").exists()):
+            raise ValueError("Raw primary review requires the explicit warning contract and unchanged decoding")
         policy, rewards = read_rows(run / "policy-inputs.jsonl"), read_rows(run / "reward-audit.jsonl")
-        domains = read_rows(run / "decoding-contracts.jsonl")
+        if completed_control:
+            domains = read_rows(run / "decoding-contracts.jsonl")
         if ((len(traces), len(audits), len(writes), len(progress), len(physical), len(policy), len(rewards), len(domains))
-                != (40, 40, 20, 40, 200, 20, 20, 100) or (run / "failure.json").exists()):
+                != (40, 40, 20, 40, 200, 20, 20, 100 if completed_control else 0) or (run / "failure.json").exists()):
             raise ValueError("Not a complete twenty-user warm-up then read-only pseudo control")
     elif (not traces or len(audits) != len(traces) or len(writes) != len(traces) - 1
           or len(progress) != len(writes) or len(physical) != 2 * (3 * len(writes) + 2)
@@ -133,7 +142,7 @@ def review_partial_records(run: Path, *, candidates: dict, config: dict,
     warnings = unknowns = citations = 0
     warning_episodes, failed_grounding, cursor = [], None, 0
     for index, trace in enumerate(traces):
-        kind = "pseudo" if completed_control and index >= len(users) else "warmup"
+        kind = "pseudo" if complete and index >= len(users) else "warmup"
         phase_index = index - len(users) if kind == "pseudo" else index
         details, episode = trace["details"], trace["episode_id"]
         source = candidates[episode]
@@ -149,7 +158,7 @@ def review_partial_records(run: Path, *, candidates: dict, config: dict,
                 or [row["id"] for row in request.candidates] != ids
                 or request.sha256() != details["rank_request_sha256"]):
             raise ValueError("Episode trace differs from the locked target-blind input")
-        if completed_control and any(memory != storage.get_item_memory(item)
+        if complete and any(memory != storage.get_item_memory(item)
                                      for item, memory in request.item_memories.items()):
             raise ValueError("Captured item memories differ from replayed Stage-W state")
         r_stage, r_request, r_raw = pairs[cursor]
@@ -182,9 +191,9 @@ def review_partial_records(run: Path, *, candidates: dict, config: dict,
                        for edge in r_raw["support_edges"])):
             raise ValueError("Unexpected non-ID retrieval error")
         try:
-            validate_retrieval(details, uid, candidate_context_warning=True)
+            validate_retrieval(details, uid, candidate_context_warning=True, unknown_source_warning=completed_primary)
         except ValueError as error:
-            if completed_control or index != len(traces) - 1 or not grounding["unknown_context_citations"]:
+            if complete or index != len(traces) - 1 or not grounding["unknown_context_citations"]:
                 raise ValueError("Unexpected earlier/non-ID retrieval failure") from error
             original_prompt = json.dumps(r_request["kwargs"]["messages"], ensure_ascii=False)
             failed_grounding = {"episode_id": episode, "error": str(error), "grounding": grounding,
@@ -195,7 +204,7 @@ def review_partial_records(run: Path, *, candidates: dict, config: dict,
                     for row in grounding["unknown_context_citations"]]}
             cursor += 2
             continue
-        if not completed_control and index == len(traces) - 1:
+        if not complete and index == len(traces) - 1:
             raise ValueError("Failed run unexpectedly passes its terminal hard gate")
         if kind == "pseudo":
             expected_policy = {"episode_id": episode, "rank_request": request.to_dict(),
@@ -238,17 +247,29 @@ def review_partial_records(run: Path, *, candidates: dict, config: dict,
                 or p["logical_requests"] != 3 * (index + 1)):
             raise ValueError("Progress journal differs from the completed warm-ups")
         cursor += 3
-    if (not completed_control and failed_grounding is None) or cursor != len(pairs):
+    if (not complete and failed_grounding is None) or cursor != len(pairs):
         raise ValueError("No terminal grounding failure or unaccounted calls")
-    if completed_control:
+    if complete:
         report = json.loads((run / "report.json").read_text())
         expected = {"initial_memory_sha256": initial_hash, "final_memory_sha256": memory_sha256(storage),
             "users": 20, "warmup_stage_w_calls": 20, "pseudo_stage_w_calls": 0, "stage_r_calls": 40,
-            "stage_rerank_calls": 40, "target_blind_rank_requests": 20, "controlled_decoding_logical_requests": 100,
+            "stage_rerank_calls": 40, "target_blind_rank_requests": 20,
             "candidate_context_citation_occurrences": warnings, "primary_provider_replaced": False,
-            "comparison_role": "secondary_control_not_primary_replacement", "training_ready": False,
+            "training_ready": False,
             "full_1797_memory_cache": False, "semantic_memory_grounding_proven": False,
             "rank_request_hashes": [RankRequest.from_dict(row["rank_request"]).sha256() for row in policy]}
+        if completed_control:
+            expected.update({"controlled_decoding_logical_requests": 100,
+                "comparison_role": "secondary_control_not_primary_replacement"})
+        else:
+            expected.update({"status": "RAW_PRIMARY_MEMORY_PILOT_COMPLETE_CLEANUP_AND_REVIEW_REQUIRED",
+                "comparison_role": config["comparison_role"], "policy_train_only": True,
+                "selected_validation_users": 0, "constrained_decoding": False,
+                "unknown_source_warning_policy": True, "unknown_context_citation_occurrences": unknowns,
+                "literal_grounding_gate_passed": unknowns == 0, "raw_model_outputs_preserved": True,
+                "unknown_context_warning_user_ids": {kind: [trace["details"]["rank_request"]["user_id"]
+                    for trace, audit in zip(traces[offset:offset+20], audits[offset:offset+20])
+                    if audit["unknown_context_citations"]] for kind, offset in (("warmup", 0), ("pseudo", 20))}})
         stats = report["token_stats"]
         if (any(report.get(key) != value for key, value in expected.items())
                 or report["artifact_sha256"] != {p.name: file_sha256(p)
@@ -258,7 +279,8 @@ def review_partial_records(run: Path, *, candidates: dict, config: dict,
                 or stats["total_output_tokens"] != tokens["output_tokens"]
                 or stats["total_tokens"] != sum(tokens.values())):
             raise ValueError("Completed report/hash/token claims differ from the independent replay")
-    return {"status": ("SECONDARY_CONTROL_REVIEW_PASS_LITERAL_VALIDITY_NOT_SEMANTIC_GROUNDING"
+    result = {"status": ("RAW_PRIMARY_MEMORY_REVIEW_COMPLETE_NOT_SEMANTIC_GROUNDING" if completed_primary else
+                       "SECONDARY_CONTROL_REVIEW_PASS_LITERAL_VALIDITY_NOT_SEMANTIC_GROUNDING"
                        if completed_control else "FAILED_MEMORY_SMOKE_OFFLINE_REVIEW_COMPLETE_NOT_PROMOTED"),
         "physical_requests": len(pairs), "physical_responses": len(pairs), "physical_retries": 0,
         **tokens, "total_tokens": sum(tokens.values()), "stage_r_calls": len(traces),
@@ -269,6 +291,10 @@ def review_partial_records(run: Path, *, candidates: dict, config: dict,
         "failure": failed_grounding, "initial_memory_sha256": initial_hash,
         "replayed_prefix_memory_sha256": memory_sha256(storage),
         "exact_stage_r_rerank_write_api_prompt_parity": True, "raw_write_mutation_replay_valid": True,
-        "literal_grounding_gate_passed": completed_control, "semantic_memory_grounding_proven": False,
-        "primary_provider_replaced": False, "pseudo_memory_read_only_verified": completed_control,
+        "literal_grounding_gate_passed": complete and unknowns == 0, "semantic_memory_grounding_proven": False,
+        "primary_provider_replaced": False, "pseudo_memory_read_only_verified": complete,
         "full_memory_cache_promoted": False, "training_ready": False, "ranking_metrics_computed": False}
+    if completed_primary:
+        result.update({"raw_model_outputs_preserved": True, "unknown_source_warning_policy": True,
+            "comparison_role": config["comparison_role"], "constrained_decoding": False})
+    return result

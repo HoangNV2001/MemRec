@@ -2624,7 +2624,7 @@ the unmodified upstream implementation. Regression tests retain the typed-ID
 FAIL and verify that changing only source IDs changes the raw request digest
 but not either ranker's rendered prompt.
 
-**Recommended amendment — PROPOSED, NOT APPROVED/IMPLEMENTED:** keep the
+**Amendment proposed at this review; subsequently approved in§0.67:** keep the
 upstream-aligned primary's raw outputs unchanged and treat **only unknown
 Stage-R source citations** as audited warnings, consistently for full MemRec
 and CM-IRank. Apply to all such citations, not a special case for5922/type
@@ -2652,7 +2652,81 @@ Local qualification: **746 tests PASS7.02s**, including the23-call/7-write
 typed-entity confusion fixture, exact raw-artifact non-mutation and unchanged
 baseline/CM-IRank prompt rendering when only citation IDs differ. Compilation
 and diff checks pass. These are review tests, not a newly passed GPU memory run;
-the warning-policy amendment above remains unimplemented pending signoff.
+at that point the warning-policy amendment was still pending signoff. The
+subsequent approval/implementation is recorded below; v8 remains FAIL.
+
+### 0.67 Approved raw-primary source-citation warnings v9 — 2026-10-20
+
+**Researcher signoff:** “okay, tiếp đi, cứ tự tiếp tục đến khi thực sự tôi
+quyết gì/đợi train lâu trên GPU”, in direct response to§0.66's specific warning
+proposal. This approves **only unknown Stage-R source citations as raw audited
+warnings**, consistently for full MemRec and CM-IRank. It is not authority to
+relax other hard gates, sanitize output or substitute the secondary provider.
+The previously approved GPU1-only/mandatory keeper restoration rule remains.
+
+`configs/cmirank/real_memory_smoke_v9.json` inherits the strict train-only v8
+protocol and uses fresh prepare/run namespaces. It pins the independent **clean
+source** v8 final review SHA
+`5e75975c1a0a89d875d49cf5b55d0df420794f5dbc0e2733117f5110aab5611a`
+(review commit`ceda40b66fd25f34c019866c784ab368688f0694`) and checks its raw
+failed-run artifact hashes. Preserve v8 FAIL and the draft/final review outputs.
+The same20 train users are selected by the same frozen seed, with0 validation
+queries and the same1797-prefix snapshot/candidate rows. Teacher30B FP8,
+vLLM0.10.2, original prompts/schemas, temperature0,4000-token response cap,
+16384 context,100 nominal/110 physical requests, no cache reads/repair/ID enums,
+TP1/GPU fraction0.60 and90min task cap remain unchanged. This is a20-user
+pilot, **not** the full1797-user warmed cache or thesis-quality evidence.
+
+Implementation is opt-in: `unknown_source_warning=False` remains the default
+for legacy runs. V9 enables it only after its exact contract and CPU receipt
+verify. Unknown `supporting_neighbors` and support-edge **source** IDs retain
+their original strings and appear in the durable grounding journal/counts/by-
+phase user lists. They are never relabelled as grounded; `literal_grounding_gate_passed`
+is false whenever any such ID occurs. No changes to the actual MemRec manager,
+graph, ranker prompt, Stage-W implementation or model client decoding. Missing/
+duplicate/foreign ranking candidates, schema/numeric errors, blank/empty facets,
+support edges targeting another user, graph/split/label provenance errors,
+Stage-W unknown/duplicate neighbors/fanout/unrequested mutations and pseudo
+memory writes still fail. Resource/timeout/request caps remain hard failures.
+
+**Execution order, automatic between eligible gates:**
+
+1. CPU43, original static metadata/candidates/graph and original fake schemas:
+   20 warm-up writes +20 read-only pseudo requests/100 fake calls. The **fake
+   client only** injects a synthetic unknown source on each of40 Stage-R calls,
+   proving the complete warning path without modifying real model outputs.
+   One warning acceptance plus17 distinct hard-rejection probes exercise legacy
+   strict failure, invalid confidence (bounds/bool/NaN), empty/blank facets,
+   wrong edge target/weight, missing/duplicate/foreign candidates/bool scores,
+   unknown/duplicate/over-budget writes and unrequested mutation. Probe inputs
+   must remain byte-equivalent,40 warnings must not become a grounding PASS.
+2. Only CPU success invokes the existing protected keeper wrapper, opt-in
+   `MEMREC_TASK_KIND=primary_memory`, `MEMREC_PRIMARY_MEMORY_CONTRACT_VERSION=9`.
+   Resolve/guard the current keeper1 immediately before GPU compute, run the
+   original teacher, unload/verify actual GPU release, restore/verify original
+   keeper1 on success/error/timeout. No reservation cancellation/GPU0 signal.
+3. Only a successful GPU wrapper/handback proceeds to CPU11 v9 review with
+   CUDA hidden. Validate producer git blobs/CPU/artifact hashes, all100 original
+   API schemas/prompts/responses/budget/token accounting, replay all20 raw
+   Stage-W writes/mutations/state hashes and all20 read-only pseudo requests.
+   `RAW_PRIMARY_MEMORY_REVIEW_COMPLETE_NOT_SEMANTIC_GROUNDING` may coexist with
+   literal grounding=false. It proves integrity/usable raw pilot inputs, not
+   clean semantic memory, improved ranking or research-training readiness.
+4. After reviewed raw inputs, prepare matched baseline/direct/iterative tiny
+   Books training controls on this same train-only pilot, restarting from the
+   untouched format-SFT initializer with fresh LoRA/head/Adam. No reuse of the
+   discarded T0 updates, no validation-driven tuning or spontaneous full cache/
+   full training/held-out opening. Continue within approved scope; a genuinely
+   different scientific choice still requires researcher direction.
+
+Local qualification: **764 tests PASS14.90s**, compile/bash/diff checks PASS.
+New tests cover general unknown source identifiers (not a5922-specific fix),
+complete100-call raw replay with40 retained unknowns, unchanged hard gates,
+no-repair/tamper detection and preserved failed-parent evidence. At preparation
+time no v9 real-memory result, Books PPO checkpoint or ranking score exists.
+Expected CPU~2min +GPU~15–25min +CPU review~2–5min, not a throughput guarantee;
+one foreground shared-SSH chain, no local SSH polling loop or source redeploy
+while active. Model release/keeper restoration precede all CPU review/waiting.
 
 # 1. Executive decision
 

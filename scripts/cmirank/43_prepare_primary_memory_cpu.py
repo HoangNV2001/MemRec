@@ -15,7 +15,9 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from src.cluster_runtime import require_allocation, require_project_root
-from src.cmirank.primary_memory import primary_user_ids, primary_code_hashes, reviewed_ppo_mechanics
+from src.cmirank.primary_memory import (
+    primary_user_ids, primary_code_hashes, reviewed_ppo_mechanics, reviewed_primary_failure, primary_warning_probes,
+)
 from src.cmirank.memory_smoke import load_memory_contract, run_memory_smoke
 from src.cmirank.policy_inputs import load_locked_policy_inputs
 from src.cmirank.candidate_artifacts import load_candidate_samplers
@@ -31,10 +33,11 @@ from scripts.smoke_full_memrec_cpu import FakeJSONClient
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", type=Path, required=True)
+    parser.add_argument("--contract-version", choices=(8, 9), type=int, default=8)
     args = parser.parse_args()
     private = require_project_root(Path(os.environ["MEMREC_ROOT"]))
     job = require_allocation()
-    c, contract_sha = load_memory_contract(ROOT, 8)
+    c, contract_sha = load_memory_contract(ROOT, args.contract_version)
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     run = args.run_dir.resolve()
     if (run != private/"runs"/c["prepare_run_id"] or run.exists()
@@ -47,6 +50,8 @@ def main():
     if memory["maximum_bytes"] != 64*2**30:
         raise ValueError("Requalify a changed host cap; never modify the allocation/cgroup")
     reviewed_ppo_mechanics(private, c)
+    if args.contract_version == 9:
+        reviewed_primary_failure(private, c)
     inputs = load_locked_policy_inputs(ROOT)
     users = primary_user_ids(inputs, c)
     recipes = load_candidate_samplers(ROOT, private/"runs/cmirank-minilm-candidate-index-v2-20261001-hnv",
@@ -79,6 +84,9 @@ def main():
                 "temperature": kwargs["temperature"], "max_tokens": kwargs["max_tokens"]}
             ChatCompletionRequest(**payload)
             raw = super().generate_json(messages, properties, **kwargs)
+            if args.contract_version == 9 and "facets" in properties:
+                # Synthetic wiring fixture only, never applied to real model outputs.
+                raw["facets"][0]["supporting_neighbors"] = ["Item-999999999999"]
             validate_json_shape(raw, payload["response_format"]["json_schema"]["schema"])
             n = len(tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True))
             if n+c["max_tokens"] > c["max_model_len"]:
@@ -90,15 +98,24 @@ def main():
     agent = MemRecAgent(snapshot, client, temperature=c["temperature"], max_tokens=c["max_tokens"], **c["agent"])
     journals = {}
     result = run_memory_smoke(agent, inputs=inputs, rows=rows, user_ids=users,
-        emit=lambda name, row: journals.setdefault(name, []).append(row), candidate_context_warning=True)
+        emit=lambda name, row: journals.setdefault(name, []).append(row), candidate_context_warning=True,
+        unknown_source_warning=args.contract_version == 9)
     if (client.total_requests != 100 or len(journals["policy-inputs"]) != 20
             or torch.cuda.is_initialized() or not set(users).isdisjoint(inputs["groups"]["policy_val"])):
         raise ValueError("CPU wiring/target-blind train-only cohort changed")
+    probes = None
+    if args.contract_version == 9:
+        first = journals["retrieval-trace"][0]["details"]
+        journal = journals["stage-w-journal"][0]
+        probes = primary_warning_probes(first, journal, users[0], inputs["warmups"][users[0]], c["agent"]["fanout_cap"])
+        if (len(probes["hard_rejections"]) != 17 or result["unknown_context_citation_occurrences"] != 40
+                or result["literal_grounding_gate_passed"]):
+            raise ValueError("Unknown-source warnings must not disable other hard gates")
     run.mkdir()
     for name, values in {**journals, "fake-api-requests": payloads}.items():
         (run/f"{name}.jsonl").write_text("".join(json.dumps(v, sort_keys=True, ensure_ascii=False)+"\n" for v in values))
     report = {"status": "PRIMARY_TRAIN20_CPU_WIRING_PASS_REAL_MEMORY_GATE_REMAINS", "source_commit": commit,
-        "config_sha256": contract_sha, "code_sha256": primary_code_hashes(ROOT), "slurm_job_id": job,
+        "config_sha256": contract_sha, "code_sha256": primary_code_hashes(ROOT, args.contract_version), "slurm_job_id": job,
         "allocation_memory": memory,
         "query_user_ids": users, "graph_snapshot_sha256": inputs["snapshot_sha256"],
         "split_sha256": inputs["manifest_sha256"], "fake_logical_requests": 100, "real_llm_requests": 0,
@@ -109,6 +126,8 @@ def main():
         "fake_wiring_summary": result,
         "artifact_sha256": {p.name: file_sha256(p) for p in run.glob("*.jsonl")},
         "elapsed_seconds": time.monotonic()-began}
+    if probes is not None:
+        report["source_citation_warning_probes"] = probes
     (run/"report.json").write_text(artifact_json_dumps(report))
     print(json.dumps({k: report[k] for k in ("status", "query_user_ids", "max_prompt_tokens", "elapsed_seconds")}), flush=True)
 

@@ -75,3 +75,47 @@ def test_primary_uses_original_protected_release_and_keeper_wrapper():
         assert '"$MEMREC_TASK_KIND" == primary_memory' in text and "scancel" not in text
     source = (ROOT/"scripts/cmirank/10_smoke_real_memory.py").read_text()
     assert "verify_primary_preparation" in source and "protect_other_workloads=True" in source
+
+
+def test_v9_changes_only_warning_policy_and_namespace_not_baseline_science():
+    old, _ = load_memory_contract(ROOT, 8)
+    new, _ = load_memory_contract(ROOT, 9)
+    delta = new.pop("source_citation_delta")
+    assert delta["unknown_stage_r_source_ids"] == "preserve_output_and_count_warning_not_grounded"
+    assert not delta["model_prompt_data_decoding_changes"] and not delta["output_repair"]
+    for key in ("schema_version", "run_id", "prepare_run_id"):
+        new[key] = old[key]
+    assert new == old
+    assert "constrained_decoding_delta" not in new
+
+
+@pytest.mark.parametrize("key,value", [("output_repair", True), ("training_ready", True),
+    ("model_prompt_data_decoding_changes", True), ("applies_to", "CMIRank_only"),
+    ("unknown_stage_r_source_ids", "silently_fix_ids"), ("unchanged_hard_gates", [])])
+def test_v9_cannot_sneak_in_repair_or_relax_other_gates(tmp_path, key, value):
+    folder = tmp_path/"configs/cmirank"; folder.mkdir(parents=True)
+    for p in (ROOT/"configs/cmirank").glob("real_memory_smoke_v*.json"):
+        (folder/p.name).write_bytes(p.read_bytes())
+    path = folder/"real_memory_smoke_v9.json"; c = json.loads(path.read_text())
+    c[key] = value; path.write_text(json.dumps(c))
+    with pytest.raises(ValueError):load_memory_contract(tmp_path, 9)
+
+
+def test_warning_amendment_requires_preserved_failed_run_and_clean_review(tmp_path):
+    from src.cmirank.primary_memory import reviewed_primary_failure
+    c, _ = load_memory_contract(ROOT, 9)
+    delta = c["source_citation_delta"]
+    failed = tmp_path/"runs"/delta["failed_v8_run_id"]; failed.mkdir(parents=True)
+    (failed/"failure.json").write_text('{"error_type":"ValueError"}')
+    folder = tmp_path/"runs"/delta["failed_v8_review_run_id"]; folder.mkdir()
+    report = {"status": "FAILED_MEMORY_SMOKE_OFFLINE_REVIEW_COMPLETE_NOT_PROMOTED",
+        "literal_grounding_gate_passed": False, "training_ready": False, "review_source_tracked_clean": True,
+        "gpu_released": True, "keeper_restored": True, "physical_requests": 23,
+        "completed_warmup_users": 7, "completed_pseudo_users": 0, "unknown_context_occurrences": 1,
+        "source_artifact_sha256": {"failure.json": file_sha256(failed/"failure.json")}}
+    path = folder/"review.json"; path.write_text(json.dumps(report))
+    # Unit fixture only: production c is separately frozen by the contract loader.
+    delta["failed_v8_review_sha256"] = file_sha256(path)
+    assert reviewed_primary_failure(tmp_path, c) == report
+    (failed/"failure.json").write_text('{"error_type":"silently_promoted"}')
+    with pytest.raises(ValueError, match="failed primary run changed"):reviewed_primary_failure(tmp_path, c)

@@ -1,0 +1,17 @@
+{
+  "schema_version": 9,
+  "inherits": "configs/cmirank/real_memory_smoke_v8.json",
+  "approval_status": "researcher_approved_raw_stage_r_source_citation_warnings_2026-10-20",
+  "run_id": "cmirank-primary-train-memory-smoke-v9-20261020-hnv",
+  "prepare_run_id": "cmirank-primary-train-memory-data-v9-20261020-hnv",
+  "change_only": "unknown_stage_r_source_citations_are_raw_audited_warnings",
+  "applies_to": "full_MemRec_and_CMIRank_same_raw_memory",
+  "unknown_stage_r_source_ids": "preserve_output_and_count_warning_not_grounded",
+  "unchanged_hard_gates": ["schema_and_numeric_values", "nonempty_facets", "support_edge_target_user", "candidate_bijection_and_scores", "graph_split_label_provenance", "stage_w_allowed_ids_fanout_and_mutations", "read_only_pseudo_memory", "request_and_resource_caps"],
+  "failed_v8_run_id": "cmirank-primary-train-memory-smoke-v8-20261020-hnv",
+  "failed_v8_review_run_id": "cmirank-primary-train-memory-review-v8-final-20261020-hnv",
+  "failed_v8_review_sha256": "5e75975c1a0a89d875d49cf5b55d0df420794f5dbc0e2733117f5110aab5611a",
+  "model_prompt_data_decoding_changes": false,
+  "output_repair": false,
+  "training_ready": false
+}

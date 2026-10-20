@@ -6,6 +6,8 @@ set -euo pipefail
 MEMREC_POLICY_CONTRACT_VERSION=${MEMREC_POLICY_CONTRACT_VERSION:-2}
 [[ "$MEMREC_POLICY_CONTRACT_VERSION" == 1 || "$MEMREC_POLICY_CONTRACT_VERSION" == 2 ]] || exit 2
 MEMREC_TASK_KIND=${MEMREC_TASK_KIND:-real_policy}
+export MEMREC_PRIMARY_MEMORY_CONTRACT_VERSION=${MEMREC_PRIMARY_MEMORY_CONTRACT_VERSION:-8}
+[[ "$MEMREC_PRIMARY_MEMORY_CONTRACT_VERSION" == 8 || "$MEMREC_PRIMARY_MEMORY_CONTRACT_VERSION" == 9 ]] || exit 2
 export MEMREC_PARITY_CONTRACT_VERSION=${MEMREC_PARITY_CONTRACT_VERSION:-8}
 [[ "$MEMREC_PARITY_CONTRACT_VERSION" == 8 || "$MEMREC_PARITY_CONTRACT_VERSION" == 9 ]] || exit 2
 MEMREC_SFT_PHASE=${MEMREC_SFT_PHASE:-smoke}
@@ -24,9 +26,9 @@ MEMREC_PYTHON="$MEMREC_ROOT/envs/cmirank-qwen35-t513-hnv/bin/python"
 if [[ "$MEMREC_TASK_KIND" == primary_memory ]]; then
   MEMREC_PYTHON="$MEMREC_ROOT/envs/llm-hnv/bin/python"
   unset PYTHONPATH
-  read -r RUN_ID MEMREC_GPU_INDEX MEMREC_TIMEOUT < <("$MEMREC_PYTHON" -c 'from pathlib import Path;from src.cmirank.memory_smoke import load_memory_contract;c,_=load_memory_contract(Path.cwd(),8);print(c["run_id"],c["gpu_index"],c["timeout_minutes"])')
+  read -r RUN_ID MEMREC_GPU_INDEX MEMREC_TIMEOUT < <("$MEMREC_PYTHON" -c 'import sys;from pathlib import Path;from src.cmirank.memory_smoke import load_memory_contract;c,_=load_memory_contract(Path.cwd(),int(sys.argv[1]));print(c["run_id"],c["gpu_index"],c["timeout_minutes"])' "$MEMREC_PRIMARY_MEMORY_CONTRACT_VERSION")
   MEMREC_TASK_SCRIPT=scripts/cmirank/10_smoke_real_memory.py
-  MEMREC_TASK_ARGS=(--contract-version 8 --index-dir "$MEMREC_ROOT/runs/cmirank-minilm-candidate-index-v2-20261001-hnv" --candidate-run-dir "$MEMREC_ROOT/runs/cmirank-policy-candidates-v2-20261005-hnv" --audit-dir "$MEMREC_ROOT/runs/cmirank-shortcut-audit-v2-20261005-hnv")
+  MEMREC_TASK_ARGS=(--contract-version "$MEMREC_PRIMARY_MEMORY_CONTRACT_VERSION" --index-dir "$MEMREC_ROOT/runs/cmirank-minilm-candidate-index-v2-20261001-hnv" --candidate-run-dir "$MEMREC_ROOT/runs/cmirank-policy-candidates-v2-20261005-hnv" --audit-dir "$MEMREC_ROOT/runs/cmirank-shortcut-audit-v2-20261005-hnv")
 elif [[ "$MEMREC_TASK_KIND" == format_sft ]]; then
   read -r RUN_ID MEMREC_GPU_INDEX MEMREC_TIMEOUT < <("$MEMREC_PYTHON" -c 'import sys;from pathlib import Path;from src.cmirank.format_sft import load_format_config;c,_=load_format_config(Path.cwd());print(c[sys.argv[1]+"_run_id"],c["gpu_index"],c["timeout_minutes"])' "$MEMREC_SFT_PHASE")
   MEMREC_TASK_SCRIPT=scripts/cmirank/16_train_format_sft_gpu.py

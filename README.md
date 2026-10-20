@@ -22,12 +22,15 @@ FP32 gradient/Adam/cleanup audits đạt. Khoảng8 phút GPU, peak52,51GiB; mod
 Books/chưa có gain ranking**. Primary-memory smoke: CPU20 đã pass, nhưng GPU
 dừng ở user8 vì model trích `Item-5922` trong khi input có `User-5922`.
 Đã review23 requests/7 writes; model nhả và keeper1 phục hồi. Không có pseudo
-cache/PPO Books. Cần chốt cách xử lý citation lỗi của upstream primary;
-chưa nới guard, sửa output, bỏ user hay thay bằng secondary.
+cache/PPO Books từ lượt v8. Researcher đã duyệt v9: giữ raw Stage-R, ghi
+citation nguồn ngoài context thành warning cho cả hai method; không sửa output,
+bỏ user hoặc đổi decoding. Các gate candidates/provenance/Stage-W giữ nguyên.
+V9 đã code và qua764 tests; CPU→GPU→handback→CPU review là chuỗi tiếp theo.
 Allocation đã được researcher đổi; tiếp tục chỉGPU1, luôn bật lại keeper sau
 task. Các đoạn launch/gate phía dưới là lịch sử.
 [Kết quả và bước tiếp §0.65](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#065-both-role-ppo-smoke-reviewed-pass-primary-train-only-memory-next--2026-10-20).
 [Primary failure và quyết định cần chốt §0.66](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#066-primary-train20-failure-reviewed-citation-policy-decision--2026-10-20).
+[Protocol v9 đã duyệt §0.67](docs/CM_IRANK_FULL_IMPLEMENTATION_DESIGN.md#067-approved-raw-primary-source-citation-warnings-v9--2026-10-20).
 
 **Mới nhất20/10:** LoRA rollout/reference v2 đã PASS và được đối chiếu độc lập:
 20/20 responses hợp lệ/60 calls, native cold-restore actor+critic/Adam/RNG

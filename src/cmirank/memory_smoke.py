@@ -28,7 +28,7 @@ def load_memory_contract(root: Path, version: int) -> tuple[dict, str]:
     base_sha = file_sha256(base_path)
     if version == 1:
         return config, base_sha
-    if version not in (2, 3, 4, 5, 6, 7, 8):
+    if version not in (2, 3, 4, 5, 6, 7, 8, 9):
         raise ValueError("Unsupported memory smoke version")
     delta_path = root / "configs/cmirank/real_memory_smoke_v2.json"
     delta = json.loads(delta_path.read_text())
@@ -123,7 +123,7 @@ def load_memory_contract(root: Path, version: int) -> tuple[dict, str]:
         config["run_id"] = control_delta["run_id"]
         config["constrained_decoding_delta"] = control_delta
         hashes["constrained_decoding_delta_sha256"] = file_sha256(control_path)
-    if version == 8:
+    if version >= 8:
         primary_path = root / "configs/cmirank/real_memory_smoke_v8.json"
         delta = json.loads(primary_path.read_text())
         fixed = {"schema_version": 8, "inherits": "configs/cmirank/real_memory_smoke_v6.json",
@@ -141,6 +141,28 @@ def load_memory_contract(root: Path, version: int) -> tuple[dict, str]:
             raise ValueError("Primary train20 cohort must not alter provider, sampler, decoding or hard gates")
         config.update(delta)
         hashes["primary_train20_delta_sha256"] = file_sha256(primary_path)
+    if version == 9:
+        path = root / "configs/cmirank/real_memory_smoke_v9.json"
+        delta = json.loads(path.read_text())
+        expected = {"schema_version": 9, "inherits": "configs/cmirank/real_memory_smoke_v8.json",
+            "approval_status": "researcher_approved_raw_stage_r_source_citation_warnings_2026-10-20",
+            "run_id": "cmirank-primary-train-memory-smoke-v9-20261020-hnv",
+            "prepare_run_id": "cmirank-primary-train-memory-data-v9-20261020-hnv",
+            "change_only": "unknown_stage_r_source_citations_are_raw_audited_warnings",
+            "applies_to": "full_MemRec_and_CMIRank_same_raw_memory",
+            "unknown_stage_r_source_ids": "preserve_output_and_count_warning_not_grounded",
+            "unchanged_hard_gates": ["schema_and_numeric_values", "nonempty_facets", "support_edge_target_user",
+                "candidate_bijection_and_scores", "graph_split_label_provenance", "stage_w_allowed_ids_fanout_and_mutations",
+                "read_only_pseudo_memory", "request_and_resource_caps"],
+            "failed_v8_run_id": "cmirank-primary-train-memory-smoke-v8-20261020-hnv",
+            "failed_v8_review_run_id": "cmirank-primary-train-memory-review-v8-final-20261020-hnv",
+            "failed_v8_review_sha256": "5e75975c1a0a89d875d49cf5b55d0df420794f5dbc0e2733117f5110aab5611a",
+            "model_prompt_data_decoding_changes": False, "output_repair": False, "training_ready": False}
+        if delta != expected or any(type(delta[k]) is not type(v) for k, v in expected.items()):
+            raise ValueError("V9 changes only the approved raw Stage-R source-citation warning policy")
+        config.update({k: delta[k] for k in ("schema_version", "run_id", "prepare_run_id")})
+        config["source_citation_delta"] = delta
+        hashes["source_citation_delta_sha256"] = file_sha256(path)
     return config, object_sha256(hashes)
 
 
@@ -230,11 +252,13 @@ def inspect_retrieval_grounding(details: dict, uid: int) -> dict:
             "semantic_grounding_proven": False}
 
 
-def validate_retrieval(details: dict, uid: int, *, candidate_context_warning: bool = False) -> dict:
+def validate_retrieval(details: dict, uid: int, *, candidate_context_warning: bool = False,
+                       unknown_source_warning: bool = False) -> dict:
     """V1–3 retain collab-only hard fail; approved v4 diagnoses visible candidates.
 
-    Neither mode permits invented IDs, invalid values, malformed schema or wrong
-    target-user edges. Neither mode certifies semantic entailment.
+    Approved v9 additionally retains unknown SOURCE citations as warnings,
+    never as grounded evidence. Invalid values and wrong target-user edges
+    remain hard failures in every mode. No mode certifies semantic entailment.
     """
     audit = inspect_retrieval_grounding(details, uid)
     bundle = details["retrieval_bundle"]
@@ -242,7 +266,7 @@ def validate_retrieval(details: dict, uid: int, *, candidate_context_warning: bo
         raise ValueError("Empty Stage-R facets cannot validate a real-memory smoke")
     for facet in bundle["facets"]:
         if (not facet["facet"].strip() or not 0 <= facet["confidence"] <= 1
-                or audit["unknown_context_citations"]
+                or (not unknown_source_warning and audit["unknown_context_citations"])
                 or (not candidate_context_warning and audit["candidate_context_citations"])):
             raise ValueError("Stage-R facet has invalid confidence or out-of-context support IDs")
     for edge in bundle["support_edges"]:
@@ -270,7 +294,7 @@ def validate_write(result: dict, mutation: dict, details: dict, uid: int,
 
 
 def run_memory_smoke(agent, *, inputs: dict, rows: list[dict], user_ids: list[int], emit,
-                     candidate_context_warning: bool = False) -> dict:
+                     candidate_context_warning: bool = False, unknown_source_warning: bool = False) -> dict:
     """Serial, all-smoke-warmups first, then read-only pseudo ranking.
 
     `emit(name, row)` must durably append JSON before the next event. Labels stay
@@ -287,6 +311,8 @@ def run_memory_smoke(agent, *, inputs: dict, rows: list[dict], user_ids: list[in
     requests = []
     warning_users = {"warmup": [], "pseudo": []}
     candidate_citations = 0
+    unknown_citations = 0
+    unknown_warning_users = {"warmup": [], "pseudo": []}
     counters = {"warmup": 0, "pseudo": 0}
     for kind in ("warmup", "pseudo"):
         for uid in user_ids:
@@ -312,7 +338,11 @@ def run_memory_smoke(agent, *, inputs: dict, rows: list[dict], user_ids: list[in
             # Persist the role diagnostic even when a later hard gate fails.
             diagnostic = inspect_retrieval_grounding(details, uid)
             emit("grounding-audit", {"episode_id": row["policy_input"]["episode_id"], **diagnostic})
-            grounding = validate_retrieval(details, uid, candidate_context_warning=candidate_context_warning)
+            grounding = validate_retrieval(details, uid, candidate_context_warning=candidate_context_warning,
+                                          unknown_source_warning=unknown_source_warning)
+            if grounding["unknown_context_citations"]:
+                unknown_warning_users[kind].append(uid)
+                unknown_citations += len(grounding["unknown_context_citations"])
             if grounding["candidate_context_citations"]:
                 warning_users[kind].append(uid)
                 candidate_citations += len(grounding["candidate_context_citations"])
@@ -353,7 +383,7 @@ def run_memory_smoke(agent, *, inputs: dict, rows: list[dict], user_ids: list[in
                               "logical_requests": 3 * counters["warmup"] + 2 * counters["pseudo"]})
     if (agent.n_stage_w_calls, agent.n_stage_r_calls, agent.n_stage_rr_calls) != (20, 40, 40):
         raise ValueError("Unexpected stage count or pseudo-target write")
-    return {"users": 20, "warmup_stage_w_calls": 20, "pseudo_stage_w_calls": 0,
+    result = {"users": 20, "warmup_stage_w_calls": 20, "pseudo_stage_w_calls": 0,
             "stage_r_calls": 40, "stage_rerank_calls": 40,
             "target_blind_rank_requests": len(requests), "rank_request_hashes": requests,
             "initial_memory_sha256": initial_hash, "final_memory_sha256": memory_sha256(agent.storage),
@@ -362,3 +392,10 @@ def run_memory_smoke(agent, *, inputs: dict, rows: list[dict], user_ids: list[in
             "candidate_context_citation_occurrences": candidate_citations,
             "warmup_scope_user_ids": user_ids, "full_1797_memory_cache": False,
             "semantic_memory_grounding_proven": False, "training_ready": False}
+    if unknown_source_warning:
+        result.update({"unknown_source_warning_policy": True,
+            "unknown_context_citation_occurrences": unknown_citations,
+            "unknown_context_warning_user_ids": unknown_warning_users,
+            "literal_grounding_gate_passed": unknown_citations == 0,
+            "raw_model_outputs_preserved": True, "primary_provider_replaced": False})
+    return result
